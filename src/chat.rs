@@ -4,9 +4,12 @@ use nvim_oxi::{
 };
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use rig::{
+    OneOrMany,
+    agent::Text,
     client::{CompletionClient, Nothing},
-    completion::Chat,
-    providers::ollama,
+    completion::{self, Chat},
+    message::{self, UserContent},
+    providers::ollama::{self},
 };
 use std::{
     collections::LinkedList,
@@ -54,7 +57,36 @@ impl ChatProcess {
                     .unwrap();
                 let agent = client.agent("gemini-3-flash-preview").build();
 
-                match agent.chat(message, vec![]).await {
+                let chat_history;
+                if let Ok(logs) = logs_clone.read() {
+                    chat_history = logs
+                        .iter()
+                        .cloned()
+                        .filter_map(|x| match x {
+                            ollama::Message::Assistant { content, .. } => {
+                                Some(completion::Message::Assistant {
+                                    id: None,
+                                    content: OneOrMany::one(message::AssistantContent::text(
+                                        content,
+                                    )),
+                                })
+                            }
+                            ollama::Message::User { content, .. } => {
+                                Some(completion::Message::User {
+                                    content: OneOrMany::one(UserContent::Text(Text::from(content))),
+                                })
+                            }
+                            ollama::Message::ToolResult { .. } => None,
+                            ollama::Message::System { content, .. } => {
+                                Some(completion::Message::System { content })
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                } else {
+                    todo!("fix after error is introduced")
+                }
+
+                match agent.chat(message, chat_history).await {
                     Ok(response) => {
                         if let Ok(mut logs) = logs_clone.write() {
                             logs.push_back(ollama::Message::Assistant {
