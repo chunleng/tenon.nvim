@@ -50,7 +50,8 @@ impl ChatWindow {
         let buf_opts = OptionOpts::builder().build();
 
         api::set_option_value("buftype", "nofile", &buf_opts)?;
-        api::set_option_value("bufhidden", "hide", &buf_opts)?;
+        api::set_option_value("buflisted", false, &buf_opts)?;
+        api::set_option_value("bufhidden", "wipe", &buf_opts)?;
         api::set_option_value("swapfile", false, &buf_opts)?;
         api::set_option_value("filetype", "markdown", &buf_opts)?;
         api::set_option_value("modifiable", false, &buf_opts)?;
@@ -75,6 +76,7 @@ impl ChatWindow {
                             let _ = api::set_option_value("modifiable", true, &buf_opts);
                             let _ = buffer.set_lines(0.., false, content);
                             let _ = api::set_option_value("modifiable", false, &buf_opts);
+                            let _ = api::set_option_value("modified", false, &buf_opts);
                         }
                     });
                 }
