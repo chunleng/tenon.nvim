@@ -59,47 +59,6 @@ impl ChatWindow {
         let buffer = Arc::new(Mutex::new(Some(buffer)));
         let logs = self.chat_process.logs.clone();
 
-        let chat_renderer_handle = AsyncHandle::new({
-            let buffer_clone = buffer.clone();
-            move || {
-                if let Ok(logs) = logs.read() {
-                    let content = logs
-                        .iter()
-                        .flat_map(|x| x.as_chat_lines())
-                        .collect::<Vec<_>>();
-                    let buffer_clone2 = buffer_clone.clone(); // Clone the Arc here
-
-                    schedule(move |_| {
-                        if let Ok(mut buffer) = buffer_clone2.lock()
-                            && let Some(buffer) = buffer.as_mut()
-                        {
-                            let buf_opts = OptionOpts::builder().buffer(buffer.clone()).build();
-                            let _ = api::set_option_value("modifiable", true, &buf_opts);
-                            let _ = buffer.set_lines(0.., false, content);
-                            let _ = api::set_option_value("modifiable", false, &buf_opts);
-                            let _ = api::set_option_value("modified", false, &buf_opts);
-                        }
-                    });
-                }
-            }
-        })?;
-
-        spawn({
-            let buffer_clone = buffer.clone();
-            move || {
-                loop {
-                    if let Ok(mut buffer) = buffer_clone.lock()
-                        && let Some(buffer) = buffer.as_mut()
-                        && !buffer.is_valid()
-                    {
-                        break;
-                    }
-                    sleep(Duration::from_millis(50));
-                    let _ = chat_renderer_handle.send();
-                }
-            }
-        });
-
         self.buffer = buffer;
         let mut window = self.get_or_create_window()?;
         if let Ok(buffer) = self.buffer.lock()
@@ -107,6 +66,75 @@ impl ChatWindow {
             && buffer.is_valid()
         {
             window.set_buf(&buffer)?;
+            let chat_renderer_handle = AsyncHandle::new({
+                let buffer_clone = self.buffer.clone();
+                let window_clone = self.window.clone();
+                move || {
+                    if let Ok(logs) = logs.read() {
+                        let content = logs
+                            .iter()
+                            .flat_map(|x| x.as_chat_lines())
+                            .collect::<Vec<_>>();
+                        let buffer_clone2 = buffer_clone.clone();
+                        let window_clone2 = window_clone.clone();
+
+                        schedule(move |_| {
+                            if let Ok(mut buffer) = buffer_clone2.lock()
+                                && let Some(buffer) = buffer.as_mut()
+                            {
+                                let mut follow_last_line = false;
+                                let line_count = buffer.line_count();
+                                if let Ok(window) = window_clone2.lock()
+                                    && let Some(window) = window.as_ref()
+                                    && window.is_valid()
+                                    && let Ok(line_count) = line_count
+                                    && let Ok((cursor_row, _)) = window.get_cursor()
+                                    && let Ok(height) = window.get_height()
+                                {
+                                    follow_last_line = cursor_row + height as usize >= line_count;
+                                };
+
+                                let buf_opts = OptionOpts::builder().buffer(buffer.clone()).build();
+                                let _ = api::set_option_value("modifiable", true, &buf_opts);
+                                let _ = buffer.set_lines(0.., false, content);
+                                let _ = api::set_option_value("modifiable", false, &buf_opts);
+                                let _ = api::set_option_value("modified", false, &buf_opts);
+
+                                if follow_last_line {
+                                    if let Ok(mut window) = window_clone2.lock()
+                                        && let Some(window) = window.as_mut()
+                                        && window.is_valid()
+                                        && let Ok(line_count) = line_count
+                                        && let Ok(new_line_count) = buffer.line_count()
+                                        && let Ok((cursor_row, cursor_col)) = window.get_cursor()
+                                    {
+                                        let _ = window.set_cursor(
+                                            new_line_count - line_count + cursor_row,
+                                            cursor_col,
+                                        );
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            })?;
+
+            spawn({
+                let buffer_clone = self.buffer.clone();
+                move || {
+                    loop {
+                        if let Ok(mut buffer) = buffer_clone.lock()
+                            && let Some(buffer) = buffer.as_mut()
+                            && !buffer.is_valid()
+                        {
+                            break;
+                        }
+                        sleep(Duration::from_millis(50));
+                        let _ = chat_renderer_handle.send();
+                    }
+                }
+            });
             Ok(buffer.clone())
         } else {
             todo!("fix after error is introduced")
