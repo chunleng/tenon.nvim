@@ -943,6 +943,7 @@ dependencies = [
 name = "omnidash-nvim"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "nvim-oxi",
  "reqwest",
  "rig-core",

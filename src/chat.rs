@@ -1,3 +1,4 @@
+use futures::stream::StreamExt;
 use nvim_oxi::{
     Dictionary,
     api::{notify, types::LogLevel},
@@ -5,11 +6,12 @@ use nvim_oxi::{
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use rig::{
     OneOrMany,
-    agent::Text,
+    agent::{MultiTurnStreamItem, Text},
     client::{CompletionClient, Nothing},
-    completion::{self, Chat},
+    completion::{self},
     message::{self, UserContent},
     providers::ollama::{self},
+    streaming::{StreamedAssistantContent, StreamingChat},
 };
 use std::{
     collections::LinkedList,
@@ -86,24 +88,44 @@ impl ChatProcess {
                     todo!("fix after error is introduced")
                 }
 
-                match agent.chat(message, chat_history).await {
-                    Ok(response) => {
-                        if let Ok(mut logs) = logs_clone.write() {
-                            logs.push_back(ollama::Message::Assistant {
-                                content: response,
-                                images: None,
-                                name: None,
-                                thinking: None,
-                                tool_calls: vec![],
-                            });
+                let mut stream = agent.stream_chat(message, chat_history).await;
+                let mut full_response = String::new();
+                if let Ok(mut logs) = logs_clone.write() {
+                    logs.push_back(ollama::Message::Assistant {
+                        content: full_response.clone(),
+                        images: None,
+                        name: None,
+                        thinking: None,
+                        tool_calls: vec![],
+                    });
+                }
+                while let Some(chunk) = stream.next().await {
+                    match chunk {
+                        Ok(MultiTurnStreamItem::StreamAssistantItem(
+                            StreamedAssistantContent::Text(text_struct),
+                        )) => {
+                            full_response.push_str(&text_struct.text);
+                            if let Ok(mut logs) = logs_clone.write() {
+                                // TODO make this more efficient
+                                logs.pop_back();
+                                logs.push_back(ollama::Message::Assistant {
+                                    content: full_response.clone(),
+                                    images: None,
+                                    name: None,
+                                    thinking: None,
+                                    tool_calls: vec![],
+                                });
+                            }
                         }
-                    }
-                    Err(e) => {
-                        let _ = notify(
-                            &format!("Error: {}", e),
-                            LogLevel::Error,
-                            &Dictionary::new(),
-                        );
+                        Ok(_) => {}
+                        Err(e) => {
+                            let _ = notify(
+                                &format!("Stream error: {}", e),
+                                LogLevel::Error,
+                                &Dictionary::new(),
+                            );
+                            break;
+                        }
                     }
                 }
             });
