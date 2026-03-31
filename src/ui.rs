@@ -29,6 +29,7 @@ impl ChatWindow {
         api::set_option_value("bufhidden", "hide", &buf_opts)?;
         api::set_option_value("swapfile", false, &buf_opts)?;
         api::set_option_value("filetype", "markdown", &buf_opts)?;
+        api::set_option_value("modifiable", false, &buf_opts)?;
 
         api::command("botright vsplit")?;
         let mut window = api::get_current_win();
@@ -70,7 +71,10 @@ impl ChatWindow {
 
                 schedule(move |_| {
                     if let Ok(mut buffer) = buffer_clone2.lock() {
+                        let buf_opts = OptionOpts::builder().buffer(buffer.clone()).build();
+                        api::set_option_value("modifiable", true, &buf_opts).unwrap();
                         buffer.set_lines(0.., false, content).unwrap();
+                        api::set_option_value("modifiable", false, &buf_opts).unwrap();
                     }
                 });
             }
