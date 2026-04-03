@@ -7,7 +7,10 @@ use std::{
 
 use nvim_oxi::{
     Result as OxiResult,
-    api::{self, opts::OptionOpts},
+    api::{
+        self,
+        opts::{CreateAugroupOpts, CreateAutocmdOpts, OptionOpts},
+    },
     libuv::AsyncHandle,
     schedule,
 };
@@ -22,6 +25,7 @@ use crate::{
 
 pub struct ChatWindow {
     output_window: Arc<Mutex<Option<FixedBufferVimWindow>>>,
+    input_window: Arc<Mutex<Option<FixedBufferVimWindow>>>,
     pub chat_process: ChatProcess,
 }
 
@@ -31,13 +35,88 @@ impl ChatWindow {
 
         Self {
             output_window: Arc::new(Mutex::new(None)),
+            input_window: Arc::new(Mutex::new(None)),
             chat_process,
         }
     }
 
     pub fn open(&mut self) -> OxiResult<()> {
         self.get_or_create_output_window()?;
+        self.get_or_create_input_window()?;
         Ok(())
+    }
+
+    fn get_or_create_input_window(&mut self) -> OxiResult<FixedBufferVimWindow> {
+        if let Ok(win) = self.input_window.lock()
+            && let Some(win) = win.as_ref()
+            && win.get_buffer().is_some()
+            && win.get_window().is_some()
+        {
+            Ok(win.clone())
+        } else {
+            // TODO use error to handle unwrap in this function
+            let output_window = self.get_or_create_output_window()?.get_window().unwrap();
+            api::set_current_win(&output_window)?;
+
+            let input_win = FixedBufferVimWindow::new(FixedBufferVimWindowOption {
+                window_option: WindowOption::Split {
+                    direction: SplitWindowOption::Bottom,
+                    ratio_wh: 0.3,
+                    edge: false,
+                },
+                file_type: "markdown".to_string(),
+                ..Default::default()
+            })?;
+
+            let augroup = api::create_augroup(
+                "OmnidashInOutLinkedWindows",
+                &CreateAugroupOpts::builder().clear(true).build(),
+            )?;
+            api::create_autocmd(
+                ["WinClosed"],
+                &CreateAutocmdOpts::builder()
+                    .group(augroup)
+                    .patterns([input_win
+                        .get_window()
+                        .unwrap()
+                        .handle()
+                        .to_string()
+                        .as_str()])
+                    .callback({
+                        let output_window = output_window.clone();
+                        move |_| {
+                            print!("A");
+                            let output_window = output_window.clone();
+                            if output_window.is_valid() {
+                                let _ = output_window.close(true);
+                            }
+                            false
+                        }
+                    })
+                    .build(),
+            )?;
+            api::create_autocmd(
+                ["WinClosed"],
+                &CreateAutocmdOpts::builder()
+                    .group(augroup)
+                    .patterns([output_window.handle().to_string().as_str()])
+                    .callback({
+                        let input_win = input_win.clone();
+                        move |_| {
+                            print!("B");
+                            if let Some(win) = input_win.get_window()
+                                && win.is_valid()
+                            {
+                                let _ = win.close(true);
+                            }
+                            false
+                        }
+                    })
+                    .build(),
+            )?;
+            self.input_window = Arc::new(Mutex::new(Some(input_win.clone())));
+            Ok(input_win)
+        }
     }
 
     fn get_or_create_output_window(&mut self) -> OxiResult<FixedBufferVimWindow> {
@@ -49,7 +128,11 @@ impl ChatWindow {
             Ok(win.clone())
         } else {
             let win = FixedBufferVimWindow::new(FixedBufferVimWindowOption {
-                window_option: WindowOption::Split(SplitWindowOption::Right { width: 0.4 }),
+                window_option: WindowOption::Split {
+                    direction: SplitWindowOption::Right,
+                    ratio_wh: 0.4,
+                    edge: true,
+                },
                 modifiable: false,
                 file_type: "markdown".to_string(),
                 ..Default::default()

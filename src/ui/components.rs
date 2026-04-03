@@ -10,17 +10,24 @@ use nvim_oxi::{
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum SplitWindowOption {
-    Top { height: f64 },
-    Bottom { height: f64 },
-    Left { width: f64 },
-    Right { width: f64 },
+    Top,
+    Bottom,
+    Left,
+    Right,
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum WindowOption {
-    CenteredFloat { height: f64, width: f64 },
-    Split(SplitWindowOption),
+    CenteredFloat {
+        height: f64,
+        width: f64,
+    },
+    Split {
+        direction: SplitWindowOption,
+        ratio_wh: f64,
+        edge: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +80,8 @@ impl FixedBufferVimWindow {
         api::set_option_value("filetype", option.file_type, &buf_opts)?;
         api::set_option_value("modifiable", option.modifiable, &buf_opts)?;
 
+        // buffer.set_keymap()
+
         let window = match option.window_option {
             WindowOption::CenteredFloat { height, width } => {
                 let ui_width = api::get_option_value::<i64>("columns", &OptionOpts::default())?;
@@ -92,24 +101,40 @@ impl FixedBufferVimWindow {
                     .build();
                 api::open_win(&buffer, true, &win_config)?
             }
-            WindowOption::Split(split_type) => {
-                match split_type {
-                    SplitWindowOption::Top { .. } => api::command("topleft split")?,
-                    SplitWindowOption::Bottom { .. } => api::command("botright split")?,
-                    SplitWindowOption::Left { .. } => api::command("topleft vsplit")?,
-                    SplitWindowOption::Right { .. } => api::command("botright vsplit")?,
-                }
-                match split_type {
-                    SplitWindowOption::Top { height } | SplitWindowOption::Bottom { height } => {
+            WindowOption::Split {
+                direction,
+                edge,
+                ratio_wh,
+            } => {
+                let split_type = match (&direction, &edge) {
+                    (SplitWindowOption::Top, true) | (SplitWindowOption::Left, true) => "topleft",
+                    (SplitWindowOption::Bottom, true) | (SplitWindowOption::Right, true) => {
+                        "botright"
+                    }
+                    (SplitWindowOption::Top, false) | (SplitWindowOption::Left, false) => {
+                        "aboveleft"
+                    }
+                    (SplitWindowOption::Bottom, false) | (SplitWindowOption::Right, false) => {
+                        "belowright"
+                    }
+                };
+                let vh = match &direction {
+                    SplitWindowOption::Top | SplitWindowOption::Bottom => "split",
+                    SplitWindowOption::Left | SplitWindowOption::Right => "vsplit",
+                };
+                api::command(&format!("{} {}", split_type, vh))?;
+
+                match &direction {
+                    SplitWindowOption::Top | SplitWindowOption::Bottom => {
                         let ui_height =
                             api::get_option_value::<i64>("lines", &OptionOpts::default())?;
-                        let win_height = (ui_height as f64 * height) as u32;
+                        let win_height = (ui_height as f64 * ratio_wh) as u32;
                         api::command(&format!("horizontal resize {}", win_height))?;
                     }
-                    SplitWindowOption::Left { width } | SplitWindowOption::Right { width } => {
+                    SplitWindowOption::Left | SplitWindowOption::Right => {
                         let ui_width =
                             api::get_option_value::<i64>("columns", &OptionOpts::default())?;
-                        let win_width = (ui_width as f64 * width) as u32;
+                        let win_width = (ui_width as f64 * ratio_wh) as u32;
                         api::command(&format!("vertical resize {}", win_width))?;
                     }
                 }
