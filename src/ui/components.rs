@@ -2,10 +2,18 @@ use nvim_oxi::{
     Result as OxiResult,
     api::{
         self,
-        opts::OptionOpts,
-        types::{WindowConfig, WindowRelativeTo},
+        opts::{OptionOpts, SetKeymapOpts},
+        types::{Mode, WindowConfig, WindowRelativeTo},
     },
 };
+
+#[derive(Debug, Clone)]
+pub struct Keymap {
+    pub modes: Vec<Mode>,
+    pub lhs: String,
+    pub rhs: String,
+    pub opts: SetKeymapOpts,
+}
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -39,6 +47,7 @@ pub struct FixedBufferVimWindowOption {
     pub modifiable: bool,
     pub wrap: bool,
     pub line_break: bool,
+    pub buf_keymaps: Vec<Keymap>,
     pub window_option: WindowOption,
 }
 
@@ -52,6 +61,7 @@ impl Default for FixedBufferVimWindowOption {
             modifiable: true,
             wrap: true,
             line_break: true,
+            buf_keymaps: vec![],
             window_option: WindowOption::CenteredFloat {
                 height: 0.6,
                 width: 0.6,
@@ -68,7 +78,7 @@ pub struct FixedBufferVimWindow {
 
 impl FixedBufferVimWindow {
     pub fn new(option: FixedBufferVimWindowOption) -> OxiResult<Self> {
-        let buffer = api::create_buf(option.buf_listed, false)?;
+        let mut buffer = api::create_buf(option.buf_listed, false)?;
 
         let buf_opts = OptionOpts::builder().buffer(buffer.clone()).build();
         // Needed for this struct as we want to make sure buffer are closed when window close
@@ -80,7 +90,11 @@ impl FixedBufferVimWindow {
         api::set_option_value("filetype", option.file_type, &buf_opts)?;
         api::set_option_value("modifiable", option.modifiable, &buf_opts)?;
 
-        // buffer.set_keymap()
+        for keymap in option.buf_keymaps {
+            for mode in keymap.modes {
+                buffer.set_keymap(mode, &keymap.lhs, &keymap.rhs, &keymap.opts)?;
+            }
+        }
 
         let window = match option.window_option {
             WindowOption::CenteredFloat { height, width } => {

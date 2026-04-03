@@ -9,7 +9,8 @@ use nvim_oxi::{
     Result as OxiResult,
     api::{
         self,
-        opts::{CreateAugroupOpts, CreateAutocmdOpts, OptionOpts},
+        opts::{CreateAugroupOpts, CreateAutocmdOpts, OptionOpts, SetKeymapOpts},
+        types::Mode,
     },
     libuv::AsyncHandle,
     schedule,
@@ -19,7 +20,7 @@ use rig::providers::ollama;
 use crate::{
     chat::ChatProcess,
     ui::components::{
-        FixedBufferVimWindow, FixedBufferVimWindowOption, SplitWindowOption, WindowOption,
+        FixedBufferVimWindow, FixedBufferVimWindowOption, Keymap, SplitWindowOption, WindowOption,
     },
 };
 
@@ -46,7 +47,7 @@ impl ChatWindow {
         Ok(())
     }
 
-    fn get_or_create_input_window(&mut self) -> OxiResult<FixedBufferVimWindow> {
+    pub fn get_or_create_input_window(&mut self) -> OxiResult<FixedBufferVimWindow> {
         if let Ok(win) = self.input_window.lock()
             && let Some(win) = win.as_ref()
             && win.get_buffer().is_some()
@@ -65,6 +66,12 @@ impl ChatWindow {
                     edge: false,
                 },
                 file_type: "markdown".to_string(),
+                buf_keymaps: vec![Keymap {
+                    modes: vec![Mode::Insert, Mode::Normal],
+                    lhs: "<c-cr>".to_string(),
+                    rhs: "<cmd>lua require('omnidash').keymap.send()<cr>".to_string(),
+                    opts: SetKeymapOpts::default(),
+                }],
                 ..Default::default()
             })?;
 
@@ -119,7 +126,7 @@ impl ChatWindow {
         }
     }
 
-    fn get_or_create_output_window(&mut self) -> OxiResult<FixedBufferVimWindow> {
+    pub fn get_or_create_output_window(&mut self) -> OxiResult<FixedBufferVimWindow> {
         if let Ok(win) = self.output_window.lock()
             && let Some(win) = win.as_ref()
             && win.get_buffer().is_some()
