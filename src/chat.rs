@@ -10,12 +10,12 @@ use rig::{
     agent::{MultiTurnStreamItem, Text},
     client::{CompletionClient, Nothing},
     completion::{self, GetTokenUsage, Usage},
-    message::{self, UserContent},
-    providers::ollama::{self},
-    streaming::{StreamedAssistantContent, StreamingChat},
+    message::{self, ToolResult, ToolResultContent, UserContent},
+    providers::ollama::{self, ToolCall},
+    streaming::{StreamedAssistantContent, StreamedUserContent, StreamingChat},
 };
 use std::{
-    collections::LinkedList,
+    collections::{HashMap, LinkedList},
     sync::{Arc, RwLock},
 };
 
@@ -76,20 +76,42 @@ impl ChatProcess {
                         .iter()
                         .cloned()
                         .filter_map(|x| match x {
-                            ollama::Message::Assistant { content, .. } => {
-                                Some(completion::Message::Assistant {
-                                    id: None,
-                                    content: OneOrMany::one(message::AssistantContent::text(
-                                        content,
-                                    )),
-                                })
+                            ollama::Message::Assistant {
+                                content,
+                                tool_calls,
+                                ..
+                            } => {
+                                let content = match content.is_empty() {
+                                    true => OneOrMany::many(tool_calls.iter().map(|x| {
+                                        message::AssistantContent::tool_call(
+                                            "".to_string(),
+                                            x.function.name.clone(),
+                                            x.function.arguments.clone(),
+                                        )
+                                    })),
+                                    false => {
+                                        OneOrMany::many([message::AssistantContent::text(content)])
+                                    }
+                                }
+                                .ok()?;
+                                Some(completion::Message::Assistant { id: None, content })
                             }
                             ollama::Message::User { content, .. } => {
                                 Some(completion::Message::User {
                                     content: OneOrMany::one(UserContent::Text(Text::from(content))),
                                 })
                             }
-                            ollama::Message::ToolResult { .. } => None,
+                            ollama::Message::ToolResult { content, .. } => {
+                                Some(completion::Message::User {
+                                    content: OneOrMany::one(UserContent::ToolResult(ToolResult {
+                                        id: "".to_string(),
+                                        call_id: None,
+                                        content: OneOrMany::one(message::ToolResultContent::text(
+                                            content,
+                                        )),
+                                    })),
+                                })
+                            }
                             ollama::Message::System { content, .. } => {
                                 Some(completion::Message::System { content })
                             }
@@ -110,9 +132,44 @@ impl ChatProcess {
                         tool_calls: vec![],
                     });
                 }
-                let mut tool_calls = vec![];
+                let mut tools_lookup: HashMap<String, ToolCall> = HashMap::new();
                 while let Some(chunk) = stream.next().await {
                     match chunk {
+                        Ok(MultiTurnStreamItem::StreamUserItem(
+                            StreamedUserContent::ToolResult {
+                                tool_result,
+                                internal_call_id,
+                            },
+                        )) => {
+                            if let Ok(mut logs) = logs_clone.write() {
+                                logs.push_back(ollama::Message::ToolResult {
+                                    name: tools_lookup
+                                        .get(&internal_call_id)
+                                        .map(|x| x.function.name.clone())
+                                        .unwrap_or("unknown tool".to_string()),
+                                    content: tool_result
+                                        .content
+                                        .into_iter()
+                                        .filter_map(|x| match x {
+                                            ToolResultContent::Text(Text { text }) => {
+                                                Some(text.to_string())
+                                            }
+                                            _ => None,
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join("\n"),
+                                });
+                                tools_lookup = HashMap::new();
+                                full_response = "".to_string();
+                                logs.push_back(ollama::Message::Assistant {
+                                    content: full_response.clone(),
+                                    images: None,
+                                    name: None,
+                                    thinking: None,
+                                    tool_calls: vec![],
+                                });
+                            }
+                        }
                         Ok(MultiTurnStreamItem::StreamAssistantItem(
                             StreamedAssistantContent::Text(text_struct),
                         )) => {
@@ -125,14 +182,17 @@ impl ChatProcess {
                                     images: None,
                                     name: None,
                                     thinking: None,
-                                    tool_calls: tool_calls.clone(),
+                                    tool_calls: tools_lookup.values().cloned().collect::<Vec<_>>(),
                                 });
                             }
                         }
                         Ok(MultiTurnStreamItem::StreamAssistantItem(
-                            StreamedAssistantContent::ToolCall { tool_call, .. },
+                            StreamedAssistantContent::ToolCall {
+                                tool_call,
+                                internal_call_id,
+                            },
                         )) => {
-                            tool_calls.push(tool_call.clone().into());
+                            tools_lookup.insert(internal_call_id, tool_call.into());
                             if let Ok(mut logs) = logs_clone.write() {
                                 logs.pop_back();
                                 logs.push_back(ollama::Message::Assistant {
@@ -140,7 +200,7 @@ impl ChatProcess {
                                     images: None,
                                     name: None,
                                     thinking: None,
-                                    tool_calls: tool_calls.clone(),
+                                    tool_calls: tools_lookup.values().cloned().collect::<Vec<_>>(),
                                 });
                             }
                         }

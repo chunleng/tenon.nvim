@@ -245,11 +245,30 @@ impl DisplayAsChat for ollama::Message {
             ollama::Message::User { content, .. } => {
                 Some(format!("# User\n\n{}\n\n---\n", content.to_string()))
             }
-            ollama::Message::Assistant { content, .. } => {
-                Some(format!("# Assistant\n\n{}\n\n---\n", content.to_string()))
+            ollama::Message::Assistant {
+                content,
+                tool_calls,
+                ..
+            } => {
+                let mut output = content.to_string();
+                let tools = tool_calls
+                    .iter()
+                    .map(|x| format!("[calling tool] `{}`", x.function.name.clone()))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !tools.is_empty() {
+                    if content.is_empty() {
+                        output = tools;
+                    } else {
+                        output = format!("{}\n\n{}", output, tools);
+                    }
+                }
+                Some(format!("# Assistant\n\n{}\n\n---\n", output))
             }
             ollama::Message::System { .. } => None,
-            ollama::Message::ToolResult { .. } => None,
+            ollama::Message::ToolResult { name, .. } => {
+                Some(format!("# Tool\n\n[tool result] `{}`\n\n---\n", name))
+            }
         }
     }
 }

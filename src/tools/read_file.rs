@@ -40,7 +40,11 @@ impl Tool for ReadFile {
         let path = Path::new(&args.filepath);
 
         match fs::read_to_string(path) {
-            Ok(content) => Ok(content),
+            Ok(content) => Ok(format!(
+                "<file path=\"{}\">{}</file>",
+                path.to_str().unwrap_or_default().to_string(),
+                content
+            )),
             Err(e) => Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                 e.kind(),
                 format!("Failed to read file '{}': {}", args.filepath, e),
