@@ -68,6 +68,18 @@ impl ChatWindow {
         Ok(())
     }
 
+    pub fn close(&mut self) -> OxiResult<()> {
+        // We just need to close one of the input/output windows as the windows are linked.
+        if let Ok(input_win) = self.input_window.lock()
+            && let Some(input_win) = input_win.as_ref()
+            && let Some(win) = input_win.get_window()
+        {
+            win.close(true)?;
+        }
+
+        Ok(())
+    }
+
     fn get_or_create_input_window(&mut self) -> OxiResult<FixedBufferVimWindow> {
         if let Ok(win) = self.input_window.lock()
             && let Some(win) = win.as_ref()
@@ -87,12 +99,20 @@ impl ChatWindow {
                     edge: false,
                 },
                 file_type: "markdown".to_string(),
-                buf_keymaps: vec![Keymap {
-                    modes: vec![Mode::Insert, Mode::Normal],
-                    lhs: "<c-cr>".to_string(),
-                    rhs: "<cmd>lua require('omnidash').keymap.send()<cr>".to_string(),
-                    opts: SetKeymapOpts::default(),
-                }],
+                buf_keymaps: vec![
+                    Keymap {
+                        modes: vec![Mode::Insert, Mode::Normal],
+                        lhs: "<c-cr>".to_string(),
+                        rhs: "<cmd>lua require('omnidash').keymap.send()<cr>".to_string(),
+                        opts: SetKeymapOpts::default(),
+                    },
+                    Keymap {
+                        modes: vec![Mode::Normal],
+                        lhs: "q".to_string(),
+                        rhs: "<cmd>lua require('omnidash').keymap.close()<cr>".to_string(),
+                        opts: SetKeymapOpts::default(),
+                    },
+                ],
                 ..Default::default()
             })?;
 
@@ -163,6 +183,12 @@ impl ChatWindow {
                 },
                 modifiable: false,
                 file_type: "markdown".to_string(),
+                buf_keymaps: vec![Keymap {
+                    modes: vec![Mode::Normal],
+                    lhs: "q".to_string(),
+                    rhs: "<cmd>lua require('omnidash').keymap.close()<cr>".to_string(),
+                    opts: SetKeymapOpts::default(),
+                }],
                 ..Default::default()
             })?;
             self.output_window = Arc::new(Mutex::new(Some(win.clone())));
