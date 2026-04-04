@@ -1,15 +1,13 @@
 use std::sync::{Arc, Mutex};
 
-use nvim_oxi::{
-    Dictionary, Function, Object, Result as OxiResult,
-    api::{notify, types::LogLevel},
-};
+use nvim_oxi::{Dictionary, Function, Object, Result as OxiResult, api::types::LogLevel};
 
-use crate::ui::ChatWindow;
+use crate::{ui::ChatWindow, utils::notify};
 
 mod chat;
 mod tools;
 mod ui;
+mod utils;
 
 #[nvim_oxi::plugin]
 fn omnidash() -> OxiResult<Dictionary> {
@@ -43,11 +41,7 @@ fn omnidash() -> OxiResult<Dictionary> {
                             .trim()
                             .to_string();
                         if message.is_empty() {
-                            let _ = notify(
-                                "please enter your message before sending",
-                                LogLevel::Error,
-                                &Dictionary::new(),
-                            );
+                            notify("please enter your message before sending", LogLevel::Error);
                         } else {
                             win.chat_process.send_message(message);
                             message_sent = true;

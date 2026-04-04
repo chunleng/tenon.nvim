@@ -1,9 +1,6 @@
-use crate::tools::ReadFile;
+use crate::{tools::ReadFile, utils::notify};
 use futures::stream::StreamExt;
-use nvim_oxi::{
-    Dictionary,
-    api::{notify, types::LogLevel},
-};
+use nvim_oxi::api::types::LogLevel;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use rig::{
     OneOrMany,
@@ -215,13 +212,7 @@ impl ChatProcess {
                         }
                         Ok(_) => {}
                         Err(e) => {
-                            let lines = format!("{}", e)
-                                .lines()
-                                .map(|x| x.to_string())
-                                .collect::<Vec<String>>();
-                            for line in lines {
-                                let _ = notify(&line, LogLevel::Error, &Dictionary::new());
-                            }
+                            notify(format!("{}", e), LogLevel::Error);
                             break;
                         }
                     }
