@@ -1,16 +1,13 @@
 use crate::{
-    clients::{OllamaProviderConfig, SupportedModels, get_agent},
+    clients::{OllamaProviderConfig, StreamItem, SupportedModels, get_agent},
     tools::ReadFile,
     utils::notify,
 };
-use futures::stream::StreamExt;
 use nvim_oxi::api::types::LogLevel;
 use rig::{
     OneOrMany,
-    agent::MultiTurnStreamItem,
-    completion::{GetTokenUsage, Usage},
+    completion::Usage,
     message::{AssistantContent, Message, ToolCall, UserContent},
-    streaming::{StreamedAssistantContent, StreamedUserContent, StreamingChat},
 };
 use std::{
     collections::{HashMap, LinkedList},
@@ -48,6 +45,7 @@ impl ChatProcess {
                             base_url: "https://ollama.com".to_string(),
                             ..Default::default()
                         },
+                        // model_name: "gemini-3-flash-preview".to_string(),
                         model_name: "glm-5.1".to_string(),
                     },
                     Some(
@@ -65,7 +63,7 @@ impl ChatProcess {
                     todo!("fix after error is introduced")
                 }
 
-                let mut stream = agent.stream_chat(message, chat_history).multi_turn(3).await;
+                let mut stream = agent.stream_chat(message, chat_history).await;
                 let mut full_response = String::new();
                 if let Ok(mut logs) = logs_clone.write() {
                     logs.push_back(Message::Assistant {
@@ -74,15 +72,12 @@ impl ChatProcess {
                     });
                 }
                 let mut tools_lookup: HashMap<String, ToolCall> = HashMap::new();
-                while let Some(chunk) = stream.next().await {
-                    match chunk {
-                        Ok(MultiTurnStreamItem::StreamUserItem(
-                            StreamedUserContent::ToolResult {
-                                tool_result,
-                                internal_call_id,
-                                ..
-                            },
-                        )) => {
+                while let Some(result) = stream.next().await {
+                    match result {
+                        Ok(StreamItem::ToolResult {
+                            tool_result,
+                            internal_call_id,
+                        }) => {
                             if let Ok(mut logs) = logs_clone.write() {
                                 logs.push_back(Message::User {
                                     content: OneOrMany::one(UserContent::tool_result_with_call_id(
@@ -101,12 +96,9 @@ impl ChatProcess {
                                 });
                             }
                         }
-                        Ok(MultiTurnStreamItem::StreamAssistantItem(
-                            StreamedAssistantContent::Text(text_struct),
-                        )) => {
-                            full_response.push_str(&text_struct.text);
+                        Ok(StreamItem::Text { text }) => {
+                            full_response.push_str(&text);
                             if let Ok(mut logs) = logs_clone.write() {
-                                // TODO make this more efficient
                                 logs.pop_back();
                                 let mut content =
                                     vec![AssistantContent::text(full_response.clone())];
@@ -122,12 +114,10 @@ impl ChatProcess {
                                 });
                             }
                         }
-                        Ok(MultiTurnStreamItem::StreamAssistantItem(
-                            StreamedAssistantContent::ToolCall {
-                                tool_call,
-                                internal_call_id,
-                            },
-                        )) => {
+                        Ok(StreamItem::ToolCall {
+                            tool_call,
+                            internal_call_id,
+                        }) => {
                             tools_lookup.insert(internal_call_id.clone(), tool_call.into());
                             if let Ok(mut logs) = logs_clone.write() {
                                 logs.pop_back();
@@ -148,19 +138,16 @@ impl ChatProcess {
                                 });
                             }
                         }
-                        Ok(MultiTurnStreamItem::StreamAssistantItem(
-                            StreamedAssistantContent::Final(final_response),
-                        )) => {
-                            if let Some(usage) = final_response.token_usage() {
+                        Ok(StreamItem::Final { token_usage }) => {
+                            if let Some(usage) = token_usage {
                                 if let Ok(mut usage_lock) = usage_clone.write() {
                                     *usage_lock = Some(usage);
                                 }
                             }
                         }
-                        Ok(_) => {}
+                        Ok(StreamItem::Other) => {}
                         Err(e) => {
                             notify(format!("{}", e), LogLevel::Error);
-                            break;
                         }
                     }
                 }
