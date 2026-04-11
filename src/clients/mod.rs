@@ -3,7 +3,7 @@ use rig::{
     agent::Agent,
     client::{CompletionClient, Nothing},
     message::Message,
-    providers::{gemini, ollama},
+    providers::{gemini, ollama, openai},
     streaming::StreamingChat,
     tool::{Tool, ToolDyn},
 };
@@ -18,11 +18,16 @@ pub enum SupportedModels {
         config: GeminiProviderConfig,
         model_name: String,
     },
+    OpenAI {
+        config: OpenAIProviderConfig,
+        model_name: String,
+    },
 }
 
 pub enum ChatAgent {
     Ollama(Agent<ollama::CompletionModel>),
     Gemini(Agent<gemini::CompletionModel>),
+    OpenAI(Agent<openai::CompletionModel>),
 }
 
 pub enum ChatStream {
@@ -40,6 +45,15 @@ pub enum ChatStream {
             'static,
             Result<
                 rig::agent::MultiTurnStreamItem<gemini::streaming::StreamingCompletionResponse>,
+                rig::agent::StreamingError,
+            >,
+        >,
+    ),
+    OpenAI(
+        futures::stream::BoxStream<
+            'static,
+            Result<
+                rig::agent::MultiTurnStreamItem<openai::streaming::StreamingCompletionResponse>,
                 rig::agent::StreamingError,
             >,
         >,
@@ -115,6 +129,10 @@ impl ChatStream {
                 Ok(item) => Ok(convert_stream_item!(item)),
                 Err(e) => Err(e),
             }),
+            ChatStream::OpenAI(stream) => stream.next().await.map(|result| match result {
+                Ok(item) => Ok(convert_stream_item!(item)),
+                Err(e) => Err(e),
+            }),
         }
     }
 }
@@ -135,6 +153,12 @@ impl ChatAgent {
                     .multi_turn(multi_turn)
                     .await,
             ),
+            ChatAgent::OpenAI(agent) => ChatStream::OpenAI(
+                agent
+                    .stream_chat(message, history)
+                    .multi_turn(multi_turn)
+                    .await,
+            ),
         }
     }
 }
@@ -150,6 +174,9 @@ pub fn get_agent(
         }
         SupportedModels::Gemini { config, model_name } => {
             ChatAgent::Gemini(get_gemini_agent(config, model_name, preamble, tools))
+        }
+        SupportedModels::OpenAI { config, model_name } => {
+            ChatAgent::OpenAI(get_openai_agent(config, model_name, preamble, tools))
         }
     }
 }
@@ -228,6 +255,48 @@ fn get_gemini_agent(
         .api_key(config.api_key)
         .build()
         .unwrap();
+    let mut agent = client.agent(model_name);
+    if let Some(p) = preamble {
+        agent = agent.preamble(&p);
+    }
+    let agent = agent
+        .tools(
+            tools
+                .into_iter()
+                .map(|t| Box::new(t) as Box<dyn ToolDyn>)
+                .collect(),
+        )
+        .build();
+
+    agent
+}
+
+pub struct OpenAIProviderConfig {
+    pub base_url: String,
+    pub api_key: String,
+}
+
+impl Default for OpenAIProviderConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "https://api.openai.com/v1".to_string(),
+            api_key: std::env::var("OPENAI_API_KEY").unwrap_or_default(),
+        }
+    }
+}
+
+fn get_openai_agent(
+    config: OpenAIProviderConfig,
+    model_name: String,
+    preamble: Option<String>,
+    tools: Vec<impl Tool + 'static>,
+) -> Agent<openai::CompletionModel> {
+    let client = openai::Client::builder()
+        .base_url(config.base_url)
+        .api_key(config.api_key)
+        .build()
+        .unwrap()
+        .completions_api();
     let mut agent = client.agent(model_name);
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
