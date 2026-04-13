@@ -1,8 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use nvim_oxi::{Dictionary, Function, Object, Result as OxiResult};
 
-use crate::{keymap::create_lua_keymap_module, ui::ChatWindow};
+use crate::{keymap::create_lua_keymap_module, ui::ChatWindow, utils::GLOBAL_EXECUTION_HANDLER};
 
 mod chat;
 mod clients;
@@ -14,6 +14,7 @@ mod utils;
 #[nvim_oxi::plugin]
 fn tenon() -> OxiResult<Dictionary> {
     let chat_window = Arc::new(Mutex::new(ChatWindow::new()));
+    LazyLock::force(&GLOBAL_EXECUTION_HANDLER);
 
     let open_fn = Function::from_fn_mut({
         let win_clone = chat_window.clone();

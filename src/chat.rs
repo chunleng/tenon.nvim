@@ -1,9 +1,8 @@
 use crate::{
     clients::{OllamaProviderConfig, StreamItem, SupportedModels, get_agent},
     tools::ReadFile,
-    utils::notify,
+    utils::GLOBAL_EXECUTION_HANDLER,
 };
-use nvim_oxi::api::types::LogLevel;
 use rig::{
     OneOrMany,
     completion::Usage,
@@ -146,8 +145,13 @@ impl ChatProcess {
                             }
                         }
                         Ok(StreamItem::Other) => {}
-                        Err(e) => {
-                            notify(format!("{}", e), LogLevel::Error);
+                        Err(_) => {
+                            // TODO add tracing logs
+                            let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread(
+                                r#"vim.notify(
+                                    "error occurred while streaming response from LLM",
+                                    vim.log.levels.ERROR)"#,
+                            );
                         }
                     }
                 }
