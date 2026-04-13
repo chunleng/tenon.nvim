@@ -5,7 +5,7 @@ use rig::{
     message::Message,
     providers::{gemini, ollama, openai},
     streaming::StreamingChat,
-    tool::{Tool, ToolDyn},
+    tool::ToolDyn,
 };
 
 #[allow(dead_code)]
@@ -189,7 +189,7 @@ impl ChatAgent {
 pub fn get_agent(
     model: SupportedModels,
     preamble: Option<String>,
-    tools: Vec<impl Tool + 'static>,
+    tools: Vec<Box<dyn ToolDyn>>,
 ) -> ChatAgent {
     match model {
         SupportedModels::Ollama { config, model_name } => {
@@ -225,7 +225,7 @@ fn get_ollama_agent(
     config: OllamaProviderConfig,
     model_name: String,
     preamble: Option<String>,
-    tools: Vec<impl Tool + 'static>,
+    tools: Vec<Box<dyn ToolDyn>>,
 ) -> Agent<ollama::CompletionModel> {
     let mut headers = HeaderMap::new();
     if let Some(bearer) = config.bearer {
@@ -244,14 +244,7 @@ fn get_ollama_agent(
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
-    let agent = agent
-        .tools(
-            tools
-                .into_iter()
-                .map(|t| Box::new(t) as Box<dyn ToolDyn>)
-                .collect(),
-        )
-        .build();
+    let agent = agent.tools(tools).build();
 
     agent
 }
@@ -274,7 +267,7 @@ fn get_gemini_agent(
     config: GeminiProviderConfig,
     model_name: String,
     preamble: Option<String>,
-    tools: Vec<impl Tool + 'static>,
+    tools: Vec<Box<dyn ToolDyn>>,
 ) -> Agent<gemini::CompletionModel> {
     let client = gemini::Client::builder()
         .base_url(config.base_url)
@@ -285,14 +278,7 @@ fn get_gemini_agent(
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
-    let agent = agent
-        .tools(
-            tools
-                .into_iter()
-                .map(|t| Box::new(t) as Box<dyn ToolDyn>)
-                .collect(),
-        )
-        .build();
+    let agent = agent.tools(tools).build();
 
     agent
 }
@@ -315,7 +301,7 @@ fn get_openai_agent(
     config: OpenAIProviderConfig,
     model_name: String,
     preamble: Option<String>,
-    tools: Vec<impl Tool + 'static>,
+    tools: Vec<Box<dyn ToolDyn>>,
 ) -> Agent<openai::CompletionModel> {
     let client = openai::Client::builder()
         .base_url(config.base_url)
@@ -327,14 +313,7 @@ fn get_openai_agent(
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
-    let agent = agent
-        .tools(
-            tools
-                .into_iter()
-                .map(|t| Box::new(t) as Box<dyn ToolDyn>)
-                .collect(),
-        )
-        .build();
+    let agent = agent.tools(tools).build();
 
     agent
 }
@@ -342,7 +321,7 @@ fn get_openai_agent(
 fn get_bedrock_agent(
     model_name: String,
     preamble: Option<String>,
-    tools: Vec<impl Tool + 'static>,
+    tools: Vec<Box<dyn ToolDyn>>,
 ) -> Agent<rig_bedrock::completion::CompletionModel> {
     // There's no config provider because bedrock is configured solely by env. Following are some
     // environment that you can override to provide the necessary configuration to bedrock (apart
@@ -354,14 +333,7 @@ fn get_bedrock_agent(
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
-    let agent = agent
-        .tools(
-            tools
-                .into_iter()
-                .map(|t| Box::new(t) as Box<dyn ToolDyn>)
-                .collect(),
-        )
-        .build();
+    let agent = agent.tools(tools).build();
 
     agent
 }

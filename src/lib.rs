@@ -7,6 +7,7 @@ use crate::{keymap::create_lua_keymap_module, ui::ChatWindow, utils::GLOBAL_EXEC
 mod chat;
 mod clients;
 mod keymap;
+mod mcp;
 mod tools;
 mod ui;
 mod utils;

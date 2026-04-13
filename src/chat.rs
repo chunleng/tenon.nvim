@@ -1,5 +1,6 @@
 use crate::{
     clients::{OllamaProviderConfig, StreamItem, SupportedModels, get_agent},
+    mcp::McpHubCaller,
     tools::ReadFile,
     utils::GLOBAL_EXECUTION_HANDLER,
 };
@@ -7,6 +8,7 @@ use rig::{
     OneOrMany,
     completion::Usage,
     message::{AssistantContent, Message, ToolCall, UserContent},
+    tool::ToolDyn,
 };
 use std::{
     collections::{HashMap, LinkedList},
@@ -38,13 +40,21 @@ impl ChatProcess {
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
+                let mut tools: Vec<Box<dyn ToolDyn>> = vec![Box::new(ReadFile)];
+                if let Ok(x) = McpHubCaller::from_mcp_tools() {
+                    tools.append(
+                        &mut x
+                            .into_iter()
+                            .map(|x| Box::new(x) as Box<dyn ToolDyn>)
+                            .collect::<Vec<_>>(),
+                    );
+                }
                 let agent = get_agent(
                     SupportedModels::Ollama {
                         config: OllamaProviderConfig {
                             base_url: "https://ollama.com".to_string(),
                             ..Default::default()
                         },
-                        // model_name: "gemini-3-flash-preview".to_string(),
                         model_name: "glm-5.1".to_string(),
                     },
                     Some(
@@ -53,7 +63,7 @@ impl ChatProcess {
                         verbose."
                             .to_string(),
                     ),
-                    vec![ReadFile],
+                    tools,
                 );
                 let chat_history;
                 if let Ok(logs) = logs_clone.read() {
