@@ -78,6 +78,9 @@ pub enum StreamItem {
         tool_result: rig::message::ToolResult,
         internal_call_id: String,
     },
+    ReasoningDelta {
+        reasoning: String,
+    },
     Text {
         text: String,
     },
@@ -106,6 +109,9 @@ macro_rules! convert_stream_item {
                 tool_result,
                 internal_call_id,
             },
+            MultiTurnStreamItem::StreamAssistantItem(
+                StreamedAssistantContent::ReasoningDelta { reasoning, .. },
+            ) => StreamItem::ReasoningDelta { reasoning },
             MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
                 text_struct,
             )) => StreamItem::Text {
@@ -244,7 +250,10 @@ fn get_ollama_agent(
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
-    let agent = agent.tools(tools).build();
+    let agent = agent
+        .additional_params(serde_json::json!({ "think": true }))
+        .tools(tools)
+        .build();
 
     agent
 }

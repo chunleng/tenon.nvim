@@ -18,8 +18,8 @@ use nvim_oxi::{
 
 use crate::{
     chat::{
-        ChatProcess, TenonAssistantMessage, TenonAssistantTextMessage, TenonLog, TenonToolLog,
-        TenonUserMessage, TenonUserTextMessage,
+        ChatProcess, TenonAssistantMessageContent, TenonLog, TenonToolLog, TenonUserMessage,
+        TenonUserTextMessage,
     },
     ui::components::{
         FixedBufferVimWindow, FixedBufferVimWindowOption, Keymap, SplitWindowOption, WindowOption,
@@ -294,8 +294,32 @@ impl DisplayAsChat for TenonLog {
             TenonLog::User(TenonUserMessage::Text(TenonUserTextMessage(msg))) => {
                 Some(format!("# User\n\n{}\n\n---\n", msg))
             }
-            TenonLog::Assistant(TenonAssistantMessage::Text(TenonAssistantTextMessage(msg))) => {
-                Some(format!("# Assistant\n\n{}\n\n---\n", msg))
+            TenonLog::Assistant(msg) => {
+                let content = if msg.content.is_empty() {
+                    msg.reasoning.as_ref().map(|x| {
+                        x.lines()
+                            .map(|y| format!("> {}", y))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                } else {
+                    Some(
+                        msg.content
+                            .clone()
+                            .into_iter()
+                            .map(|x| match x {
+                                TenonAssistantMessageContent::Text(s) => s,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    )
+                };
+
+                if let Some(c) = content {
+                    Some(format!("# Assistant\n\n{}\n\n---\n", c))
+                } else {
+                    None
+                }
             }
             TenonLog::Tool(TenonToolLog {
                 tool_call,

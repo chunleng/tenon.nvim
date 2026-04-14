@@ -20,8 +20,6 @@ use std::{
 
 #[derive(Debug, Clone)]
 pub struct TenonUserTextMessage(pub String);
-#[derive(Debug, Clone)]
-pub struct TenonAssistantTextMessage(pub String);
 
 #[derive(Debug, Clone)]
 pub enum TenonUserMessage {
@@ -37,19 +35,32 @@ impl From<TenonUserMessage> for Message {
         }
     }
 }
+
 #[derive(Debug, Clone)]
-pub enum TenonAssistantMessage {
-    Text(TenonAssistantTextMessage),
+pub enum TenonAssistantMessageContent {
+    Text(String),
+}
+impl From<TenonAssistantMessageContent> for AssistantContent {
+    fn from(value: TenonAssistantMessageContent) -> Self {
+        match value {
+            TenonAssistantMessageContent::Text(s) => AssistantContent::text(s),
+        }
+    }
 }
 
-impl From<TenonAssistantMessage> for Message {
+#[derive(Debug, Clone)]
+pub struct TenonAssistantMessage {
+    pub reasoning: Option<String>,
+    pub content: Vec<TenonAssistantMessageContent>,
+}
+
+impl From<TenonAssistantMessage> for Option<Message> {
     fn from(value: TenonAssistantMessage) -> Self {
-        match value {
-            TenonAssistantMessage::Text(TenonAssistantTextMessage(msg)) => Message::Assistant {
-                id: None,
-                content: OneOrMany::one(AssistantContent::text(msg)),
-            },
-        }
+        // reasoning is not return to consciously reduce context
+        Some(Message::Assistant {
+            id: None,
+            content: OneOrMany::many(value.content.into_iter().map(|x| x.into())).ok()?,
+        })
     }
 }
 
@@ -117,7 +128,12 @@ impl From<TenonLog> for Vec<Message> {
     fn from(value: TenonLog) -> Self {
         match value {
             TenonLog::User(user_message) => vec![user_message.into()],
-            TenonLog::Assistant(assistant_message) => vec![assistant_message.into()],
+            TenonLog::Assistant(assistant_message) => {
+                match Option::<Message>::from(assistant_message) {
+                    Some(x) => vec![x.into()],
+                    None => vec![],
+                }
+            }
             TenonLog::Tool(tool_log) => tool_log.into(),
         }
     }
@@ -213,25 +229,58 @@ impl ChatProcess {
                                 }
                             }
                         }
+                        Ok(StreamItem::ReasoningDelta { reasoning }) => {
+                            if let Ok(mut logs) = logs_clone.write() {
+                                let mut updated = false;
+                                if let Some(log) = logs.back_mut()
+                                    && let TenonLog::Assistant(TenonAssistantMessage {
+                                        reasoning: text,
+                                        ..
+                                    }) = log
+                                {
+                                    match text {
+                                        Some(x) => {
+                                            x.push_str(&reasoning);
+                                        }
+                                        None => *text = Some(reasoning.clone()),
+                                    }
+                                    updated = true;
+                                }
+
+                                if !updated {
+                                    logs.push_back(TenonLog::Assistant(TenonAssistantMessage {
+                                        reasoning: Some(reasoning),
+                                        content: vec![],
+                                    }));
+                                }
+                            }
+                        }
                         Ok(StreamItem::Text { text }) => {
                             if let Ok(mut logs) = logs_clone.write() {
                                 let mut updated = false;
-                                if let Some(log) = logs.back_mut() {
-                                    if let TenonLog::Assistant(TenonAssistantMessage::Text(
-                                        TenonAssistantTextMessage(s),
-                                    )) = log
+                                if let Some(log) = logs.back_mut()
+                                    && let TenonLog::Assistant(TenonAssistantMessage {
+                                        content,
+                                        ..
+                                    }) = log
+                                {
+                                    if let Some(TenonAssistantMessageContent::Text(s)) =
+                                        content.last_mut()
                                     {
                                         s.push_str(&text);
                                         updated = true;
+                                    } else {
+                                        content
+                                            .push(TenonAssistantMessageContent::Text(text.clone()));
+                                        updated = true
                                     }
                                 }
 
                                 if !updated {
-                                    logs.push_back(TenonLog::Assistant(
-                                        TenonAssistantMessage::Text(TenonAssistantTextMessage(
-                                            text,
-                                        )),
-                                    ));
+                                    logs.push_back(TenonLog::Assistant(TenonAssistantMessage {
+                                        reasoning: None,
+                                        content: vec![TenonAssistantMessageContent::Text(text)],
+                                    }));
                                 }
                             }
                         }
