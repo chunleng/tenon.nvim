@@ -6,17 +6,123 @@ use crate::{
 };
 use rig::{
     OneOrMany,
+    agent::Text,
     completion::Usage,
-    message::{AssistantContent, Message, ToolCall, UserContent},
+    message::{AssistantContent, Image, Message, ToolResult, ToolResultContent, UserContent},
     tool::ToolDyn,
 };
+use serde_json::Value;
 use std::{
-    collections::{HashMap, LinkedList},
+    collections::LinkedList,
     sync::{Arc, RwLock},
 };
 
+#[derive(Debug, Clone)]
+pub struct TenonUserTextMessage(pub String);
+#[derive(Debug, Clone)]
+pub struct TenonAssistantTextMessage(pub String);
+
+#[derive(Debug, Clone)]
+pub enum TenonUserMessage {
+    Text(TenonUserTextMessage),
+}
+
+impl From<TenonUserMessage> for Message {
+    fn from(value: TenonUserMessage) -> Self {
+        match value {
+            TenonUserMessage::Text(TenonUserTextMessage(msg)) => Message::User {
+                content: OneOrMany::one(UserContent::text(msg)),
+            },
+        }
+    }
+}
+#[derive(Debug, Clone)]
+pub enum TenonAssistantMessage {
+    Text(TenonAssistantTextMessage),
+}
+
+impl From<TenonAssistantMessage> for Message {
+    fn from(value: TenonAssistantMessage) -> Self {
+        match value {
+            TenonAssistantMessage::Text(TenonAssistantTextMessage(msg)) => Message::Assistant {
+                id: None,
+                content: OneOrMany::one(AssistantContent::text(msg)),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TenonToolCall {
+    pub id: String,
+    pub name: String,
+    pub args: Value,
+}
+
+#[derive(Debug, Clone)]
+pub enum TenonToolResult {
+    Text(Text),
+    Image(Image),
+}
+
+#[derive(Debug, Clone)]
+pub struct TenonToolLog {
+    pub tool_call: TenonToolCall,
+    pub tool_result: Option<TenonToolResult>,
+}
+
+impl From<TenonToolLog> for Vec<Message> {
+    fn from(value: TenonToolLog) -> Self {
+        let mut messages = vec![Message::Assistant {
+            id: None,
+            content: OneOrMany::one(AssistantContent::tool_call(
+                value.tool_call.id.clone(),
+                value.tool_call.name,
+                value.tool_call.args,
+            )),
+        }];
+        if let Some(res) = value.tool_result {
+            messages.push(match res {
+                TenonToolResult::Text(text) => Message::User {
+                    content: OneOrMany::one(UserContent::ToolResult(ToolResult {
+                        id: value.tool_call.id,
+                        call_id: None,
+                        content: OneOrMany::one(ToolResultContent::Text(text)),
+                    })),
+                },
+                TenonToolResult::Image(img) => Message::User {
+                    content: OneOrMany::one(UserContent::ToolResult(ToolResult {
+                        id: value.tool_call.id,
+                        call_id: None,
+                        content: OneOrMany::one(ToolResultContent::Image(img)),
+                    })),
+                },
+            });
+        }
+
+        messages
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TenonLog {
+    User(TenonUserMessage),
+    Assistant(TenonAssistantMessage),
+    Tool(TenonToolLog),
+}
+
+impl From<TenonLog> for Vec<Message> {
+    fn from(value: TenonLog) -> Self {
+        match value {
+            TenonLog::User(user_message) => vec![user_message.into()],
+            TenonLog::Assistant(assistant_message) => vec![assistant_message.into()],
+            TenonLog::Tool(tool_log) => tool_log.into(),
+        }
+    }
+}
+
 pub struct ChatProcess {
-    pub logs: Arc<RwLock<LinkedList<Message>>>,
+    pub logs: Arc<RwLock<LinkedList<TenonLog>>>,
     pub usage: Arc<RwLock<Option<Usage>>>,
 }
 
@@ -30,9 +136,9 @@ impl ChatProcess {
 
     pub fn send_message(&mut self, message: String) {
         if let Ok(mut logs) = self.logs.write() {
-            logs.push_back(Message::User {
-                content: OneOrMany::one(UserContent::text(message.clone())),
-            });
+            logs.push_back(TenonLog::User(TenonUserMessage::Text(
+                TenonUserTextMessage(message.clone()),
+            )))
         }
 
         let logs_clone = Arc::clone(&self.logs);
@@ -67,84 +173,70 @@ impl ChatProcess {
                 );
                 let chat_history;
                 if let Ok(logs) = logs_clone.read() {
-                    chat_history = logs.iter().cloned().collect::<Vec<_>>();
+                    chat_history = logs
+                        .iter()
+                        .cloned()
+                        .flat_map(|x| Vec::<Message>::from(x))
+                        .collect::<Vec<_>>();
                 } else {
                     todo!("fix after error is introduced")
                 }
 
                 let mut stream = agent.stream_chat(message, chat_history).await;
-                let mut full_response = String::new();
-                if let Ok(mut logs) = logs_clone.write() {
-                    logs.push_back(Message::Assistant {
-                        id: None,
-                        content: OneOrMany::one(AssistantContent::text(full_response.clone())),
-                    });
-                }
-                let mut tools_lookup: HashMap<String, ToolCall> = HashMap::new();
                 while let Some(result) = stream.next().await {
                     match result {
-                        Ok(StreamItem::ToolResult {
-                            tool_result,
-                            internal_call_id,
-                        }) => {
+                        Ok(StreamItem::ToolResult { tool_result, .. }) => {
                             if let Ok(mut logs) = logs_clone.write() {
-                                logs.push_back(Message::User {
-                                    content: OneOrMany::one(UserContent::tool_result_with_call_id(
-                                        tool_result.id,
-                                        internal_call_id,
-                                        tool_result.content,
-                                    )),
-                                });
-                                tools_lookup = HashMap::new();
-                                full_response = "".to_string();
-                                logs.push_back(Message::Assistant {
-                                    id: None,
-                                    content: OneOrMany::one(AssistantContent::text(
-                                        full_response.clone(),
-                                    )),
-                                });
+                                if let Some(log) = logs.iter_mut().find_map(|x| match x {
+                                    TenonLog::Tool(tool) if tool.tool_call.id == tool_result.id => {
+                                        Some(tool)
+                                    }
+                                    _ => None,
+                                }) {
+                                    let tool_result = tool_result.content.first();
+                                    log.tool_result = Some(match tool_result {
+                                        ToolResultContent::Text(text) => {
+                                            TenonToolResult::Text(text)
+                                        }
+                                        ToolResultContent::Image(img) => {
+                                            TenonToolResult::Image(img)
+                                        }
+                                    });
+                                }
                             }
                         }
                         Ok(StreamItem::Text { text }) => {
-                            full_response.push_str(&text);
                             if let Ok(mut logs) = logs_clone.write() {
-                                logs.pop_back();
-                                let mut content =
-                                    vec![AssistantContent::text(full_response.clone())];
-                                content.extend(
-                                    tools_lookup
-                                        .values()
-                                        .cloned()
-                                        .map(|tc: ToolCall| AssistantContent::ToolCall(tc)),
-                                );
-                                logs.push_back(Message::Assistant {
-                                    id: None,
-                                    content: OneOrMany::many(content).unwrap(),
-                                });
+                                let mut updated = false;
+                                if let Some(log) = logs.back_mut() {
+                                    if let TenonLog::Assistant(TenonAssistantMessage::Text(
+                                        TenonAssistantTextMessage(s),
+                                    )) = log
+                                    {
+                                        s.push_str(&text);
+                                        updated = true;
+                                    }
+                                }
+
+                                if !updated {
+                                    logs.push_back(TenonLog::Assistant(
+                                        TenonAssistantMessage::Text(TenonAssistantTextMessage(
+                                            text,
+                                        )),
+                                    ));
+                                }
                             }
                         }
-                        Ok(StreamItem::ToolCall {
-                            tool_call,
-                            internal_call_id,
-                        }) => {
-                            tools_lookup.insert(internal_call_id.clone(), tool_call.into());
+                        Ok(StreamItem::ToolCall { tool_call, .. }) => {
                             if let Ok(mut logs) = logs_clone.write() {
-                                logs.pop_back();
-                                let mut content =
-                                    vec![AssistantContent::text(full_response.clone())];
-                                content.extend(tools_lookup.values().cloned().map(
-                                    move |tc: ToolCall| {
-                                        AssistantContent::tool_call(
-                                            internal_call_id.clone(),
-                                            tc.function.name,
-                                            tc.function.arguments,
-                                        )
+                                logs.push_back(TenonLog::Tool(TenonToolLog {
+                                    tool_call: TenonToolCall {
+                                        id: tool_call.id,
+                                        name: tool_call.function.name,
+                                        args: tool_call.function.arguments,
                                     },
-                                ));
-                                logs.push_back(Message::Assistant {
-                                    id: None,
-                                    content: OneOrMany::many(content).unwrap(),
-                                });
+                                    tool_result: None,
+                                }));
                             }
                         }
                         Ok(StreamItem::Final { token_usage }) => {

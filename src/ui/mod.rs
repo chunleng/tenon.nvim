@@ -15,13 +15,12 @@ use nvim_oxi::{
     libuv::AsyncHandle,
     schedule,
 };
-use rig::{
-    agent::Text,
-    message::{AssistantContent, Message, ToolCall, ToolResult, UserContent},
-};
 
 use crate::{
-    chat::ChatProcess,
+    chat::{
+        ChatProcess, TenonAssistantMessage, TenonAssistantTextMessage, TenonLog, TenonToolLog,
+        TenonUserMessage, TenonUserTextMessage,
+    },
     ui::components::{
         FixedBufferVimWindow, FixedBufferVimWindowOption, Keymap, SplitWindowOption, WindowOption,
     },
@@ -289,50 +288,28 @@ trait DisplayAsChat {
     fn as_chat_string(&self) -> Option<String>;
 }
 
-impl DisplayAsChat for Message {
+impl DisplayAsChat for TenonLog {
     fn as_chat_string(&self) -> Option<String> {
         match self {
-            Message::User { content, .. } => Some(
-                content
-                    .iter()
-                    .filter_map(|x| match x {
-                        UserContent::Text(Text { text }) => {
-                            Some(format!("# User\n\n{}\n\n---\n", text.to_string()))
-                        }
-                        UserContent::ToolResult(ToolResult { call_id, .. }) => {
-                            // TODO We are unable to fetch the tool call if we are formatting by
-                            // Message.
-                            // In the future version, we should relook at message formatting again
-                            let output = call_id.clone().unwrap_or("unknown call".to_string());
-                            Some(format!("# Tool\n\n[tool result] id: {}\n\n---\n", output))
-                        }
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            ),
-            Message::Assistant { content, .. } => {
-                let mut output = vec![];
-                for c in content.iter() {
-                    match c {
-                        AssistantContent::Text(Text { text }) => {
-                            if !text.is_empty() {
-                                output.push(text.to_string());
-                            }
-                        }
-                        AssistantContent::ToolCall(ToolCall { function, id, .. }) => {
-                            output.push(format!(
-                                "[calling tool] id:{} `{}`",
-                                id,
-                                function.name.clone()
-                            ));
-                        }
-                        _ => {}
-                    }
-                }
-                Some(format!("# Assistant\n\n{}\n\n---\n", output.join("\n")))
+            TenonLog::User(TenonUserMessage::Text(TenonUserTextMessage(msg))) => {
+                Some(format!("# User\n\n{}\n\n---\n", msg))
             }
-            _ => None,
+            TenonLog::Assistant(TenonAssistantMessage::Text(TenonAssistantTextMessage(msg))) => {
+                Some(format!("# Assistant\n\n{}\n\n---\n", msg))
+            }
+            TenonLog::Tool(TenonToolLog {
+                tool_call,
+                tool_result,
+            }) => Some(format!(
+                "[{}] id: {} ({})\n\n---\n",
+                tool_call.name,
+                tool_call.id,
+                if tool_result.is_some() {
+                    "Done"
+                } else {
+                    "Running"
+                }
+            )),
         }
     }
 }
