@@ -55,6 +55,7 @@ impl From<TenonAssistantMessage> for Message {
 #[derive(Debug, Clone)]
 pub struct TenonToolCall {
     pub id: String,
+    pub internal_call_id: String,
     pub name: String,
     pub args: Value,
 }
@@ -185,10 +186,15 @@ impl ChatProcess {
                 let mut stream = agent.stream_chat(message, chat_history).await;
                 while let Some(result) = stream.next().await {
                     match result {
-                        Ok(StreamItem::ToolResult { tool_result, .. }) => {
+                        Ok(StreamItem::ToolResult {
+                            tool_result,
+                            internal_call_id,
+                        }) => {
                             if let Ok(mut logs) = logs_clone.write() {
                                 if let Some(log) = logs.iter_mut().find_map(|x| match x {
-                                    TenonLog::Tool(tool) if tool.tool_call.id == tool_result.id => {
+                                    TenonLog::Tool(tool)
+                                        if tool.tool_call.internal_call_id == internal_call_id =>
+                                    {
                                         Some(tool)
                                     }
                                     _ => None,
@@ -227,11 +233,15 @@ impl ChatProcess {
                                 }
                             }
                         }
-                        Ok(StreamItem::ToolCall { tool_call, .. }) => {
+                        Ok(StreamItem::ToolCall {
+                            tool_call,
+                            internal_call_id,
+                        }) => {
                             if let Ok(mut logs) = logs_clone.write() {
                                 logs.push_back(TenonLog::Tool(TenonToolLog {
                                     tool_call: TenonToolCall {
                                         id: tool_call.id,
+                                        internal_call_id: internal_call_id,
                                         name: tool_call.function.name,
                                         args: tool_call.function.arguments,
                                     },

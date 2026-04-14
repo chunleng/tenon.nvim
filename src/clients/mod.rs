@@ -76,12 +76,14 @@ pub enum ChatStream {
 pub enum StreamItem {
     ToolResult {
         tool_result: rig::message::ToolResult,
+        internal_call_id: String,
     },
     Text {
         text: String,
     },
     ToolCall {
         tool_call: rig::message::ToolCall,
+        internal_call_id: String,
     },
     Final {
         token_usage: Option<rig::completion::Usage>,
@@ -98,8 +100,12 @@ macro_rules! convert_stream_item {
         match $item {
             MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
                 tool_result,
+                internal_call_id,
                 ..
-            }) => StreamItem::ToolResult { tool_result },
+            }) => StreamItem::ToolResult {
+                tool_result,
+                internal_call_id,
+            },
             MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
                 text_struct,
             )) => StreamItem::Text {
@@ -107,9 +113,10 @@ macro_rules! convert_stream_item {
             },
             MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
                 tool_call,
-                ..
+                internal_call_id,
             }) => StreamItem::ToolCall {
                 tool_call: tool_call.into(),
+                internal_call_id,
             },
             MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Final(
                 final_response,

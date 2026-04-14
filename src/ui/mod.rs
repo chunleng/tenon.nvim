@@ -301,13 +301,12 @@ impl DisplayAsChat for TenonLog {
                 tool_call,
                 tool_result,
             }) => Some(format!(
-                "[{}] id: {} ({})\n\n---\n",
+                "[{}] {}\n\n---\n",
                 tool_call.name,
-                tool_call.id,
                 if tool_result.is_some() {
-                    "Done"
+                    "Done!"
                 } else {
-                    "Running"
+                    "Running.."
                 }
             )),
         }
