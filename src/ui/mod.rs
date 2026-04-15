@@ -227,11 +227,8 @@ impl ChatWindow {
                                 move |_| {
                                     if let Ok(line_count) = buffer.line_count() {
                                         let mut follow_last_line = false;
-                                        if let Ok((cursor_row, _)) = window.get_cursor()
-                                            && let Ok(height) = window.get_height()
-                                        {
-                                            follow_last_line =
-                                                cursor_row + height as usize >= line_count;
+                                        if let Ok((cursor_row, _)) = window.get_cursor() {
+                                            follow_last_line = cursor_row == line_count;
                                         };
 
                                         let buf_opts =
@@ -245,13 +242,9 @@ impl ChatWindow {
 
                                         if follow_last_line
                                             && let Ok(new_line_count) = buffer.line_count()
-                                            && let Ok((cursor_row, cursor_col)) =
-                                                window.get_cursor()
+                                            && let Ok((_, cursor_col)) = window.get_cursor()
                                         {
-                                            let _ = window.set_cursor(
-                                                new_line_count - line_count + cursor_row,
-                                                cursor_col,
-                                            );
+                                            let _ = window.set_cursor(new_line_count, cursor_col);
                                         }
                                     }
                                     let _ = tx_clone.send(());
