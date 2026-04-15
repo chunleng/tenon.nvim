@@ -1,7 +1,7 @@
 use crate::{
     clients::{OllamaProviderConfig, StreamItem, SupportedModels, get_agent},
     mcp::McpHubCaller,
-    tools::ReadFile,
+    tools::{ReadFile, WriteFile},
     utils::GLOBAL_EXECUTION_HANDLER,
 };
 use rig::{
@@ -165,7 +165,7 @@ impl ChatProcess {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let mut tools: Vec<Box<dyn ToolDyn>> =
-                    vec![Box::new(ReadFile), Box::new(ThinkTool)];
+                    vec![Box::new(ReadFile), Box::new(WriteFile), Box::new(ThinkTool)];
                 if let Ok(x) = McpHubCaller::from_mcp_tools() {
                     tools.append(
                         &mut x
