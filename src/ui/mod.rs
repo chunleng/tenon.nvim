@@ -350,8 +350,10 @@ impl DisplayAsChat for TenonLog {
                     // Once we've moved on (not processing), hide it — it was just a progress indicator.
                     if is_processing {
                         msg.reasoning.as_ref().map(|x| {
-                            x.lines()
-                                .skip(0.max(x.len() - 3))
+                            let lines: Vec<_> = x.lines().collect();
+                            lines
+                                .iter()
+                                .skip(lines.len().saturating_sub(3))
                                 .map(|y| format!("> {}", y))
                                 .collect::<Vec<_>>()
                                 .join("\n")
