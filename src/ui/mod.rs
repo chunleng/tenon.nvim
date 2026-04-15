@@ -9,7 +9,7 @@ use nvim_oxi::{
     Result as OxiResult,
     api::{
         self,
-        opts::{CreateAugroupOpts, CreateAutocmdOpts, OptionOpts, SetKeymapOpts},
+        opts::{CreateAugroupOpts, CreateAutocmdOpts, OptionOpts, SetExtmarkOpts, SetKeymapOpts},
         types::{LogLevel, Mode},
     },
     libuv::AsyncHandle,
@@ -201,12 +201,16 @@ impl ChatWindow {
                     opts: SetKeymapOpts::default(),
                 }],
                 undo_levels: -1,
+                sign_column: "yes".to_string(),
                 ..Default::default()
             })?;
             self.output_window = Arc::new(Mutex::new(Some(win.clone())));
 
             let (tx, rx) = mpsc::channel();
-            let render_state = Arc::new(RwLock::new(RenderState::default()));
+            let ns_id = api::create_namespace("TenonSigns");
+            let render_state = Arc::new(RwLock::new(RenderState {
+                ..Default::default()
+            }));
             let chat_renderer_handle = AsyncHandle::new({
                 let output_window = win.clone();
                 let logs = self.chat_process.logs.clone();
@@ -228,16 +232,38 @@ impl ChatWindow {
                             (clamped_start, if log_count == 0 { 0 } else { frozen })
                         };
 
-                        // Collect entries to render (from start_idx onwards)
-                        let entry_lines: Vec<Vec<String>> = logs
+                        let logs_vec: Vec<_> = logs
                             .iter()
-                            .enumerate()
                             .skip(start_idx)
-                            .map(|(i, x)| x.as_chat_lines(i == log_count - 1))
+                            .enumerate()
+                            .map(|(i, x)| x.as_chat_lines_with_sign(i == log_count - 1))
                             .collect();
 
-                        let mut content: Vec<String> =
-                            entry_lines.iter().flatten().cloned().collect();
+                        // Collect entries to render (from start_idx onwards)
+                        let entry_lines: Vec<(Vec<String>, SignIcon)> = logs_vec
+                            .iter()
+                            .cloned()
+                            .enumerate()
+                            .map(|(i, current)| {
+                                let next = logs_vec.get(i + 1);
+                                if let Some(&(_, icon)) = next
+                                    && current.1 == icon
+                                {
+                                    current
+                                } else {
+                                    let (mut text, icon) = current;
+                                    text.push("".to_string());
+                                    (text, icon)
+                                }
+                            })
+                            .collect();
+
+                        let mut content: Vec<String> = entry_lines
+                            .iter()
+                            .map(|(l, _)| l)
+                            .flatten()
+                            .cloned()
+                            .collect();
 
                         if let Ok(usage) = usage_clone.read()
                             && let Some(usage) = usage.as_ref()
@@ -251,6 +277,14 @@ impl ChatWindow {
                             ));
                         }
 
+                        // Collect sign placements: (buf_line_idx, SignIcon)
+                        let mut signs: Vec<(usize, SignIcon)> = Vec::new();
+                        let mut buf_line = frozen_line_count;
+                        for (lines, sign) in &entry_lines {
+                            signs.push((buf_line, *sign));
+                            buf_line += lines.len();
+                        }
+
                         // Compute new render state for after buffer update
                         let (new_next_render_from, new_frozen_line_count) = if log_count == 0 {
                             (0, 0)
@@ -259,7 +293,7 @@ impl ChatWindow {
                             let newly_frozen_count = log_count - 1 - start_idx;
                             let newly_frozen_lines: usize = entry_lines[..newly_frozen_count]
                                 .iter()
-                                .map(|x| x.len())
+                                .map(|(l, _)| l.len())
                                 .sum();
                             (log_count - 1, frozen_line_count + newly_frozen_lines)
                         };
@@ -286,6 +320,18 @@ impl ChatWindow {
                                         let _ =
                                             api::set_option_value("modifiable", false, &buf_opts);
                                         let _ = api::set_option_value("modified", false, &buf_opts);
+
+                                        // Place sign extmarks
+                                        buffer
+                                            .clear_namespace(ns_id, frozen_line_count..line_count)
+                                            .ok();
+                                        for (line, icon) in &signs {
+                                            let opts = SetExtmarkOpts::builder()
+                                                .sign_text(icon.text())
+                                                .sign_hl_group(icon.hl_group())
+                                                .build();
+                                            buffer.set_extmark(ns_id, *line, 0, &opts).ok();
+                                        }
 
                                         if follow_last_line
                                             && let Ok(new_line_count) = buffer.line_count()
@@ -326,72 +372,87 @@ impl ChatWindow {
     }
 }
 
-trait DisplayAsChat {
-    fn as_chat_lines(&self, is_processing: bool) -> Vec<String> {
-        match self.as_chat_string(is_processing) {
-            Some(chat_string) => chat_string.lines().map(|x| x.to_string()).collect(),
-            None => {
-                vec![]
-            }
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SignIcon {
+    User,
+    AssistantReasoning,
+    AssistantTalk,
+    Tool,
+}
+
+impl SignIcon {
+    fn text(&self) -> &str {
+        match self {
+            SignIcon::User => " ",
+            SignIcon::AssistantReasoning => " ",
+            SignIcon::AssistantTalk => "󰚩 ",
+            SignIcon::Tool => "󰣖 ",
         }
     }
-    fn as_chat_string(&self, is_processing: bool) -> Option<String>;
+    fn hl_group(&self) -> &str {
+        match self {
+            SignIcon::User => "TenonSignUser",
+            SignIcon::AssistantReasoning => "TenonSignAssistantReasoning",
+            SignIcon::AssistantTalk => "TenonSignAssistantTalk",
+            SignIcon::Tool => "TenonSignTool",
+        }
+    }
+}
+
+trait DisplayAsChat {
+    fn as_chat_lines_with_sign(&self, is_processing: bool) -> (Vec<String>, SignIcon);
 }
 
 impl DisplayAsChat for TenonLog {
-    fn as_chat_string(&self, is_processing: bool) -> Option<String> {
+    fn as_chat_lines_with_sign(&self, is_processing: bool) -> (Vec<String>, SignIcon) {
         match self {
             TenonLog::User(TenonUserMessage::Text(TenonUserTextMessage(msg))) => {
-                Some(format!("# User\n\n{}\n\n---\n", msg))
+                (msg.lines().map(|x| x.to_string()).collect(), SignIcon::User)
             }
             TenonLog::Assistant(msg) => {
-                let content = if msg.content.is_empty() {
-                    // Only show reasoning progress when this entry is still actively processing.
-                    // Once we've moved on (not processing), hide it — it was just a progress indicator.
-                    if is_processing {
-                        msg.reasoning.as_ref().map(|x| {
-                            let lines: Vec<_> = x.lines().collect();
-                            lines
-                                .iter()
-                                .skip(lines.len().saturating_sub(3))
-                                .map(|y| format!("> {}", y))
-                                .collect::<Vec<_>>()
-                                .join("\n")
-                        })
-                    } else {
-                        None
-                    }
+                if msg.content.is_empty() {
+                    let display_last_x = if is_processing { 1 } else { 3 };
+                    let reasoning_text = msg.reasoning.clone().unwrap_or("[thoughts]".to_string());
+                    let lines = reasoning_text.lines().collect::<Vec<_>>();
+                    (
+                        lines
+                            .iter()
+                            .skip(lines.len().saturating_sub(display_last_x))
+                            .map(|y| y.to_string())
+                            .collect::<Vec<_>>(),
+                        SignIcon::AssistantReasoning,
+                    )
                 } else {
-                    Some(
+                    (
                         msg.content
                             .clone()
                             .into_iter()
-                            .map(|x| match x {
-                                TenonAssistantMessageContent::Text(s) => s,
+                            .flat_map(|x| match x {
+                                TenonAssistantMessageContent::Text(s) => {
+                                    s.lines().map(|x| x.to_string()).collect::<Vec<_>>()
+                                }
                             })
-                            .collect::<Vec<_>>()
-                            .join("\n"),
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>(),
+                        SignIcon::AssistantTalk,
                     )
-                };
-
-                if let Some(c) = content {
-                    Some(format!("# Assistant\n\n{}\n\n---\n", c))
-                } else {
-                    None
                 }
             }
             TenonLog::Tool(TenonToolLog {
                 tool_call,
                 tool_result,
-            }) => Some(format!(
-                "[{}] {}\n\n---\n",
-                tool_call.name,
-                if tool_result.is_some() {
-                    "Done!"
-                } else {
-                    "Running.."
-                }
-            )),
+            }) => (
+                vec![format!(
+                    "[{}] {}",
+                    tool_call.name,
+                    if tool_result.is_some() {
+                        "Done!"
+                    } else {
+                        "Running.."
+                    }
+                )],
+                SignIcon::Tool,
+            ),
         }
     }
 }
