@@ -4,6 +4,7 @@ use crate::{
     tools::{EditFile, FetchWebpage, ReadFile, WriteFile},
     utils::GLOBAL_EXECUTION_HANDLER,
 };
+use nvim_oxi::api::types::LogLevel;
 use rig::{
     OneOrMany,
     agent::Text,
@@ -313,12 +314,11 @@ impl ChatProcess {
                             }
                         }
                         Ok(StreamItem::Other) => {}
-                        Err(_) => {
+                        Err(e) => {
                             // TODO add tracing logs
-                            let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread(
-                                r#"vim.notify(
-                                    "error occurred while streaming response from LLM",
-                                    vim.log.levels.ERROR)"#,
+                            let _ = GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                                format!("error occurred while streaming response from LLM: {}", e),
+                                LogLevel::Error,
                             );
                         }
                     }
