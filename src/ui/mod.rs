@@ -191,6 +191,7 @@ impl ChatWindow {
                     rhs: "<cmd>lua require('tenon').keymap.close()<cr>".to_string(),
                     opts: SetKeymapOpts::default(),
                 }],
+                undo_levels: -1,
                 ..Default::default()
             })?;
             self.output_window = Arc::new(Mutex::new(Some(win.clone())));

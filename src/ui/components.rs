@@ -47,6 +47,7 @@ pub struct FixedBufferVimWindowOption {
     pub modifiable: bool,
     pub wrap: bool,
     pub line_break: bool,
+    pub undo_levels: isize,
     pub buf_keymaps: Vec<Keymap>,
     pub window_option: WindowOption,
 }
@@ -61,6 +62,7 @@ impl Default for FixedBufferVimWindowOption {
             modifiable: true,
             wrap: true,
             line_break: true,
+            undo_levels: 1000,
             buf_keymaps: vec![],
             window_option: WindowOption::CenteredFloat {
                 height: 0.6,
@@ -89,6 +91,7 @@ impl FixedBufferVimWindow {
         api::set_option_value("swapfile", option.swap_file, &buf_opts)?;
         api::set_option_value("filetype", option.file_type, &buf_opts)?;
         api::set_option_value("modifiable", option.modifiable, &buf_opts)?;
+        api::set_option_value("undolevels", option.undo_levels, &buf_opts)?;
 
         for keymap in option.buf_keymaps {
             for mode in keymap.modes {
