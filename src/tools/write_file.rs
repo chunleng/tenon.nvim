@@ -1,3 +1,4 @@
+use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
@@ -59,6 +60,7 @@ impl Tool for WriteFile {
         match fs::write(path, &args.content) {
             Ok(_) => {
                 let byte_count = args.content.len();
+                let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread("vim.cmd('checktime')");
                 Ok(format!("wrote {}B → '{}'", byte_count, args.filepath))
             }
             Err(e) => Err(ToolError::ToolCallError(Box::new(std::io::Error::new(

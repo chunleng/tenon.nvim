@@ -1,3 +1,4 @@
+use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
@@ -96,6 +97,8 @@ impl Tool for EditFile {
                 format!("Write fail '{}': {}", args.filepath, e),
             )))
         })?;
+
+        let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread("vim.cmd('checktime')");
 
         Ok(format!(
             "Replaced {} in '{}'",
