@@ -231,8 +231,9 @@ impl ChatWindow {
                         // Collect entries to render (from start_idx onwards)
                         let entry_lines: Vec<Vec<String>> = logs
                             .iter()
+                            .enumerate()
                             .skip(start_idx)
-                            .map(|x| x.as_chat_lines())
+                            .map(|(i, x)| x.as_chat_lines(i == log_count - 1))
                             .collect();
 
                         let mut content: Vec<String> =
@@ -326,32 +327,38 @@ impl ChatWindow {
 }
 
 trait DisplayAsChat {
-    fn as_chat_lines(&self) -> Vec<String> {
-        match self.as_chat_string() {
+    fn as_chat_lines(&self, is_processing: bool) -> Vec<String> {
+        match self.as_chat_string(is_processing) {
             Some(chat_string) => chat_string.lines().map(|x| x.to_string()).collect(),
             None => {
                 vec![]
             }
         }
     }
-    fn as_chat_string(&self) -> Option<String>;
+    fn as_chat_string(&self, is_processing: bool) -> Option<String>;
 }
 
 impl DisplayAsChat for TenonLog {
-    fn as_chat_string(&self) -> Option<String> {
+    fn as_chat_string(&self, is_processing: bool) -> Option<String> {
         match self {
             TenonLog::User(TenonUserMessage::Text(TenonUserTextMessage(msg))) => {
                 Some(format!("# User\n\n{}\n\n---\n", msg))
             }
             TenonLog::Assistant(msg) => {
                 let content = if msg.content.is_empty() {
-                    msg.reasoning.as_ref().map(|x| {
-                        x.lines()
-                            .skip(0.max(x.len() - 3))
-                            .map(|y| format!("> {}", y))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    })
+                    // Only show reasoning progress when this entry is still actively processing.
+                    // Once we've moved on (not processing), hide it — it was just a progress indicator.
+                    if is_processing {
+                        msg.reasoning.as_ref().map(|x| {
+                            x.lines()
+                                .skip(0.max(x.len() - 3))
+                                .map(|y| format!("> {}", y))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        })
+                    } else {
+                        None
+                    }
                 } else {
                     Some(
                         msg.content
