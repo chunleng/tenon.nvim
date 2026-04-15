@@ -1,6 +1,6 @@
 mod components;
 use std::{
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
     thread::{sleep, spawn},
     time::Duration,
 };
@@ -195,6 +195,7 @@ impl ChatWindow {
             })?;
             self.output_window = Arc::new(Mutex::new(Some(win.clone())));
 
+            let (tx, rx) = mpsc::channel();
             let chat_renderer_handle = AsyncHandle::new({
                 let output_window = win.clone();
                 let logs = self.chat_process.logs.clone();
@@ -221,6 +222,7 @@ impl ChatWindow {
                         if let Some(mut buffer) = output_window.get_buffer()
                             && let Some(mut window) = output_window.get_window()
                         {
+                            let tx_clone = tx.clone();
                             schedule({
                                 move |_| {
                                     if let Ok(line_count) = buffer.line_count() {
@@ -252,6 +254,7 @@ impl ChatWindow {
                                             );
                                         }
                                     }
+                                    let _ = tx_clone.send(());
                                 }
                             })
                         }
@@ -266,8 +269,9 @@ impl ChatWindow {
                         if output_window.get_buffer().is_none() {
                             break;
                         }
-                        sleep(Duration::from_millis(50));
                         let _ = chat_renderer_handle.send();
+                        let _ = rx.recv();
+                        sleep(Duration::from_millis(5))
                     }
                 }
             });
