@@ -3,12 +3,48 @@
 Neovim plugin. Pure Rust. Uses `nvim-oxi` (safe, idiomatic Rust bindings to
 Neovim API). Agentic chat tool → responds to requests + calls tools.
 
-## Dev Guideline
+## Dev Guide
+
+### Build & Format
 
 After changing Rust code:
 
 1. `cargo build` → verify no breakage
 2. `cargo fmt` → format code
+
+### Main Thread Guide
+
+Neovim = single-threaded. All Lua/API calls **must** run on main thread.
+
+Off-thread code (async tasks, Tokio runtime, `Tool::call()`, etc.) → **never**
+call Neovim APIs directly.
+
+#### `GLOBAL_EXECUTION_HANDLER`
+
+Bridge: off-thread → main-thread. Lives in `src/utils.rs`.
+
+```rust
+use crate::utils::GLOBAL_EXECUTION_HANDLER;
+
+// From any thread:
+let result: serde_json::Value = GLOBAL_EXECUTION_HANDLER
+    .execute_on_main_thread("vim.api.nvim_get_current_line()")?;
+```
+
+**How it works:**
+
+1. Caller sends `(lua_code, response_tx)` via `mpsc::channel`
+2. `AsyncHandle` wakes Neovim event loop → callback runs on main thread
+3. Callback: `lua().load(code).eval()` → result serialized → sent back via
+channel
+4. Caller blocks on `rx.recv()` → gets `serde_json::Value`
+
+**Guide:**
+
+- Need Neovim API from off-thread? → use
+  `GLOBAL_EXECUTION_HANDLER.execute_on_main_thread()`
+- On main thread already? → call API directly, no handler needed
+- `LazyLock` → single global instance, lazy init
 
 ## Dev Workflow
 
