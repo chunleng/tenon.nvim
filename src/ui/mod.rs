@@ -386,7 +386,8 @@ impl ChatWindow {
                 let output_window = win.clone();
                 let chat_process_clone = self.chat_process.clone();
                 move || {
-                    let mut previous_processing_state = false;
+                    // Set true so that the first run will alway try to redraw
+                    let mut previous_processing_state = true;
                     loop {
                         if output_window.get_buffer().is_none() {
                             break;
