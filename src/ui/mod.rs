@@ -144,7 +144,6 @@ impl ChatWindow {
                     .callback({
                         let output_window = output_window.clone();
                         move |_| {
-                            print!("A");
                             let output_window = output_window.clone();
                             if output_window.is_valid() {
                                 let _ = output_window.close(true);
@@ -162,7 +161,6 @@ impl ChatWindow {
                     .callback({
                         let input_win = input_win.clone();
                         move |_| {
-                            print!("B");
                             if let Some(win) = input_win.get_window()
                                 && win.is_valid()
                             {
