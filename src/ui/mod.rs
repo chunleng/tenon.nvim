@@ -59,6 +59,15 @@ impl ChatWindow {
         Ok(())
     }
 
+    pub fn scroll_output_to_bottom(&mut self) -> OxiResult<()> {
+        if let Some(mut output_win_window) = self.get_or_create_output_window()?.get_window()
+            && let Ok(line_count) = output_win_window.get_buf().and_then(|b| b.line_count())
+        {
+            output_win_window.set_cursor(line_count, 0)?;
+        }
+        Ok(())
+    }
+
     pub fn send(&mut self) -> OxiResult<()> {
         if let Some(mut input_win_buffer) = self.get_or_create_input_window()?.get_buffer() {
             let lines = input_win_buffer.get_lines(0.., false)?;
@@ -70,9 +79,12 @@ impl ChatWindow {
                 .to_string();
             if message.is_empty() {
                 notify("please enter your message before sending", LogLevel::Error);
-            } else if let Ok(mut chat_process) = self.chat_process.write() {
-                chat_process.send_message(message);
-                let _ = input_win_buffer.set_lines(0.., false, Vec::<String>::new());
+            } else {
+                self.scroll_output_to_bottom()?;
+                if let Ok(mut chat_process) = self.chat_process.write() {
+                    chat_process.send_message(message);
+                    let _ = input_win_buffer.set_lines(0.., false, Vec::<String>::new());
+                }
             }
         }
 
