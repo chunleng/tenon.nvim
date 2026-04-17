@@ -17,8 +17,20 @@ use serde_json::Value;
 use std::{
     collections::LinkedList,
     sync::atomic::{AtomicBool, Ordering},
-    sync::{Arc, RwLock},
+    sync::{Arc, LazyLock, Mutex, RwLock},
 };
+
+pub static CHAT_PROCESSES: LazyLock<Mutex<Vec<Arc<RwLock<ChatProcess>>>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// Returns the chat process at `index`, creating new ones as needed.
+pub fn get_or_create_chat_process(index: usize) -> Arc<RwLock<ChatProcess>> {
+    let mut processes = CHAT_PROCESSES.lock().unwrap();
+    while processes.len() <= index {
+        processes.push(Arc::new(RwLock::new(ChatProcess::new())));
+    }
+    processes[index].clone()
+}
 
 #[derive(Debug, Clone)]
 pub struct TenonUserTextMessage(pub String);

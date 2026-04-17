@@ -19,7 +19,7 @@ use nvim_oxi::{
 use crate::{
     chat::{
         ChatProcess, TenonAssistantMessageContent, TenonLog, TenonToolLog, TenonUserMessage,
-        TenonUserTextMessage,
+        TenonUserTextMessage, get_or_create_chat_process,
     },
     ui::components::{
         FixedBufferVimWindow, FixedBufferVimWindowOption, Keymap, SplitWindowOption, WindowOption,
@@ -39,17 +39,18 @@ struct RenderState {
 pub struct ChatWindow {
     output_window: Arc<Mutex<Option<FixedBufferVimWindow>>>,
     input_window: Arc<Mutex<Option<FixedBufferVimWindow>>>,
-    pub chat_process: Arc<RwLock<ChatProcess>>,
+    pub loaded_chat_process: Arc<RwLock<ChatProcess>>,
 }
 
 impl ChatWindow {
     pub fn new() -> Self {
-        let chat_process = Arc::new(RwLock::new(ChatProcess::new()));
+        let loaded_chat_index = 0;
+        let loaded_chat_process = get_or_create_chat_process(loaded_chat_index);
 
         Self {
             output_window: Arc::new(Mutex::new(None)),
             input_window: Arc::new(Mutex::new(None)),
-            chat_process,
+            loaded_chat_process,
         }
     }
 
@@ -81,7 +82,7 @@ impl ChatWindow {
                 notify("please enter your message before sending", LogLevel::Error);
             } else {
                 self.scroll_output_to_bottom()?;
-                if let Ok(mut chat_process) = self.chat_process.write() {
+                if let Ok(mut chat_process) = self.loaded_chat_process.write() {
                     chat_process.send_message(message);
                     let _ = input_win_buffer.set_lines(0.., false, Vec::<String>::new());
                 }
@@ -227,7 +228,7 @@ impl ChatWindow {
                 let output_window = win.clone();
                 let logs;
                 let usage_clone;
-                if let Ok(chat_process) = self.chat_process.read() {
+                if let Ok(chat_process) = self.loaded_chat_process.read() {
                     logs = chat_process.logs.clone();
                     usage_clone = chat_process.usage.clone();
                 } else {
@@ -396,7 +397,7 @@ impl ChatWindow {
 
             spawn({
                 let output_window = win.clone();
-                let chat_process_clone = self.chat_process.clone();
+                let chat_process_clone = self.loaded_chat_process.clone();
                 move || {
                     // Set true so that the first run will alway try to redraw
                     let mut previous_processing_state = true;
