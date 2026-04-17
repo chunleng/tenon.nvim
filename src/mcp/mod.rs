@@ -128,7 +128,8 @@ impl Tool for McpHubCaller {
             r#"
 local mcphub = require('mcphub').get_hub_instance()
 if not mcphub then
-    return {{error = "MCPHub instance not available"}}
+    resolve({{error = "MCPHub instance not available"}})
+    return
 end
 local args = vim.fn.json_decode("{}")
 local shared = require("mcphub.extensions.shared")
@@ -137,23 +138,25 @@ if not params.is_auto_approved_in_server then
     local args_str = vim.fn.json_encode(params.arguments)
     local choice = vim.fn.confirm("Run " .. params.server_name .. "." .. params.tool_name .. "?\nArgs: " .. args_str, "&Yes\n&No", 1)
     if choice ~= 1 then
-        return {{error = "User denied the tool run"}}
+        resolve({{error = "User denied the tool run"}})
+        return
     end
 end
 
-local opts = {{parse_response = true}}
-local response, err = mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
-
-if err and err ~= "" then
-    return {{error = err}}
-end
-return {{response = response}}
+local opts = {{parse_response = true, callback = function(response, err)
+    if err and err ~= "" then
+        resolve({{error = err}})
+        return
+    end
+    resolve({{response = response}})
+end}}
+mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
 "#,
             args_json, server_name, tool_name
         );
 
         let result = GLOBAL_EXECUTION_HANDLER
-            .execute_on_main_thread(&lua_code)
+            .execute_on_main_thread_async(&lua_code)
             .map_err(|e| {
                 ToolError::ToolCallError(Box::new(std::io::Error::new(
                     std::io::ErrorKind::Other,
