@@ -16,7 +16,8 @@ use rig::{tool::ToolDyn, tools::ThinkTool};
 ///
 /// Built-in names: `"create_file"`, `"edit_file"`, `"fetch_webpage"`,
 /// `"list_file"`, `"read_file"`, `"think"`.
-/// MCP tool names follow the `"server_name.tool_name"` format.
+/// MCP tool names: `"server_name.tool_name"` for a specific tool,
+/// or `"server_name"` to include all tools from that server.
 /// Unknown names are silently skipped.
 pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
     let name_refs: Vec<&str> = names.iter().map(|n| n.as_ref()).collect();
@@ -53,7 +54,17 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
 
     all_tools
         .into_iter()
-        .filter(|(name, _)| name_refs.contains(&name.as_str()))
+        .filter(|(name, _)| {
+            name_refs.iter().any(|&r| {
+                if r.contains('.') {
+                    // Exact match: "server_name.tool_name"
+                    r == name.as_str()
+                } else {
+                    // Exact match for built-ins ("read_file") or server-only match for MCP tools
+                    r == name.as_str() || name.starts_with(&format!("{}.", r))
+                }
+            })
+        })
         .map(|(_, tool)| tool)
         .collect()
 }
