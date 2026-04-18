@@ -437,7 +437,7 @@ impl ChatWindow {
                         let model_display = if let Ok(loaded) = loaded_chat_process.read() {
                             loaded
                                 .read()
-                                .map_or_else(|_| String::new(), |cp| cp.model.display_name())
+                                .map_or_else(|_| String::new(), |cp| cp.agent.model.display_name())
                         } else {
                             String::new()
                         };

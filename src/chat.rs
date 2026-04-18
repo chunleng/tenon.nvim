@@ -1,5 +1,5 @@
 use crate::{
-    clients::{OllamaProviderConfig, StreamItem, SupportedModels, get_agent},
+    clients::{ChatAgent, OllamaProviderConfig, StreamItem, SupportedModels, get_agent},
     mcp::McpHubCaller,
     tools::{CreateFile, EditFile, FetchWebpage, ListFile, ReadFile},
     utils::GLOBAL_EXECUTION_HANDLER,
@@ -169,9 +169,33 @@ impl From<TenonLog> for Vec<Message> {
 pub struct ChatProcess {
     pub logs: Arc<RwLock<LinkedList<TenonLog>>>,
     pub usage: Arc<RwLock<Option<Usage>>>,
-    pub model: SupportedModels,
+    pub agent: TenonAgent,
     cancel_token: Arc<AtomicBool>,
     active_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TenonAgent {
+    pub model: SupportedModels,
+    pub preamble: Option<String>,
+}
+
+impl TenonAgent {
+    pub fn new(model: SupportedModels) -> Self {
+        Self {
+            model,
+            preamble: Some(
+                "Answer in the fewest words possible. Use abbreviations, symbols, and \
+                fragments. Omit articles, conjunctions, and filler. Be precise, not \
+                verbose."
+                    .to_string(),
+            ),
+        }
+    }
+
+    pub fn build_chat_adapter(&self, tools: Vec<Box<dyn ToolDyn>>) -> ChatAgent {
+        get_agent(self.model.clone(), self.preamble.clone(), tools)
+    }
 }
 
 impl ChatProcess {
@@ -179,13 +203,13 @@ impl ChatProcess {
         Self {
             logs: Arc::new(RwLock::new(LinkedList::new())),
             usage: Arc::new(RwLock::new(None)),
-            model: SupportedModels::Ollama {
+            agent: TenonAgent::new(SupportedModels::Ollama {
                 config: OllamaProviderConfig {
                     base_url: "https://ollama.com".to_string(),
                     ..Default::default()
                 },
                 model_name: "glm-5.1".to_string(),
-            },
+            }),
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
         }
@@ -209,7 +233,7 @@ impl ChatProcess {
 
         let logs_clone = Arc::clone(&self.logs);
         let usage_clone = Arc::clone(&self.usage);
-        let model_clone = self.model.clone();
+        let agent_clone = self.agent.clone();
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
@@ -229,16 +253,7 @@ impl ChatProcess {
                             .collect::<Vec<_>>(),
                     );
                 }
-                let agent = get_agent(
-                    model_clone,
-                    Some(
-                        "Answer in the fewest words possible. Use abbreviations, symbols, and
-                        fragments. Omit articles, conjunctions, and filler. Be precise, not
-                        verbose."
-                            .to_string(),
-                    ),
-                    tools,
-                );
+                let agent = agent_clone.build_chat_adapter(tools);
                 let chat_history;
                 if let Ok(logs) = logs_clone.read() {
                     chat_history = logs
