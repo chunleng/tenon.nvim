@@ -9,6 +9,7 @@ use rig::{
 };
 
 #[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub enum SupportedModels {
     Ollama {
         config: OllamaProviderConfig,
@@ -25,6 +26,17 @@ pub enum SupportedModels {
     Bedrock {
         model_name: String,
     },
+}
+
+impl SupportedModels {
+    pub fn display_name(&self) -> String {
+        match self {
+            SupportedModels::Ollama { model_name, .. } => format!("ollama: {}", model_name),
+            SupportedModels::Gemini { model_name, .. } => format!("gemini: {}", model_name),
+            SupportedModels::OpenAI { model_name, .. } => format!("openai: {}", model_name),
+            SupportedModels::Bedrock { model_name } => format!("bedrock: {}", model_name),
+        }
+    }
 }
 
 pub enum ChatAgent {
@@ -213,6 +225,7 @@ pub fn get_agent(
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct OllamaProviderConfig {
     pub base_url: String,
     pub bearer: Option<String>,
@@ -258,6 +271,7 @@ fn get_ollama_agent(
     agent
 }
 
+#[derive(Debug, Clone)]
 pub struct GeminiProviderConfig {
     pub base_url: String,
     pub api_key: String,
@@ -292,6 +306,7 @@ fn get_gemini_agent(
     agent
 }
 
+#[derive(Debug, Clone)]
 pub struct OpenAIProviderConfig {
     pub base_url: String,
     pub api_key: String,

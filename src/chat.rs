@@ -169,6 +169,7 @@ impl From<TenonLog> for Vec<Message> {
 pub struct ChatProcess {
     pub logs: Arc<RwLock<LinkedList<TenonLog>>>,
     pub usage: Arc<RwLock<Option<Usage>>>,
+    pub model: SupportedModels,
     cancel_token: Arc<AtomicBool>,
     active_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -178,6 +179,13 @@ impl ChatProcess {
         Self {
             logs: Arc::new(RwLock::new(LinkedList::new())),
             usage: Arc::new(RwLock::new(None)),
+            model: SupportedModels::Ollama {
+                config: OllamaProviderConfig {
+                    base_url: "https://ollama.com".to_string(),
+                    ..Default::default()
+                },
+                model_name: "glm-5.1".to_string(),
+            },
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
         }
@@ -201,6 +209,7 @@ impl ChatProcess {
 
         let logs_clone = Arc::clone(&self.logs);
         let usage_clone = Arc::clone(&self.usage);
+        let model_clone = self.model.clone();
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
@@ -221,13 +230,7 @@ impl ChatProcess {
                     );
                 }
                 let agent = get_agent(
-                    SupportedModels::Ollama {
-                        config: OllamaProviderConfig {
-                            base_url: "https://ollama.com".to_string(),
-                            ..Default::default()
-                        },
-                        model_name: "glm-5.1".to_string(),
-                    },
+                    model_clone,
                     Some(
                         "Answer in the fewest words possible. Use abbreviations, symbols, and
                         fragments. Omit articles, conjunctions, and filler. Be precise, not

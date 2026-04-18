@@ -425,7 +425,14 @@ impl ChatWindow {
                         } else {
                             false
                         };
-                        content.push(String::new());
+                        let model_display = if let Ok(loaded) = loaded_chat_process.read() {
+                            loaded
+                                .read()
+                                .map_or_else(|_| String::new(), |cp| cp.model.display_name())
+                        } else {
+                            String::new()
+                        };
+                        content.push(model_display);
                         let spinner_buf_line = frozen_line_count + content.len() - 1;
 
                         let usage_buf_line;
@@ -467,9 +474,7 @@ impl ChatWindow {
                         if let Some(ul) = usage_buf_line {
                             line_highlights.push((ul, "TenonLineChatMeta"));
                         }
-                        if is_currently_processing {
-                            line_highlights.push((spinner_buf_line, "TenonLineChatMeta"));
-                        }
+                        line_highlights.push((spinner_buf_line, "TenonLineChatMeta"));
 
                         // Compute new render state for after buffer update
                         let (new_next_render_from, new_frozen_line_count) = if log_count == 0 {
@@ -518,9 +523,14 @@ impl ChatWindow {
                                                 .build();
                                             buffer.set_extmark(ns_id, *line, 0, &opts).ok();
                                         }
-                                        if is_currently_processing {
+                                        let spinner_sign = if is_currently_processing {
+                                            SPINNER_CHARS[spinner_idx]
+                                        } else {
+                                            ""
+                                        };
+                                        if !spinner_sign.is_empty() {
                                             let opts = SetExtmarkOpts::builder()
-                                                .sign_text(SPINNER_CHARS[spinner_idx])
+                                                .sign_text(spinner_sign)
                                                 .sign_hl_group("TenonSignProcessing")
                                                 .build();
                                             buffer
