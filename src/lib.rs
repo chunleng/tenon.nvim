@@ -4,6 +4,9 @@ use nvim_oxi::{Dictionary, Function, Object, Result as OxiResult, mlua::lua};
 
 use crate::{keymap::create_lua_keymap_module, ui::ChatWindow, utils::GLOBAL_EXECUTION_HANDLER};
 
+pub static GLOBAL_CHAT_WINDOW: LazyLock<Arc<Mutex<ChatWindow>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(ChatWindow::new())));
+
 mod chat;
 mod clients;
 mod keymap;
@@ -31,11 +34,10 @@ fn tenon() -> OxiResult<Dictionary> {
         )
         .exec();
 
-    let chat_window = Arc::new(Mutex::new(ChatWindow::new()));
     LazyLock::force(&GLOBAL_EXECUTION_HANDLER);
 
     let open_fn = Function::from_fn_mut({
-        let win_clone = chat_window.clone();
+        let win_clone = GLOBAL_CHAT_WINDOW.clone();
         move |()| {
             if let Ok(mut win) = win_clone.lock() {
                 let _ = win.open();
@@ -45,10 +47,7 @@ fn tenon() -> OxiResult<Dictionary> {
 
     let mut module = Dictionary::new();
     module.insert("open", Object::from(open_fn));
-    module.insert(
-        "keymap",
-        Object::from(create_lua_keymap_module(chat_window)),
-    );
+    module.insert("keymap", Object::from(create_lua_keymap_module()));
 
     Ok(module)
 }
