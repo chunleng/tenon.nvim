@@ -47,7 +47,7 @@ pub struct ChatWindow {
     /// The outer `RwLock` allows swapping the inner `Arc` when loading a different chat,
     /// so the renderer thread always reads from the current chat without closing windows.
     pub loaded_chat_process: Arc<RwLock<Arc<RwLock<ChatProcess>>>>,
-    pub loaded_chat_index: usize,
+    pub loaded_chat_index: Arc<AtomicUsize>,
     render_state: Arc<RwLock<RenderState>>,
     force_rerender: Arc<AtomicBool>,
     spinner_frame: Arc<AtomicUsize>,
@@ -63,7 +63,7 @@ impl ChatWindow {
             output_window: Arc::new(Mutex::new(None)),
             input_window: Arc::new(Mutex::new(None)),
             loaded_chat_process,
-            loaded_chat_index,
+            loaded_chat_index: Arc::new(AtomicUsize::new(0)),
             render_state: Arc::new(RwLock::new(RenderState::default())),
             force_rerender: Arc::new(AtomicBool::new(false)),
             spinner_frame: Arc::new(AtomicUsize::new(0)),
@@ -124,7 +124,7 @@ impl ChatWindow {
 
     /// Loads the chat process at `index`, keeping windows open.
     pub fn load_chat(&mut self, index: usize) -> OxiResult<()> {
-        self.loaded_chat_index = index;
+        self.loaded_chat_index.store(index, Ordering::SeqCst);
         if let Ok(mut loaded) = self.loaded_chat_process.write() {
             *loaded = get_or_create_chat_process(index);
         }
@@ -139,16 +139,18 @@ impl ChatWindow {
     /// Loads the next chat in the list (no-op if already at the last).
     pub fn load_next_chat(&mut self) -> OxiResult<()> {
         let count = chat_process_count();
-        if self.loaded_chat_index + 1 < count {
-            self.load_chat(self.loaded_chat_index + 1)?;
+        let current = self.loaded_chat_index.load(Ordering::SeqCst);
+        if current + 1 < count {
+            self.load_chat(current + 1)?;
         }
         Ok(())
     }
 
     /// Loads the previous chat in the list (no-op if already at the first).
     pub fn load_prev_chat(&mut self) -> OxiResult<()> {
-        if self.loaded_chat_index > 0 {
-            self.load_chat(self.loaded_chat_index - 1)?;
+        let current = self.loaded_chat_index.load(Ordering::SeqCst);
+        if current > 0 {
+            self.load_chat(current - 1)?;
         }
         Ok(())
     }
@@ -162,11 +164,11 @@ impl ChatWindow {
     /// Dismisses the current chat. If it was the last one, closes the window
     /// and prepares a fresh chat for the next open.
     pub fn dismiss_chat(&mut self) -> OxiResult<()> {
-        remove_chat_process(self.loaded_chat_index);
+        remove_chat_process(self.loaded_chat_index.load(Ordering::SeqCst));
 
         if chat_process_count() == 0 {
             self.close()?;
-            self.loaded_chat_index = 0;
+            self.loaded_chat_index.store(0, Ordering::SeqCst);
             if let Ok(mut loaded) = self.loaded_chat_process.write() {
                 *loaded = get_or_create_chat_process(0);
             }
@@ -174,7 +176,8 @@ impl ChatWindow {
                 *state = RenderState::default();
             }
         } else {
-            let new_index = self.loaded_chat_index.min(chat_process_count() - 1);
+            let current = self.loaded_chat_index.load(Ordering::SeqCst);
+            let new_index = current.min(chat_process_count() - 1);
             self.load_chat(new_index)?;
         }
 
@@ -353,6 +356,7 @@ impl ChatWindow {
             let chat_renderer_handle = AsyncHandle::new({
                 let output_window = win.clone();
                 let loaded_chat_process = self.loaded_chat_process.clone();
+                let loaded_chat_index = self.loaded_chat_index.clone();
                 let render_state_clone = render_state.clone();
                 let spinner_frame_clone = spinner_frame.clone();
                 move || {
@@ -425,6 +429,11 @@ impl ChatWindow {
                         } else {
                             false
                         };
+                        let chat_index_display = {
+                            let idx = loaded_chat_index.load(Ordering::SeqCst);
+                            let total = chat_process_count();
+                            format!("{} of {}", idx + 1, total)
+                        };
                         let model_display = if let Ok(loaded) = loaded_chat_process.read() {
                             loaded
                                 .read()
@@ -432,7 +441,7 @@ impl ChatWindow {
                         } else {
                             String::new()
                         };
-                        content.push(model_display);
+                        content.push(format!("󰭹  {}, {}", chat_index_display, model_display));
                         let spinner_buf_line = frozen_line_count + content.len() - 1;
 
                         let usage_buf_line;
