@@ -1,7 +1,7 @@
 use crate::{
     clients::{OllamaProviderConfig, StreamItem, SupportedModels, get_agent},
     mcp::McpHubCaller,
-    tools::{EditFile, FetchWebpage, ListFile, ReadFile, WriteFile},
+    tools::{CreateFile, EditFile, FetchWebpage, ListFile, ReadFile},
     utils::GLOBAL_EXECUTION_HANDLER,
 };
 use nvim_oxi::api::types::LogLevel;
@@ -209,7 +209,7 @@ impl ChatProcess {
                     Box::new(FetchWebpage),
                     Box::new(ListFile),
                     Box::new(ReadFile),
-                    Box::new(WriteFile),
+                    Box::new(CreateFile),
                     Box::new(ThinkTool),
                 ];
                 if let Ok(x) = McpHubCaller::from_mcp_tools() {

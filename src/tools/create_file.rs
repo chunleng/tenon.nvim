@@ -7,38 +7,32 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Deserialize)]
-pub struct WriteFileArgs {
+pub struct CreateFileArgs {
     pub filepath: String,
-    pub content: String,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
-pub struct WriteFile;
+pub struct CreateFile;
 
-impl Tool for WriteFile {
-    const NAME: &'static str = "write_file";
+impl Tool for CreateFile {
+    const NAME: &'static str = "create_file";
     type Error = ToolError;
-    type Args = WriteFileArgs;
+    type Args = CreateFileArgs;
     type Output = String;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
-            name: "write_file".to_string(),
-            description: "Write content to file. Creates if missing, overwrites if exists."
-                .to_string(),
+            name: "create_file".to_string(),
+            description: "Create empty file. Error if exists.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "filepath": {
                         "type": "string",
-                        "description": "File path (absolute or relative)"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Content to write"
+                        "description": "Path"
                     }
                 },
-                "required": ["filepath", "content"]
+                "required": ["filepath"]
             }),
         }
     }
@@ -46,26 +40,32 @@ impl Tool for WriteFile {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let path = Path::new(&args.filepath);
 
+        if path.exists() {
+            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("exists: '{}'", args.filepath),
+            ))));
+        }
+
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 if let Err(e) = fs::create_dir_all(parent) {
                     return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                         e.kind(),
-                        format!("mkdir failed '{}': {}", args.filepath, e),
+                        format!("mkdir fail '{}': {}", args.filepath, e),
                     ))));
                 }
             }
         }
 
-        match fs::write(path, &args.content) {
+        match fs::File::create_new(path) {
             Ok(_) => {
-                let byte_count = args.content.len();
                 let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread("vim.cmd('checktime')");
-                Ok(format!("wrote {}B → '{}'", byte_count, args.filepath))
+                Ok(format!("created '{}'", args.filepath))
             }
             Err(e) => Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                 e.kind(),
-                format!("write failed '{}': {}", args.filepath, e),
+                format!("create fail '{}': {}", args.filepath, e),
             )))),
         }
     }
