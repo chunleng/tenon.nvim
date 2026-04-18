@@ -36,6 +36,7 @@ static AGENT_REGISTRY: LazyLock<HashMap<&'static str, TenonAgent>> = LazyLock::n
             "fetch_webpage",
             "list_file",
             "read_file",
+            "web_search",
             "think",
         ],
     );

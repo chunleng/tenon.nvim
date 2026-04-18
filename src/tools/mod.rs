@@ -3,6 +3,7 @@ pub mod edit_file;
 pub mod fetch_webpage;
 pub mod list_file;
 pub mod read_file;
+pub mod web_search;
 
 use crate::mcp::McpHubCaller;
 pub use create_file::CreateFile;
@@ -11,14 +12,14 @@ pub use fetch_webpage::FetchWebpage;
 pub use list_file::ListFile;
 pub use read_file::ReadFile;
 use rig::{tool::ToolDyn, tools::ThinkTool};
+pub use web_search::WebSearch;
 
 /// Resolve a list of tool name strings into concrete `Box<dyn ToolDyn>` instances.
 ///
-/// Built-in names: `"create_file"`, `"edit_file"`, `"fetch_webpage"`,
-/// `"list_file"`, `"read_file"`, `"think"`.
-/// MCP tool names: `"server_name.tool_name"` for a specific tool,
-/// or `"server_name"` to include all tools from that server.
-/// Unknown names are silently skipped.
+/// Built-in names: "create_file", "edit_file", "fetch_webpage",
+/// "list_file", "read_file", "web_search", "think".
+/// MCP tool names: "server_name.tool_name" for a specific tool,
+/// or "server_name" to include all tools from that server.
 pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
     let name_refs: Vec<&str> = names.iter().map(|n| n.as_ref()).collect();
 
@@ -42,6 +43,10 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
         (
             "read_file".to_string(),
             Box::new(ReadFile) as Box<dyn ToolDyn>,
+        ),
+        (
+            "web_search".to_string(),
+            Box::new(WebSearch) as Box<dyn ToolDyn>,
         ),
         ("think".to_string(), Box::new(ThinkTool) as Box<dyn ToolDyn>),
     ];
