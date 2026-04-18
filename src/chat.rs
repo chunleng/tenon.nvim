@@ -1,7 +1,6 @@
 use crate::{
     clients::{ChatAgent, OllamaProviderConfig, StreamItem, SupportedModels, get_agent},
-    mcp::McpHubCaller,
-    tools::{CreateFile, EditFile, FetchWebpage, ListFile, ReadFile},
+    tools::resolve_tools,
     utils::GLOBAL_EXECUTION_HANDLER,
 };
 use nvim_oxi::api::types::LogLevel;
@@ -11,7 +10,6 @@ use rig::{
     completion::Usage,
     message::{AssistantContent, Image, Message, ToolResult, ToolResultContent, UserContent},
     tool::ToolDyn,
-    tools::ThinkTool,
 };
 use serde_json::Value;
 use std::{
@@ -24,13 +22,23 @@ pub static CHAT_PROCESSES: LazyLock<Mutex<Vec<Arc<RwLock<ChatProcess>>>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
 
 static AGENT_REGISTRY: LazyLock<HashMap<&'static str, TenonAgent>> = LazyLock::new(|| {
-    let default = TenonAgent::new(SupportedModels::Ollama {
-        config: OllamaProviderConfig {
-            base_url: "https://ollama.com".to_string(),
-            ..Default::default()
+    let default = TenonAgent::new(
+        SupportedModels::Ollama {
+            config: OllamaProviderConfig {
+                base_url: "https://ollama.com".to_string(),
+                ..Default::default()
+            },
+            model_name: "glm-5.1".to_string(),
         },
-        model_name: "glm-5.1".to_string(),
-    });
+        &[
+            "create_file",
+            "edit_file",
+            "fetch_webpage",
+            "list_file",
+            "read_file",
+            "think",
+        ],
+    );
     [("default", default)].into_iter().collect()
 });
 
@@ -189,10 +197,11 @@ pub struct ChatProcess {
 pub struct TenonAgent {
     pub model: SupportedModels,
     pub preamble: Option<String>,
+    pub tool_names: Vec<String>,
 }
 
 impl TenonAgent {
-    pub fn new(model: SupportedModels) -> Self {
+    pub fn new(model: SupportedModels, tools: &[impl AsRef<str>]) -> Self {
         Self {
             model,
             preamble: Some(
@@ -201,6 +210,7 @@ impl TenonAgent {
                 verbose."
                     .to_string(),
             ),
+            tool_names: tools.iter().map(|t| t.as_ref().to_string()).collect(),
         }
     }
 
@@ -250,22 +260,7 @@ impl ChatProcess {
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let mut tools: Vec<Box<dyn ToolDyn>> = vec![
-                    Box::new(EditFile),
-                    Box::new(FetchWebpage),
-                    Box::new(ListFile),
-                    Box::new(ReadFile),
-                    Box::new(CreateFile),
-                    Box::new(ThinkTool),
-                ];
-                if let Ok(x) = McpHubCaller::from_mcp_tools() {
-                    tools.append(
-                        &mut x
-                            .into_iter()
-                            .map(|x| Box::new(x) as Box<dyn ToolDyn>)
-                            .collect::<Vec<_>>(),
-                    );
-                }
+                let tools = resolve_tools(&agent_clone.tool_names);
                 let agent = agent_clone.build_chat_adapter(tools);
                 let chat_history;
                 if let Ok(logs) = logs_clone.read() {
