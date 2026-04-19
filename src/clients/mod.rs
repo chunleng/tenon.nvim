@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::sync::LazyLock;
-
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use rig::{
     agent::Agent,
@@ -10,58 +7,35 @@ use rig::{
     streaming::StreamingChat,
     tool::ToolDyn,
 };
+use serde::Deserialize;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-pub enum SupportedModels {
-    Ollama {
-        config: OllamaProviderConfig,
-        model_name: String,
-    },
-    Gemini {
-        config: GeminiProviderConfig,
-        model_name: String,
-    },
-    OpenAI {
-        config: OpenAIProviderConfig,
-        model_name: String,
-    },
-    Bedrock {
-        model_name: String,
-    },
+pub struct SupportedModels {
+    pub config: ProviderConfig,
+    pub model_name: String,
 }
 
 impl SupportedModels {
     pub fn display_name(&self) -> String {
-        match self {
-            SupportedModels::Ollama { model_name, .. } => format!("ollama: {}", model_name),
-            SupportedModels::Gemini { model_name, .. } => format!("gemini: {}", model_name),
-            SupportedModels::OpenAI { model_name, .. } => format!("openai: {}", model_name),
-            SupportedModels::Bedrock { model_name } => format!("bedrock: {}", model_name),
+        match self.config {
+            ProviderConfig::Ollama(_) => format!("ollama: {}", self.model_name),
+            ProviderConfig::Gemini(_) => format!("gemini: {}", self.model_name),
+            ProviderConfig::OpenAI(_) => format!("openai: {}", self.model_name),
+            ProviderConfig::Bedrock(_) => format!("bedrock: {}", self.model_name),
         }
     }
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum ProviderConfig {
     Ollama(OllamaProviderConfig),
     Gemini(GeminiProviderConfig),
     OpenAI(OpenAIProviderConfig),
     Bedrock(NoProviderConfig),
 }
-
-pub static PROVIDERS: LazyLock<HashMap<&'static str, ProviderConfig>> = LazyLock::new(|| {
-    let mut map = HashMap::new();
-    map.insert(
-        "ollama_cloud",
-        ProviderConfig::Ollama(OllamaProviderConfig {
-            base_url: "https://ollama.com".to_string(),
-            ..Default::default()
-        }),
-    );
-    map
-});
 
 pub enum ChatAgent {
     Ollama(Agent<ollama::CompletionModel>),
@@ -233,26 +207,24 @@ pub fn get_agent(
     preamble: Option<String>,
     tools: Vec<Box<dyn ToolDyn>>,
 ) -> ChatAgent {
-    match model {
-        SupportedModels::Ollama { config, model_name } => {
-            ChatAgent::Ollama(get_ollama_agent(config, model_name, preamble, tools))
+    match model.config {
+        ProviderConfig::Ollama(config) => {
+            ChatAgent::Ollama(get_ollama_agent(config, model.model_name, preamble, tools))
         }
-        SupportedModels::Gemini { config, model_name } => {
-            ChatAgent::Gemini(get_gemini_agent(config, model_name, preamble, tools))
+        ProviderConfig::Gemini(config) => {
+            ChatAgent::Gemini(get_gemini_agent(config, model.model_name, preamble, tools))
         }
-        SupportedModels::OpenAI { config, model_name } => {
-            ChatAgent::OpenAI(get_openai_agent(config, model_name, preamble, tools))
+        ProviderConfig::OpenAI(config) => {
+            ChatAgent::OpenAI(get_openai_agent(config, model.model_name, preamble, tools))
         }
-        SupportedModels::Bedrock { model_name } => ChatAgent::Bedrock(get_bedrock_agent(
-            NoProviderConfig,
-            model_name,
-            preamble,
-            tools,
-        )),
+        ProviderConfig::Bedrock(config) => {
+            ChatAgent::Bedrock(get_bedrock_agent(config, model.model_name, preamble, tools))
+        }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct OllamaProviderConfig {
     pub base_url: String,
     pub bearer: Option<String>,
@@ -298,7 +270,8 @@ fn get_ollama_agent(
     agent
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct GeminiProviderConfig {
     pub base_url: String,
     pub api_key: String,
@@ -333,7 +306,8 @@ fn get_gemini_agent(
     agent
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct OpenAIProviderConfig {
     pub base_url: String,
     pub api_key: String,
@@ -375,7 +349,7 @@ fn get_openai_agent(
     agent
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct NoProviderConfig;
 
 fn get_bedrock_agent(

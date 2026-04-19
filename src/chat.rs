@@ -1,5 +1,6 @@
 use crate::{
-    clients::{ChatAgent, PROVIDERS, ProviderConfig, StreamItem, SupportedModels, get_agent},
+    clients::{ChatAgent, StreamItem, SupportedModels, get_agent},
+    get_application_config,
     tools::resolve_tools,
     utils::GLOBAL_EXECUTION_HANDLER,
 };
@@ -13,36 +14,13 @@ use rig::{
 };
 use serde_json::Value;
 use std::{
-    collections::{HashMap, LinkedList},
+    collections::LinkedList,
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, LazyLock, Mutex, RwLock},
 };
 
 pub static CHAT_PROCESSES: LazyLock<Mutex<Vec<Arc<RwLock<ChatProcess>>>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
-
-static AGENT_REGISTRY: LazyLock<HashMap<&'static str, TenonAgent>> = LazyLock::new(|| {
-    let ollama_cloud_config = match PROVIDERS.get("ollama_cloud") {
-        Some(ProviderConfig::Ollama(config)) => config.clone(),
-        _ => panic!("'ollama_cloud' provider not found in PROVIDERS"),
-    };
-    let default = TenonAgent::new(
-        SupportedModels::Ollama {
-            config: ollama_cloud_config,
-            model_name: "glm-5.1".to_string(),
-        },
-        &[
-            "create_file",
-            "edit_file",
-            "fetch_webpage",
-            "list_file",
-            "read_file",
-            "web_search",
-            "think",
-        ],
-    );
-    [("default", default)].into_iter().collect()
-});
 
 /// Returns the chat process at `index`, creating new ones as needed.
 pub fn get_or_create_chat_process(index: usize) -> Arc<RwLock<ChatProcess>> {
@@ -203,13 +181,21 @@ pub struct TenonAgent {
 }
 
 impl TenonAgent {
-    pub fn new(model: SupportedModels, tools: &[impl AsRef<str>]) -> Self {
+    pub fn new(
+        model: SupportedModels,
+        preamble: Option<String>,
+        tools: &[impl AsRef<str>],
+    ) -> Self {
+        let mut target_preamble =
+            "Output markdown. Concise, not verbose. No filler or hedging or unnecessary words."
+                .to_string();
+        if let Some(p) = preamble {
+            target_preamble = format!("{}\n{}", target_preamble, p);
+        }
+
         Self {
             model,
-            preamble: Some(
-                "Output markdown. Concise, not verbose. No filler or hedging or unnecessary words."
-                    .to_string(),
-            ),
+            preamble: Some(target_preamble),
             tool_names: tools.iter().map(|t| t.as_ref().to_string()).collect(),
         }
     }
@@ -225,7 +211,8 @@ impl ChatProcess {
     }
 
     pub fn with_agent(agent_name: &str) -> Self {
-        let agent = AGENT_REGISTRY
+        let agent = get_application_config()
+            .agents
             .get(agent_name)
             .unwrap_or_else(|| panic!("agent '{}' not found in registry", agent_name))
             .clone();
