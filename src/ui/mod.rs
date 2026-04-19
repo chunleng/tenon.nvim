@@ -14,7 +14,7 @@ use nvim_oxi::{
     api::{
         self,
         opts::{CreateAugroupOpts, CreateAutocmdOpts, OptionOpts, SetExtmarkOpts, SetKeymapOpts},
-        types::{LogLevel, Mode},
+        types::{GotMode, LogLevel, Mode},
     },
     libuv::AsyncHandle,
     schedule,
@@ -70,9 +70,24 @@ impl ChatWindow {
         }
     }
 
+    fn focus_input_window(&self) -> OxiResult<()> {
+        if let Ok(input_win) = self.input_window.lock()
+            && let Some(input_win) = input_win.as_ref()
+            && let Some(win) = input_win.get_window()
+        {
+            api::set_current_win(&win)?;
+            let GotMode { mode, .. } = api::get_mode()?;
+            if mode != "i" {
+                api::feedkeys(c"i", c"n", false);
+            }
+        }
+        Ok(())
+    }
+
     pub fn open(&mut self) -> OxiResult<()> {
         self.get_or_create_output_window()?;
         self.get_or_create_input_window()?;
+        self.focus_input_window()?;
         Ok(())
     }
 
@@ -160,13 +175,7 @@ impl ChatWindow {
             self.close()
         } else {
             // Cursor is outside — focus input window
-            if let Ok(input_win) = self.input_window.lock()
-                && let Some(input_win) = input_win.as_ref()
-                && let Some(win) = input_win.get_window()
-            {
-                api::set_current_win(&win)?;
-            }
-            Ok(())
+            self.focus_input_window()
         }
     }
 
