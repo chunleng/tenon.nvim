@@ -27,10 +27,11 @@ use crate::{
         TenonUserTextMessage, chat_process_count, get_or_create_chat_process, remove_chat_process,
     },
     ui::{
-        components::{
-            FixedBufferVimWindow, FixedBufferVimWindowOption, SplitWindowOption, WindowOption,
+        components::{FixedBufferVimWindow, FixedBufferVimWindowOption},
+        nvim_primitives::{
+            buffer::NvimKeymap,
+            window::{NvimSplitWindowType, NvimWindowType},
         },
-        nvim_primitives::buffer::NvimKeymap,
     },
     utils::notify,
 };
@@ -291,8 +292,8 @@ impl ChatWindow {
             api::set_current_win(&output_window)?;
 
             let input_win = FixedBufferVimWindow::new(FixedBufferVimWindowOption {
-                window_option: WindowOption::Split {
-                    direction: SplitWindowOption::Bottom,
+                window_option: NvimWindowType::Split {
+                    direction: NvimSplitWindowType::Bottom,
                     ratio_wh: 0.3,
                     edge: false,
                 },
@@ -408,8 +409,8 @@ impl ChatWindow {
             Ok(win.clone())
         } else {
             let win = FixedBufferVimWindow::new(FixedBufferVimWindowOption {
-                window_option: WindowOption::Split {
-                    direction: SplitWindowOption::Right,
+                window_option: NvimWindowType::Split {
+                    direction: NvimSplitWindowType::Right,
                     ratio_wh: 0.4,
                     edge: true,
                 },
