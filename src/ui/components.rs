@@ -1,8 +1,11 @@
-use crate::ui::nvim_primitives::{
-    buffer::{NvimBuffer, NvimBufferOption, NvimKeymap},
-    window::{NvimWindow, NvimWindowOption, NvimWindowType},
+use crate::ui::{
+    nvim_primitives::{
+        buffer::{NvimBuffer, NvimBufferOption, NvimKeymap},
+        window::{NvimWindow, NvimWindowOption, NvimWindowType},
+    },
+    widget::Widget,
 };
-use nvim_oxi::{Result as OxiResult, api};
+use nvim_oxi::Result as OxiResult;
 
 #[derive(Debug, Clone)]
 pub struct FixedBufferVimWindowOption {
@@ -46,26 +49,28 @@ impl Default for FixedBufferVimWindowOption {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct FixedBufferVimWindow {
-    buffer: NvimBuffer,
-    window: NvimWindow,
+#[derive(Clone)]
+pub struct FixedBufferVimWindow<T: Widget> {
+    pub buffer: NvimBuffer,
+    pub window: NvimWindow,
+    pub widget: Option<T>,
 }
 
-impl FixedBufferVimWindow {
+impl<T: Widget> FixedBufferVimWindow<T> {
     pub fn new(option: FixedBufferVimWindowOption) -> OxiResult<Self> {
         let buffer = NvimBuffer::try_from(&option)?;
         let window = NvimWindow::try_from((&buffer.clone(), &option))?;
 
-        Ok(Self { buffer, window })
+        Ok(Self {
+            buffer,
+            window,
+            widget: None,
+        })
     }
 
-    pub fn get_buffer(&self) -> Option<api::Buffer> {
-        self.buffer.get_buffer()
-    }
-
-    pub fn get_window(&self) -> Option<api::Window> {
-        self.window.get_window()
+    pub fn attach_widget(&mut self, mut widget: T) {
+        let _ = widget.render();
+        self.widget = Some(widget);
     }
 }
 

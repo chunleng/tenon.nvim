@@ -2999,6 +2999,7 @@ version = "0.1.0"
 dependencies = [
  "dom_query 0.12.0",
  "dom_smoothie",
+ "dyn-clone",
  "futures",
  "globset",
  "ignore",
