@@ -119,6 +119,57 @@ impl ChatWindow {
         Ok(())
     }
 
+    fn is_open(&self) -> bool {
+        if let Ok(output_win) = self.output_window.lock()
+            && let Some(output_win) = output_win.as_ref()
+            && output_win.get_window().is_some()
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn is_focused(&self) -> bool {
+        if let (Ok(output_win), Ok(input_win)) =
+            (self.output_window.lock(), self.input_window.lock())
+        {
+            let current_win = api::get_current_win();
+            if let Some(output_win) = output_win.as_ref()
+                && let Some(win) = output_win.get_window()
+                && current_win == win
+            {
+                return true;
+            }
+            if let Some(input_win) = input_win.as_ref()
+                && let Some(win) = input_win.get_window()
+                && current_win == win
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn toggle(&mut self) -> OxiResult<()> {
+        if !self.is_open() {
+            return self.open();
+        }
+
+        if self.is_focused() {
+            self.close()
+        } else {
+            // Cursor is outside — focus input window
+            if let Ok(input_win) = self.input_window.lock()
+                && let Some(input_win) = input_win.as_ref()
+                && let Some(win) = input_win.get_window()
+            {
+                api::set_current_win(&win)?;
+            }
+            Ok(())
+        }
+    }
+
     pub fn close(&mut self) -> OxiResult<()> {
         // We just need to close one of the input/output windows as the windows are linked.
         if let Ok(input_win) = self.input_window.lock()
