@@ -278,6 +278,9 @@ impl ChatDisplay {
                                         && let Ok((_, cursor_col)) = window.get_cursor()
                                     {
                                         let _ = window.set_cursor(new_line_count, cursor_col);
+                                        let _ = window.call(|()| {
+                                            _ = api::command("normal! zb");
+                                        });
                                     }
                                 }
 
