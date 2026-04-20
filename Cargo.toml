@@ -16,8 +16,7 @@ rig-bedrock = "0.4.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.50.0", features = ["full"] }
-dom_smoothie = "0.17"
-dom_query = "0.12"
+html-to-markdown-rs = "2.9"
 globset = "0.4"
 ignore = "0.4"
 regex = "1"
