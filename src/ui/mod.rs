@@ -12,7 +12,7 @@ use nvim_oxi::{
     api::{
         self,
         opts::{CreateAugroupOpts, CreateAutocmdOpts, SetKeymapOpts},
-        types::{GotMode, LogLevel, Mode},
+        types::{LogLevel, Mode},
     },
 };
 
@@ -64,10 +64,7 @@ impl ChatWindow {
             && let Some(win) = input_win.window.get_window()
         {
             api::set_current_win(&win)?;
-            let GotMode { mode, .. } = api::get_mode()?;
-            if mode != "i" {
-                api::feedkeys(c"i", c"n", false);
-            }
+            api::feedkeys(c"a", c"n", false);
         }
         Ok(())
     }
