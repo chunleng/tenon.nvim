@@ -71,6 +71,12 @@ impl NvimBuffer {
         Ok(Self { inner: buffer })
     }
 
+    pub fn set_bufhidden(&self, value: &str) -> OxiResult<()> {
+        let opts = OptionOpts::builder().buffer(self.inner.clone()).build();
+        api::set_option_value("bufhidden", value, &opts)?;
+        Ok(())
+    }
+
     pub fn get_buffer(&self) -> Option<api::Buffer> {
         if self.inner.is_valid() {
             Some(self.inner.clone())

@@ -97,6 +97,7 @@ impl TryFrom<(&NvimBuffer, &FixedBufferPanelOption)> for NvimWindow {
                 number: option.number,
                 relative_number: option.relative_number,
                 sign_column: option.sign_column.to_string(),
+                winfixbuf: true,
                 window_option: option.window_option.clone(),
             },
         )

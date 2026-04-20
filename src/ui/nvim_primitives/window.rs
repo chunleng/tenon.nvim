@@ -39,6 +39,7 @@ pub struct NvimWindowOption {
     pub number: bool,
     pub relative_number: bool,
     pub sign_column: String,
+    pub winfixbuf: bool,
     pub window_option: NvimWindowType,
 }
 
@@ -50,6 +51,7 @@ impl Default for NvimWindowOption {
             sign_column: "auto".to_string(),
             number: true,
             relative_number: true,
+            winfixbuf: true,
             window_option: NvimWindowType::CenteredFloat {
                 height: 0.6,
                 width: 0.6,
@@ -128,8 +130,9 @@ impl NvimWindow {
             };
 
         let win_opts = OptionOpts::builder().win(window.clone()).build();
-        // Needed for this struct as we want to make sure window's buffer doesn't change
-        api::set_option_value("winfixbuf", true, &win_opts)?;
+        if option.winfixbuf {
+            api::set_option_value("winfixbuf", true, &win_opts)?;
+        }
 
         api::set_option_value("wrap", option.wrap, &win_opts)?;
         api::set_option_value("linebreak", option.line_break, &win_opts)?;
