@@ -200,6 +200,30 @@ impl ChatAgent {
             ),
         }
     }
+
+    /// Non-streaming convenience: collects all text from a single-turn chat.
+    /// Ignores tool calls — intended for lightweight sub-agent use (e.g. summarization).
+    pub async fn chat(&self, message: String) -> Result<String, rig::agent::StreamingError> {
+        let mut stream = self.stream_chat(message, vec![]).await;
+        let mut full_text = String::new();
+        let mut was_text = false;
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(StreamItem::Text { text }) => {
+                    if !was_text {
+                        // Only take the last block of StreamItem::Text to prevent getting LLM's
+                        // thought
+                        was_text = true;
+                        full_text = String::new();
+                    }
+                    full_text.push_str(&text);
+                }
+                Ok(_) => was_text = false,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(full_text)
+    }
 }
 
 pub fn get_agent(
