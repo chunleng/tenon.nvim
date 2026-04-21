@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     chat::TenonAgent,
-    clients::{OllamaProviderConfig, ProviderConfig, SupportedModels},
+    clients::{AnthropicProviderConfig, OllamaProviderConfig, ProviderConfig, SupportedModels},
 };
 
 pub mod user;
@@ -22,6 +22,13 @@ impl Default for TenonConfig {
         });
         let mut default_providers: HashMap<String, ProviderConfig> = HashMap::new();
         default_providers.insert("ollama_cloud".to_string(), ollama_cloud_provider.clone());
+        default_providers.insert(
+            "zai".to_string(),
+            ProviderConfig::Anthropic(AnthropicProviderConfig {
+                base_url: "https://api.z.ai/api/anthropic".to_string(),
+                api_key: std::env::var("ZAI_API_KEY").unwrap_or_default(),
+            }),
+        );
         let mut default_agents: HashMap<String, TenonAgent> = HashMap::new();
         let default_agent_name = "default".to_string();
         default_agents.insert(

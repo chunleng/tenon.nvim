@@ -3,7 +3,7 @@ use rig::{
     agent::Agent,
     client::{CompletionClient, Nothing, ProviderClient},
     message::Message,
-    providers::{gemini, ollama, openai},
+    providers::{anthropic, gemini, ollama, openai},
     streaming::StreamingChat,
     tool::ToolDyn,
 };
@@ -22,6 +22,7 @@ impl SupportedModels {
             ProviderConfig::Ollama(_) => format!("ollama: {}", self.model_name),
             ProviderConfig::Gemini(_) => format!("gemini: {}", self.model_name),
             ProviderConfig::OpenAI(_) => format!("openai: {}", self.model_name),
+            ProviderConfig::Anthropic(_) => format!("anthropic: {}", self.model_name),
             ProviderConfig::Bedrock(_) => format!("bedrock: {}", self.model_name),
         }
     }
@@ -34,6 +35,7 @@ pub enum ProviderConfig {
     Ollama(OllamaProviderConfig),
     Gemini(GeminiProviderConfig),
     OpenAI(OpenAIProviderConfig),
+    Anthropic(AnthropicProviderConfig),
     Bedrock(NoProviderConfig),
 }
 
@@ -41,6 +43,7 @@ pub enum ChatAgent {
     Ollama(Agent<ollama::CompletionModel>),
     Gemini(Agent<gemini::CompletionModel>),
     OpenAI(Agent<openai::CompletionModel>),
+    Anthropic(Agent<anthropic::completion::CompletionModel>),
     Bedrock(Agent<rig_bedrock::completion::CompletionModel>),
 }
 
@@ -68,6 +71,15 @@ pub enum ChatStream {
             'static,
             Result<
                 rig::agent::MultiTurnStreamItem<openai::streaming::StreamingCompletionResponse>,
+                rig::agent::StreamingError,
+            >,
+        >,
+    ),
+    Anthropic(
+        futures::stream::BoxStream<
+            'static,
+            Result<
+                rig::agent::MultiTurnStreamItem<anthropic::streaming::StreamingCompletionResponse>,
                 rig::agent::StreamingError,
             >,
         >,
@@ -162,6 +174,10 @@ impl ChatStream {
                 Ok(item) => Ok(convert_stream_item!(item)),
                 Err(e) => Err(e),
             }),
+            ChatStream::Anthropic(stream) => stream.next().await.map(|result| match result {
+                Ok(item) => Ok(convert_stream_item!(item)),
+                Err(e) => Err(e),
+            }),
             ChatStream::Bedrock(stream) => stream.next().await.map(|result| match result {
                 Ok(item) => Ok(convert_stream_item!(item)),
                 Err(e) => Err(e),
@@ -187,6 +203,12 @@ impl ChatAgent {
                     .await,
             ),
             ChatAgent::OpenAI(agent) => ChatStream::OpenAI(
+                agent
+                    .stream_chat(message, history)
+                    .multi_turn(multi_turn)
+                    .await,
+            ),
+            ChatAgent::Anthropic(agent) => ChatStream::Anthropic(
                 agent
                     .stream_chat(message, history)
                     .multi_turn(multi_turn)
@@ -241,6 +263,12 @@ pub fn get_agent(
         ProviderConfig::OpenAI(config) => {
             ChatAgent::OpenAI(get_openai_agent(config, model.model_name, preamble, tools))
         }
+        ProviderConfig::Anthropic(config) => ChatAgent::Anthropic(get_anthropic_agent(
+            config,
+            model.model_name,
+            preamble,
+            tools,
+        )),
         ProviderConfig::Bedrock(config) => {
             ChatAgent::Bedrock(get_bedrock_agent(config, model.model_name, preamble, tools))
         }
@@ -369,6 +397,48 @@ fn get_openai_agent(
         }));
     }
     let agent = agent.tools(tools).build();
+
+    agent
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AnthropicProviderConfig {
+    pub base_url: String,
+    pub api_key: String,
+}
+
+impl Default for AnthropicProviderConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "https://api.anthropic.com".to_string(),
+            api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        }
+    }
+}
+
+fn get_anthropic_agent(
+    config: AnthropicProviderConfig,
+    model_name: String,
+    preamble: Option<String>,
+    tools: Vec<Box<dyn ToolDyn>>,
+) -> Agent<anthropic::completion::CompletionModel> {
+    let client = anthropic::Client::builder()
+        .base_url(config.base_url)
+        .api_key(config.api_key)
+        .build()
+        .unwrap();
+    let mut agent = client.agent(model_name);
+    if let Some(p) = preamble {
+        agent = agent.preamble(&p);
+    }
+    let agent = agent
+        .max_tokens(16000)
+        .additional_params(serde_json::json!({
+            "thinking": { "type": "enabled", "budget_tokens": 10000 }
+        }))
+        .tools(tools)
+        .build();
 
     agent
 }
