@@ -93,9 +93,31 @@ fn tenon() -> OxiResult<Dictionary> {
         }
     });
 
+    let toggle_fn = Function::from_fn({
+        move |()| {
+            if let Ok(mut win) = get_chat_window().lock() {
+                if let Err(e) = win.toggle() {
+                    notify(format!("{}", e), LogLevel::Error);
+                }
+            }
+        }
+    });
+
+    let close_fn = Function::from_fn({
+        move |()| {
+            if let Ok(mut win) = get_chat_window().lock() {
+                if let Err(e) = win.close() {
+                    notify(format!("{}", e), LogLevel::Error);
+                }
+            }
+        }
+    });
+
     let mut module = Dictionary::new();
     module.insert("setup", Object::from(setup_fn));
     module.insert("open", Object::from(open_fn));
+    module.insert("toggle", Object::from(toggle_fn));
+    module.insert("close", Object::from(close_fn));
     module.insert("keymap", Object::from(create_lua_keymap_module()));
 
     Ok(module)

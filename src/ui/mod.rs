@@ -349,7 +349,7 @@ impl ChatWindow {
                 NvimKeymap {
                     modes: vec![Mode::Normal],
                     lhs: "q".to_string(),
-                    rhs: "<cmd>lua require('tenon').keymap.close()<cr>".to_string(),
+                    rhs: "<cmd>lua require('tenon').close()<cr>".to_string(),
                     opts: SetKeymapOpts::default(),
                 },
                 NvimKeymap {
@@ -499,7 +499,7 @@ impl ChatWindow {
                     NvimKeymap {
                         modes: vec![Mode::Normal],
                         lhs: "q".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.close()<cr>".to_string(),
+                        rhs: "<cmd>lua require('tenon').close()<cr>".to_string(),
                         opts: SetKeymapOpts::default(),
                     },
                     NvimKeymap {
