@@ -3,7 +3,8 @@ use nvim_oxi::{Dictionary, Function, Object, api::types::LogLevel};
 use crate::{
     chat::ActiveAgent,
     get_application_config, get_chat_window,
-    ui::picker::pick,
+    tools::all_tool_names,
+    ui::picker::{pick, pick_multi},
     utils::{GLOBAL_EXECUTION_HANDLER, notify},
 };
 
@@ -16,6 +17,7 @@ pub fn create_lua_keymap_module() -> Dictionary {
     keymap_dict.insert("dismiss_chat", Object::from(dismiss_chat_fn()));
     keymap_dict.insert("stop_streaming", Object::from(stop_streaming_fn()));
     keymap_dict.insert("select_agent", Object::from(select_agent_fn()));
+    keymap_dict.insert("select_tools", Object::from(select_tools_fn()));
     keymap_dict.insert("toggle_focus", Object::from(toggle_focus_fn()));
 
     keymap_dict
@@ -101,6 +103,52 @@ fn toggle_focus_fn() -> Function<(), ()> {
                     notify(format!("{}", e), LogLevel::Error);
                 }
             }
+        }
+    })
+}
+
+fn select_tools_fn() -> Function<(), ()> {
+    Function::from_fn({
+        move |()| {
+            // Read current tool names on the main thread (just Rust struct access).
+            let current_tool_names: Vec<String> = (|| {
+                let win_arc = get_chat_window();
+                let win = win_arc.lock().ok()?;
+                let loaded = win.loaded_chat_process.read().ok()?;
+                let process = loaded.read().ok()?;
+                Some(process.active_agent.tool_names.clone())
+            })()
+            .unwrap_or_default();
+
+            // all_tool_names() may call MCP (off-thread only), so run it off the main thread.
+            std::thread::spawn(move || {
+                let all_names = all_tool_names();
+                let options: Vec<&str> = all_names.iter().map(|s| s.as_str()).collect();
+                let current_refs: Vec<&str> =
+                    current_tool_names.iter().map(|s| s.as_str()).collect();
+
+                if let Err(e) = pick_multi(
+                    "Select Tools",
+                    &options,
+                    &current_refs,
+                    |selected| {
+                        if let Some(tools) = selected {
+                            let win_arc = get_chat_window();
+                            if let Ok(win) = win_arc.lock() {
+                                if let Ok(loaded) = win.loaded_chat_process.read() {
+                                    if let Ok(mut process) = loaded.write() {
+                                        process.active_agent.inner.tool_names = tools;
+                                        win.force_render();
+                                    }
+                                }
+                            }
+                        }
+                    },
+                ) {
+                    GLOBAL_EXECUTION_HANDLER
+                        .notify_on_main_thread(format!("picker error: {}", e), LogLevel::Error);
+                }
+            });
         }
     })
 }

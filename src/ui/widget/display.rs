@@ -23,6 +23,8 @@ use crate::{
         ChatProcess, TenonAssistantMessageContent, TenonLog, TenonToolLog, TenonUserMessage,
         TenonUserTextMessage, chat_process_count,
     },
+    get_application_config,
+    tools::resolve_tool_names,
     ui::{
         nvim_primitives::{buffer::NvimBuffer, window::NvimWindow},
         widget::Widget,
@@ -52,6 +54,8 @@ pub struct ChatDisplay {
     render_state: Arc<RwLock<RenderState>>,
     force_rerender: Arc<AtomicBool>,
     spinner_frame: Arc<AtomicUsize>,
+    tool_added: Arc<AtomicUsize>,
+    tool_removed: Arc<AtomicUsize>,
     running_thread: Option<Arc<JoinHandle<()>>>,
 }
 
@@ -64,6 +68,8 @@ impl ChatDisplay {
             render_state: Arc::new(RwLock::new(RenderState::default())),
             force_rerender: Arc::new(AtomicBool::new(false)),
             spinner_frame: Arc::new(AtomicUsize::new(0)),
+            tool_added: Arc::new(AtomicUsize::new(0)),
+            tool_removed: Arc::new(AtomicUsize::new(0)),
             running_thread: None,
         }
     }
@@ -80,12 +86,16 @@ impl ChatDisplay {
         let ns_id = api::create_namespace("TenonSigns");
         let render_state = self.render_state.clone();
         let spinner_frame = self.spinner_frame.clone();
+        let tool_added = self.tool_added.clone();
+        let tool_removed = self.tool_removed.clone();
         let chat_renderer_handle = AsyncHandle::new({
             let inner = self.inner.clone();
             let attached_window = self.attached_window.clone();
             let attached_chat = self.attached_chat.clone();
             let render_state_clone = render_state.clone();
             let spinner_frame_clone = spinner_frame.clone();
+            let tool_added_clone = tool_added.clone();
+            let tool_removed_clone = tool_removed.clone();
             move || {
                 let (logs, usage_clone) = {
                     if let Ok(chat) = attached_chat.read()
@@ -162,7 +172,18 @@ impl ChatDisplay {
                     let agent_name = chat_process.active_agent.name.clone();
                     drop(chat_process);
                     drop(chat);
-                    content.push(format!("󰭹  {}, agent: {}", chat_index_display, agent_name));
+                    let added = tool_added_clone.load(Ordering::SeqCst);
+                    let removed = tool_removed_clone.load(Ordering::SeqCst);
+                    let tool_diff = match (added, removed) {
+                        (0, 0) => String::new(),
+                        (a, 0) => format!(" (󰣖 +{})", a),
+                        (0, r) => format!(" (󰣖 -{})", r),
+                        (a, r) => format!(" (󰣖 +{}/-{})", a, r),
+                    };
+                    content.push(format!(
+                        "󰭹  {}, agent: {}{}",
+                        chat_index_display, agent_name, tool_diff
+                    ));
                     let spinner_buf_line = frozen_line_count + content.len() - 1;
 
                     let usage_buf_line;
@@ -301,6 +322,8 @@ impl ChatDisplay {
             let chat = self.attached_chat.clone();
             let force_rerender = self.force_rerender.clone();
             let spinner_frame = self.spinner_frame.clone();
+            let tool_added = self.tool_added.clone();
+            let tool_removed = self.tool_removed.clone();
             move || {
                 // Set true so that the first run will alway try to redraw
                 let mut previous_processing_state = true;
@@ -327,6 +350,39 @@ impl ChatDisplay {
                     };
 
                     if is_processing || force_rerender.swap(false, Ordering::SeqCst) {
+                        // Compute tool diff off-thread (safe to call resolve_tool_names here)
+                        // TODO make better performance by managing tools mcp server tool lifecycle
+                        {
+                            let (agent_name, current_tools) = {
+                                let chat_data = chat.read().unwrap_or_else(|x| x.into_inner());
+                                let chat_process = chat_data
+                                    .chat_process
+                                    .read()
+                                    .unwrap_or_else(|x| x.into_inner());
+                                (
+                                    chat_process.active_agent.name.clone(),
+                                    chat_process.active_agent.tool_names.clone(),
+                                )
+                            };
+                            let config_tools = get_application_config()
+                                .agents
+                                .get(&agent_name)
+                                .map(|a| a.tool_names.clone())
+                                .unwrap_or_default();
+                            let current_resolved = resolve_tool_names(&current_tools);
+                            let config_resolved = resolve_tool_names(&config_tools);
+                            let added = current_resolved
+                                .iter()
+                                .filter(|t| !config_resolved.contains(t))
+                                .count();
+                            let removed = config_resolved
+                                .iter()
+                                .filter(|t| !current_resolved.contains(t))
+                                .count();
+                            tool_added.store(added, Ordering::SeqCst);
+                            tool_removed.store(removed, Ordering::SeqCst);
+                        }
+
                         if is_processing && tick % 3 == 0 {
                             spinner_frame.fetch_add(1, Ordering::SeqCst);
                         }
