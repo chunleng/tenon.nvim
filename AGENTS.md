@@ -43,6 +43,9 @@ channel
 
 - Need Neovim API from off-thread? → use
   `GLOBAL_EXECUTION_HANDLER.execute_on_main_thread()`
+- Need async Lua from off-thread (callbacks, deferred work)? → use
+  `GLOBAL_EXECUTION_HANDLER.execute_on_main_thread_async()`.
+  Lua code receives a `resolve` callback — call `resolve(value)` to return result.
 - On main thread already? → call API directly, no handler needed
 - `LazyLock` → single global instance, lazy init
 
@@ -57,7 +60,7 @@ View          ← layout of Panels, user "page"
 
 | Layer | Role | Current |
 |-------|------|---------|
-| **View** | Top-level page. Owns Panel layout, wires Widgets. | `ui/mod.rs` → `ui/views.rs` |
+| **View** | Top-level page. Owns Panel layout, wires Widgets. | `ui/mod.rs` |
 | **Panel** | Owns buffer + window. Split/float/tile surface. Hosts Widgets. | `ui/panels/` |
 | **Widget** | Embeddable control. Renders into buffer, no window. | `ui/widget/` |
 | **nvim_primitives** | Thin `nvim_buf_*` / `nvim_win_*` wrappers. | `ui/nvim_primitives/` |
@@ -67,8 +70,10 @@ View          ← layout of Panels, user "page"
 ```
 src/ui/
   mod.rs
-  views.rs
-  panel.rs
+  panels/
+    mod.rs
+    fixed.rs
+    swappable.rs
   widget/
     mod.rs
     display.rs
@@ -135,4 +140,13 @@ In `src/tools/mod.rs`, add:
 ```rust
 pub mod my_tool;
 pub use my_tool::MyTool;
+```
+
+Also add entry to the `all_tools` vec inside `resolve_tools()`:
+
+```rust
+(
+    "my_tool".to_string(),
+    Box::new(MyTool) as Box<dyn ToolDyn>,
+),
 ```
