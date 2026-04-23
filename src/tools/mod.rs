@@ -2,6 +2,7 @@ pub mod create_file;
 pub mod edit_file;
 pub mod fetch_webpage;
 pub mod list_files;
+pub mod move_path;
 pub mod read_file;
 pub mod remove_path;
 pub mod run;
@@ -13,6 +14,7 @@ pub use create_file::CreateFile;
 pub use edit_file::EditFile;
 pub use fetch_webpage::FetchWebpage;
 pub use list_files::ListFiles;
+pub use move_path::MovePath;
 pub use read_file::ReadFile;
 pub use remove_path::RemovePath;
 use rig::{tool::ToolDyn, tools::ThinkTool};
@@ -30,13 +32,14 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
     let core_arg: &str = match name {
         "web_search" => "query",
         "read_file" | "edit_file" | "create_file" | "remove_path" => "filepath",
+        "move_path" => "source",
         "list_files" | "search_text" => "pattern",
         "fetch_webpage" => "url",
         "run" => "command",
         _ => return None,
     };
     args.get(core_arg).and_then(|v| v.as_str()).map(|x| {
-        let display = if core_arg == "filepath" {
+        let display = if core_arg == "filepath" || core_arg == "source" {
             std::env::current_dir()
                 .ok()
                 .and_then(|cwd| {
@@ -56,7 +59,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
 /// Returns the names of all available tools (built-in + MCP).
 ///
 /// Built-in names: "create_file", "edit_file", "fetch_webpage",
-/// "list_files", "read_file", "remove_path", "run", "search_text", "web_search", "think".
+/// "list_files", "move_path", "read_file", "remove_path", "run", "search_text", "web_search", "think".
 /// MCP tool names: "server_name.tool_name".
 pub fn all_tool_names() -> Vec<String> {
     let mut names: Vec<String> = vec![
@@ -64,6 +67,7 @@ pub fn all_tool_names() -> Vec<String> {
         "edit_file".into(),
         "fetch_webpage".into(),
         "list_files".into(),
+        "move_path".into(),
         "read_file".into(),
         "remove_path".into(),
         "run".into(),
@@ -111,7 +115,7 @@ pub fn resolve_tool_names(names: &[impl AsRef<str>]) -> Vec<String> {
 /// Resolve a list of tool name strings into concrete `Box<dyn ToolDyn>` instances.
 ///
 /// Built-in names: "create_file", "edit_file", "fetch_webpage",
-/// "list_files", "read_file", "remove_path", "run", "search_text", "web_search", "think".
+/// "list_files", "move_path", "read_file", "remove_path", "run", "search_text", "web_search", "think".
 /// MCP tool names: "server_name.tool_name" for a specific tool,
 /// or "server_name" to include all tools from that server.
 pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
@@ -133,6 +137,10 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
         (
             "list_files".to_string(),
             Box::new(ListFiles) as Box<dyn ToolDyn>,
+        ),
+        (
+            "move_path".to_string(),
+            Box::new(MovePath) as Box<dyn ToolDyn>,
         ),
         (
             "read_file".to_string(),
