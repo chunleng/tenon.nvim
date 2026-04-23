@@ -517,17 +517,25 @@ impl DisplayAsChat for TenonLog {
                 tool_call,
                 tool_result,
             }) => {
-                let status = if tool_result.is_some() {
-                    " "
-                } else {
-                    " "
+                let (status, extra_lines) = match tool_result {
+                    None => (" ", Vec::new()),
+                    Some(Ok(_)) => (" ", Vec::new()),
+                    Some(Err(err)) => (
+                        " ",
+                        err.display_message()
+                            .lines()
+                            .map(|x| format!("   > {}", x))
+                            .collect::<Vec<_>>(),
+                    ),
                 };
                 let summary = tool_display_summary(&tool_call.name, &tool_call.args);
                 let line = match summary {
                     Some(s) => format!("{} {} | {}", status, tool_call.name, s),
                     None => format!("{} {}", status, tool_call.name),
                 };
-                (vec![line], SignIcon::Tool)
+                let mut lines = vec![line];
+                lines.extend(extra_lines);
+                (lines, SignIcon::Tool)
             }
         }
     }

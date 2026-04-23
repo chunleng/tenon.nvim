@@ -105,9 +105,25 @@ pub enum TenonToolResult {
 }
 
 #[derive(Debug, Clone)]
+pub struct TenonToolError(pub String);
+
+impl TenonToolError {
+    /// Strip rig's internal wrapping prefixes for display.
+    /// E.g. "Toolset error: ToolCallError: ToolCallError: read_file ..."
+    ///   → "read_file ..."
+    pub fn display_message(&self) -> &str {
+        let mut s = self.0.strip_prefix("Toolset error: ").unwrap_or(&self.0);
+        while let Some(stripped) = s.strip_prefix("ToolCallError: ") {
+            s = stripped;
+        }
+        s
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TenonToolLog {
     pub tool_call: TenonToolCall,
-    pub tool_result: Option<TenonToolResult>,
+    pub tool_result: Option<Result<TenonToolResult, TenonToolError>>,
 }
 
 impl From<TenonToolLog> for Vec<Message> {
@@ -121,21 +137,21 @@ impl From<TenonToolLog> for Vec<Message> {
             )),
         }];
         if let Some(res) = value.tool_result {
-            messages.push(match res {
-                TenonToolResult::Text(text) => Message::User {
-                    content: OneOrMany::one(UserContent::ToolResult(ToolResult {
-                        id: value.tool_call.id,
-                        call_id: None,
-                        content: OneOrMany::one(ToolResultContent::Text(text)),
-                    })),
-                },
-                TenonToolResult::Image(img) => Message::User {
-                    content: OneOrMany::one(UserContent::ToolResult(ToolResult {
-                        id: value.tool_call.id,
-                        call_id: None,
-                        content: OneOrMany::one(ToolResultContent::Image(img)),
-                    })),
-                },
+            let tool_result_content = match &res {
+                Ok(TenonToolResult::Text(text)) => {
+                    OneOrMany::one(ToolResultContent::Text(text.clone()))
+                }
+                Ok(TenonToolResult::Image(img)) => {
+                    OneOrMany::one(ToolResultContent::Image(img.clone()))
+                }
+                Err(err) => OneOrMany::one(ToolResultContent::text(&err.0)),
+            };
+            messages.push(Message::User {
+                content: OneOrMany::one(UserContent::ToolResult(ToolResult {
+                    id: value.tool_call.id,
+                    call_id: None,
+                    content: tool_result_content,
+                })),
             });
         }
 
@@ -309,10 +325,14 @@ impl ChatProcess {
                                     let tool_result = tool_result.content.first();
                                     log.tool_result = Some(match tool_result {
                                         ToolResultContent::Text(text) => {
-                                            TenonToolResult::Text(text)
+                                            if text.text.starts_with("Toolset error: ") {
+                                                Err(TenonToolError(text.text))
+                                            } else {
+                                                Ok(TenonToolResult::Text(text))
+                                            }
                                         }
                                         ToolResultContent::Image(img) => {
-                                            TenonToolResult::Image(img)
+                                            Ok(TenonToolResult::Image(img))
                                         }
                                     });
                                 }
