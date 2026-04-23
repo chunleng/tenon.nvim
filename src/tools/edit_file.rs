@@ -11,7 +11,7 @@ pub struct EditFileArgs {
     pub filepath: String,
     pub search: String,
     pub replace: String,
-    pub replace_mode: String,
+    pub replace_mode: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -49,12 +49,13 @@ impl Tool for EditFile {
                         "description": "one = first match (error if >1 found). all = every match"
                     }
                 },
-                "required": ["filepath", "search", "replace", "replace_mode"]
+                "required": ["filepath", "search", "replace"]
             }),
         }
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let replace_mode = args.replace_mode.unwrap_or_else(|| "one".to_string());
         let path = Path::new(&args.filepath);
 
         let content = fs::read_to_string(path).map_err(|e| {
@@ -73,20 +74,20 @@ impl Tool for EditFile {
             ))));
         }
 
-        if args.replace_mode == "one" && match_count > 1 {
+        if replace_mode == "one" && match_count > 1 {
             return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!("{} matches. Use 'all' or narrow search", match_count),
             ))));
         }
 
-        let new_content = match args.replace_mode.as_str() {
+        let new_content = match replace_mode.as_str() {
             "one" => content.replacen(&args.search, &args.replace, 1),
             "all" => content.replace(&args.search, &args.replace),
             _ => {
                 return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
-                    format!("Bad mode '{}'. Use 'one' or 'all'", args.replace_mode),
+                    format!("Bad mode '{}'. Use 'one' or 'all'", replace_mode),
                 ))));
             }
         };
@@ -102,7 +103,7 @@ impl Tool for EditFile {
 
         Ok(format!(
             "Replaced {} in '{}'",
-            if args.replace_mode == "one" {
+            if replace_mode == "one" {
                 1
             } else {
                 match_count
