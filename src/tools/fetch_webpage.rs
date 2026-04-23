@@ -102,10 +102,14 @@ async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, Tool
     };
 
     let behavior = BehaviorSource::Text {
-        value: "Use only webpage content. No preamble/hedge/commentary/source refs. Preserve format: code→code blocks, steps→numbered lists, comparisons→tables, items→bullets. Answer directly.".to_string(),
+        value: "Webpage content only. No preamble/hedge/commentary/source refs. Preserve format: code→code blocks, steps→numbered lists, comparisons→tables, items→bullets. Caveman mode".to_string(),
     };
 
-    let agent = get_agent(model, vec![behavior], vec![]);
+    let caveman_mode_behavior = BehaviorSource::Text {
+        value: "Caveman mode. Short sentences. Drop filler (the/a/an/is/are). Symbols > words (→/=/vs). No politeness. Max meaning/token".to_string()
+    };
+
+    let agent = get_agent(model, vec![behavior, caveman_mode_behavior], vec![]);
 
     let user_message = format!("{}\n\nWebpage content:\n\n{}", prompt, markdown);
 
