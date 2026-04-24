@@ -4,6 +4,7 @@ use crate::{
     tools::resolve_tools,
     utils::GLOBAL_EXECUTION_HANDLER,
 };
+use chrono::Local;
 use nvim_oxi::{Result as OxiResult, api::types::LogLevel};
 use rig::{
     OneOrMany,
@@ -12,12 +13,17 @@ use rig::{
     message::{AssistantContent, Image, Message, ToolResult, ToolResultContent, UserContent},
     tool::ToolDyn,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::LinkedList,
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, LazyLock, Mutex, RwLock},
 };
+
+pub mod history;
+
+use history::save_to_history;
 
 pub static CHAT_PROCESSES: LazyLock<Mutex<Vec<Arc<RwLock<ChatProcess>>>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
@@ -44,10 +50,10 @@ pub fn chat_process_count() -> usize {
     CHAT_PROCESSES.lock().unwrap().len()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonUserTextMessage(pub String);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TenonUserMessage {
     Text(TenonUserTextMessage),
 }
@@ -62,7 +68,7 @@ impl From<TenonUserMessage> for Message {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TenonAssistantMessageContent {
     Text(String),
 }
@@ -74,7 +80,7 @@ impl From<TenonAssistantMessageContent> for AssistantContent {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonAssistantMessage {
     pub reasoning: Option<String>,
     pub content: Vec<TenonAssistantMessageContent>,
@@ -90,7 +96,7 @@ impl From<TenonAssistantMessage> for Option<Message> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonToolCall {
     pub id: String,
     pub internal_call_id: String,
@@ -98,13 +104,13 @@ pub struct TenonToolCall {
     pub args: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TenonToolResult {
     Text(Text),
     Image(Image),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonToolError(pub String);
 
 impl TenonToolError {
@@ -120,7 +126,7 @@ impl TenonToolError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonToolLog {
     pub tool_call: TenonToolCall,
     pub tool_result: Option<Result<TenonToolResult, TenonToolError>>,
@@ -159,7 +165,7 @@ impl From<TenonToolLog> for Vec<Message> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TenonLog {
     User(TenonUserMessage),
     Assistant(TenonAssistantMessage),
@@ -181,7 +187,15 @@ impl From<TenonLog> for Vec<Message> {
     }
 }
 
+fn generate_chat_id() -> String {
+    let now = Local::now();
+    let date = now.format("%Y-%m-%d");
+    let hash = format!("{:08x}", now.timestamp_subsec_nanos());
+    format!("{}_{}", date, hash)
+}
+
 pub struct ChatProcess {
+    pub id: String,
     pub logs: Arc<RwLock<LinkedList<TenonLog>>>,
     pub usage: Arc<RwLock<Option<Usage>>>,
     pub active_agent: ActiveAgent,
@@ -243,6 +257,7 @@ impl ChatProcess {
 
     pub fn with_agent_name(agent_name: String) -> OxiResult<Self> {
         Ok(Self {
+            id: generate_chat_id(),
             logs: Arc::new(RwLock::new(LinkedList::new())),
             usage: Arc::new(RwLock::new(None)),
             active_agent: ActiveAgent {
@@ -281,6 +296,7 @@ impl ChatProcess {
         let logs_clone = Arc::clone(&self.logs);
         let usage_clone = Arc::clone(&self.usage);
         let agent_clone = self.active_agent.clone();
+        let chat_id = self.id.clone();
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
@@ -415,6 +431,13 @@ impl ChatProcess {
                                     *usage_lock = Some(usage);
                                 }
                             }
+                            save_to_history(
+                                &chat_id,
+                                &agent_clone.name,
+                                &agent_clone.inner.model.display_name(),
+                                &logs_clone,
+                                &usage_clone,
+                            );
                         }
                         Ok(StreamItem::Other) => {}
                         Err(e) => {
