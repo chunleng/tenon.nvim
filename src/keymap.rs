@@ -116,9 +116,9 @@ fn select_tools_fn() -> Function<(), ()> {
             let current_tool_names: Vec<String> = (|| {
                 let win_arc = get_chat_window();
                 let win = win_arc.lock().ok()?;
-                let loaded = win.loaded_chat_process.read().ok()?;
-                let process = loaded.read().ok()?;
-                Some(process.active_agent.tool_names.clone())
+                let loaded = win.loaded_chat_session.read().ok()?;
+                let session = loaded.read().ok()?;
+                Some(session.active_agent.tool_names.clone())
             })()
             .unwrap_or_default();
 
@@ -133,9 +133,9 @@ fn select_tools_fn() -> Function<(), ()> {
                     if let Some(tools) = selected {
                         let win_arc = get_chat_window();
                         if let Ok(win) = win_arc.lock() {
-                            if let Ok(loaded) = win.loaded_chat_process.read() {
-                                if let Ok(mut process) = loaded.write() {
-                                    process.active_agent.inner.tool_names = tools;
+                            if let Ok(loaded) = win.loaded_chat_session.read() {
+                                if let Ok(mut session) = loaded.write() {
+                                    session.active_agent.inner.tool_names = tools;
                                     win.force_render();
                                 }
                             }
@@ -160,9 +160,9 @@ fn select_agent_fn() -> Function<(), ()> {
             let current_agent_name: Option<String> = (|| {
                 let win_arc = get_chat_window();
                 let win = win_arc.lock().ok()?;
-                let loaded = win.loaded_chat_process.read().ok()?;
-                let process = loaded.read().ok()?;
-                Some(process.active_agent.name.clone())
+                let loaded = win.loaded_chat_session.read().ok()?;
+                let session = loaded.read().ok()?;
+                Some(session.active_agent.name.clone())
             })();
 
             let options: Vec<&str> = agent_names.iter().map(|s| s.as_str()).collect();
@@ -177,9 +177,9 @@ fn select_agent_fn() -> Function<(), ()> {
                         if let Some(agent) = config.agents.get(&name) {
                             let win_arc = get_chat_window();
                             if let Ok(win) = win_arc.lock() {
-                                if let Ok(loaded) = win.loaded_chat_process.read() {
-                                    if let Ok(mut process) = loaded.write() {
-                                        process.active_agent = ActiveAgent {
+                                if let Ok(loaded) = win.loaded_chat_session.read() {
+                                    if let Ok(mut session) = loaded.write() {
+                                        session.active_agent = ActiveAgent {
                                             name: name.clone(),
                                             inner: agent.clone(),
                                         };
@@ -208,9 +208,9 @@ fn select_model_fn() -> Function<(), ()> {
             let current_model_display: Option<String> = (|| {
                 let win_arc = get_chat_window();
                 let win = win_arc.lock().ok()?;
-                let loaded = win.loaded_chat_process.read().ok()?;
-                let process = loaded.read().ok()?;
-                Some(process.active_agent.inner.model.display_name())
+                let loaded = win.loaded_chat_session.read().ok()?;
+                let session = loaded.read().ok()?;
+                Some(session.active_agent.inner.model.display_name())
             })();
 
             let options: Vec<&str> = model_list.iter().map(|s| s.as_str()).collect();
@@ -230,9 +230,9 @@ fn select_model_fn() -> Function<(), ()> {
                         {
                             let win_arc = get_chat_window();
                             if let Ok(win) = win_arc.lock() {
-                                if let Ok(loaded) = win.loaded_chat_process.read() {
-                                    if let Ok(mut process) = loaded.write() {
-                                        process.active_agent.inner.model = model;
+                                if let Ok(loaded) = win.loaded_chat_session.read() {
+                                    if let Ok(mut session) = loaded.write() {
+                                        session.active_agent.inner.model = model;
                                         win.force_render();
                                     }
                                 }

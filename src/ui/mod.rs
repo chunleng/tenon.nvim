@@ -18,12 +18,12 @@ use nvim_oxi::{
 };
 
 use crate::{
-    chat::chat_process_count,
+    chat::chat_session_count,
     ui::widget::{BasicWidget, Widget},
 };
 use crate::{
     chat::history::ChatHistory,
-    chat::{CHAT_PROCESSES, ChatProcess, get_or_create_chat_process, remove_chat_process},
+    chat::{CHAT_SESSIONS, ChatSession, get_or_create_chat_session, remove_chat_session},
     ui::{
         nvim_primitives::{
             buffer::{NvimBuffer, NvimBufferOption, NvimKeymap},
@@ -39,23 +39,23 @@ use crate::{
 pub struct ChatWindow {
     output_window: Arc<Mutex<Option<FixedBufferPanel<ChatDisplay>>>>,
     input_window: Arc<Mutex<Option<SwappableBufferPanel>>>,
-    /// Shared reference to the currently loaded chat process.
+    /// Shared reference to the currently loaded chat session.
     /// The outer `RwLock` allows swapping the inner `Arc` when loading a different chat,
     /// so the renderer thread always reads from the current chat without closing windows.
-    pub loaded_chat_process: Arc<RwLock<Arc<RwLock<ChatProcess>>>>,
+    pub loaded_chat_session: Arc<RwLock<Arc<RwLock<ChatSession>>>>,
     pub loaded_chat_index: Arc<AtomicUsize>,
 }
 
 impl ChatWindow {
     pub fn new() -> Self {
         let loaded_chat_index = 0;
-        let loaded_chat_process =
-            Arc::new(RwLock::new(get_or_create_chat_process(loaded_chat_index)));
+        let loaded_chat_session =
+            Arc::new(RwLock::new(get_or_create_chat_session(loaded_chat_index)));
 
         Self {
             output_window: Arc::new(Mutex::new(None)),
             input_window: Arc::new(Mutex::new(None)),
-            loaded_chat_process,
+            loaded_chat_session,
             loaded_chat_index: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -133,9 +133,9 @@ impl ChatWindow {
                 notify("please enter your message before sending", LogLevel::Error);
             } else {
                 self.scroll_output_to_bottom()?;
-                if let Ok(loaded) = self.loaded_chat_process.read() {
-                    if let Ok(mut chat_process) = loaded.write() {
-                        chat_process.send_message(message);
+                if let Ok(loaded) = self.loaded_chat_session.read() {
+                    if let Ok(mut chat_session) = loaded.write() {
+                        chat_session.send_message(message);
                         let _ = input_win_buffer.set_lines(0.., false, Vec::<String>::new());
                     }
                 }
@@ -146,9 +146,9 @@ impl ChatWindow {
     }
 
     pub fn stop_streaming(&mut self) -> OxiResult<()> {
-        if let Ok(loaded) = self.loaded_chat_process.read() {
-            if let Ok(mut chat_process) = loaded.write() {
-                chat_process.cancel();
+        if let Ok(loaded) = self.loaded_chat_session.read() {
+            if let Ok(mut chat_session) = loaded.write() {
+                chat_session.cancel();
             }
         }
         Ok(())
@@ -223,16 +223,16 @@ impl ChatWindow {
         Ok(())
     }
 
-    /// Loads the chat process at `index`, keeping windows open.
+    /// Loads the chat session at `index`, keeping windows open.
     pub fn load_chat(&mut self, index: usize) -> OxiResult<()> {
         self.loaded_chat_index.store(index, Ordering::SeqCst);
-        if let Ok(mut loaded) = self.loaded_chat_process.write() {
-            *loaded = get_or_create_chat_process(index);
+        if let Ok(mut loaded) = self.loaded_chat_session.write() {
+            *loaded = get_or_create_chat_session(index);
         }
         let mut panel = self.get_or_create_output_window()?;
         panel.widget.switch_chat(ChatDisplayData {
-            chat_process: self
-                .loaded_chat_process
+            chat_session: self
+                .loaded_chat_session
                 .read()
                 .map_err(|_| {
                     // TODO fix error handling
@@ -245,12 +245,12 @@ impl ChatWindow {
         })?;
         panel.widget.render()?;
 
-        // Swap the input window buffer to the one for this chat process.
+        // Swap the input window buffer to the one for this chat session.
         if let Ok(mut input_panel) = self.input_window.lock() {
             if let Some(panel) = input_panel.as_mut() {
                 let chat_key = Self::chat_key(
                     &self
-                        .loaded_chat_process
+                        .loaded_chat_session
                         .read()
                         .map_err(|_| {
                             nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(
@@ -273,7 +273,7 @@ impl ChatWindow {
 
     /// Loads the next chat in the list (no-op if already at the last).
     pub fn load_next_chat(&mut self) -> OxiResult<()> {
-        let count = chat_process_count();
+        let count = chat_session_count();
         let current = self.loaded_chat_index.load(Ordering::SeqCst);
         if current + 1 < count {
             self.load_chat(current + 1)?;
@@ -292,7 +292,7 @@ impl ChatWindow {
 
     /// Creates a new chat and loads it.
     pub fn new_chat(&mut self) -> OxiResult<()> {
-        let new_index = chat_process_count();
+        let new_index = chat_session_count();
         self.load_chat(new_index)?;
         self.focus_input_window()?;
         Ok(())
@@ -302,7 +302,7 @@ impl ChatWindow {
     /// chat and loads it so the window stays open.
     pub fn dismiss_chat(&mut self) -> OxiResult<()> {
         // Remove the dismissed chat's input buffer from the panel.
-        if let Ok(loaded) = self.loaded_chat_process.read() {
+        if let Ok(loaded) = self.loaded_chat_session.read() {
             let old_key = Self::chat_key(&loaded);
             if let Ok(mut input_panel) = self.input_window.lock() {
                 if let Some(panel) = input_panel.as_mut() {
@@ -311,30 +311,30 @@ impl ChatWindow {
             }
         }
 
-        remove_chat_process(self.loaded_chat_index.load(Ordering::SeqCst));
+        remove_chat_session(self.loaded_chat_index.load(Ordering::SeqCst));
 
-        if chat_process_count() == 0 {
+        if chat_session_count() == 0 {
             self.new_chat()?;
         } else {
             let current = self.loaded_chat_index.load(Ordering::SeqCst);
-            let new_index = current.min(chat_process_count() - 1);
+            let new_index = current.min(chat_session_count() - 1);
             self.load_chat(new_index)?;
         }
 
         Ok(())
     }
 
-    /// Loads a chat from history. If a process with the same ID already exists,
-    /// switches to it; otherwise creates a new process from the history entry.
+    /// Loads a chat from history. If a session with the same ID already exists,
+    /// switches to it; otherwise creates a new session from the history entry.
     pub fn load_or_create_chat_from_history(&mut self, history: ChatHistory) -> OxiResult<()> {
-        // Check if a process with this ID already exists
+        // Check if a session with this ID already exists
         let existing_idx = {
-            let processes = CHAT_PROCESSES.lock().unwrap();
-            processes.iter().enumerate().find_map(|(idx, process)| {
-                process
+            let sessions = CHAT_SESSIONS.lock().unwrap();
+            sessions.iter().enumerate().find_map(|(idx, session)| {
+                session
                     .read()
                     .ok()
-                    .filter(|proc| proc.id == history.id)
+                    .filter(|sess| sess.id == history.id)
                     .map(|_| idx)
             })
         };
@@ -342,22 +342,22 @@ impl ChatWindow {
             return self.load_chat(idx);
         }
 
-        // Create new process from history
-        let new_index = chat_process_count();
+        // Create new session from history
+        let new_index = chat_session_count();
         {
-            let mut processes = CHAT_PROCESSES.lock().unwrap();
-            let process = ChatProcess::from_history(history)?;
-            processes.push(Arc::new(RwLock::new(process)));
+            let mut sessions = CHAT_SESSIONS.lock().unwrap();
+            let session = ChatSession::from_history(history)?;
+            sessions.push(Arc::new(RwLock::new(session)));
         }
         self.load_chat(new_index)?;
         self.focus_input_window()?;
         Ok(())
     }
 
-    /// Returns a stable key for a chat process, based on its Arc pointer address.
+    /// Returns a stable key for a chat session, based on its Arc pointer address.
     /// This remains valid even when chat indices shift due to dismiss.
-    fn chat_key(process: &Arc<RwLock<ChatProcess>>) -> String {
-        format!("{:p}", Arc::as_ptr(process))
+    fn chat_key(session: &Arc<RwLock<ChatSession>>) -> String {
+        format!("{:p}", Arc::as_ptr(session))
     }
 
     /// Creates a new input buffer with the standard keymaps and filetype.
@@ -470,7 +470,7 @@ impl ChatWindow {
             };
             let chat_key = Self::chat_key(
                 &self
-                    .loaded_chat_process
+                    .loaded_chat_session
                     .read()
                     .unwrap_or_else(|x| x.into_inner()),
             );
@@ -622,8 +622,8 @@ impl ChatWindow {
             let widget = ChatDisplay::new(
                 buffer,
                 ChatDisplayData {
-                    chat_process: self
-                        .loaded_chat_process
+                    chat_session: self
+                        .loaded_chat_session
                         .read()
                         .unwrap_or_else(|x| x.into_inner())
                         .clone(),

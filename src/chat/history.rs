@@ -7,7 +7,7 @@ use std::{
 
 use super::TenonLog;
 
-/// Serializable snapshot of a chat process, written to `.tenon/history/<id>.json`
+/// Serializable snapshot of a chat session, written to `.tenon/history/<id>.json`
 /// on `StreamItem::Final`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatHistory {

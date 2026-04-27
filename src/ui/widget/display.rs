@@ -20,8 +20,8 @@ use nvim_oxi::{
 
 use crate::{
     chat::{
-        ChatProcess, TenonAssistantMessageContent, TenonLog, TenonToolLog, TenonUserMessage,
-        TenonUserTextMessage, chat_process_count,
+        ChatSession, TenonAssistantMessageContent, TenonLog, TenonToolLog, TenonUserMessage,
+        TenonUserTextMessage, chat_session_count,
     },
     get_application_config,
     tools::{resolve_tool_names, tool_display_summary},
@@ -33,7 +33,7 @@ use crate::{
 
 #[derive(Clone)]
 pub struct ChatDisplayData {
-    pub chat_process: Arc<RwLock<ChatProcess>>,
+    pub chat_session: Arc<RwLock<ChatSession>>,
     pub chat_index: usize,
 }
 
@@ -99,9 +99,9 @@ impl ChatDisplay {
             move || {
                 let (logs, usage_clone) = {
                     if let Ok(chat) = attached_chat.read()
-                        && let Ok(chat_process) = chat.chat_process.read()
+                        && let Ok(chat_session) = chat.chat_session.read()
                     {
-                        (chat_process.logs.clone(), chat_process.usage.clone())
+                        (chat_session.logs.clone(), chat_session.usage.clone())
                     } else {
                         return;
                     }
@@ -162,23 +162,23 @@ impl ChatDisplay {
                     let chat = attached_chat
                         .read()
                         .unwrap_or_else(|poison| poison.into_inner());
-                    let chat_process = chat.chat_process.read().unwrap_or_else(|x| x.into_inner());
-                    let is_currently_processing = chat_process.is_processing();
+                    let chat_session = chat.chat_session.read().unwrap_or_else(|x| x.into_inner());
+                    let is_currently_processing = chat_session.is_processing();
                     let chat_index_display = {
                         let idx = chat.chat_index;
-                        let total = chat_process_count();
+                        let total = chat_session_count();
                         format!("{} of {}", idx + 1, total)
                     };
-                    let agent_name = chat_process.active_agent.name.clone();
-                    let model_display = chat_process.active_agent.inner.model.display_name();
-                    let chat_title = chat_process
+                    let agent_name = chat_session.active_agent.name.clone();
+                    let model_display = chat_session.active_agent.inner.model.display_name();
+                    let chat_title = chat_session
                         .title
                         .read()
                         .ok()
                         .and_then(|t| t.clone())
                         .map(|t| format!("{} ", t))
                         .unwrap_or_default();
-                    drop(chat_process);
+                    drop(chat_session);
                     drop(chat);
                     let added = tool_added_clone.load(Ordering::SeqCst);
                     let removed = tool_removed_clone.load(Ordering::SeqCst);
@@ -355,13 +355,13 @@ impl ChatDisplay {
                         break;
                     }
 
-                    let is_processing = if let Ok(chat_process) = chat
+                    let is_processing = if let Ok(chat_session) = chat
                         .read()
                         .unwrap_or_else(|x| x.into_inner())
-                        .chat_process
+                        .chat_session
                         .read()
                     {
-                        let current_state = chat_process.is_processing();
+                        let current_state = chat_session.is_processing();
                         // Check both current and previous state, we want to render one more
                         // time after the state change
                         let r = current_state || previous_processing_state;
@@ -377,13 +377,13 @@ impl ChatDisplay {
                         {
                             let (agent_name, current_tools) = {
                                 let chat_data = chat.read().unwrap_or_else(|x| x.into_inner());
-                                let chat_process = chat_data
-                                    .chat_process
+                                let chat_session = chat_data
+                                    .chat_session
                                     .read()
                                     .unwrap_or_else(|x| x.into_inner());
                                 (
-                                    chat_process.active_agent.name.clone(),
-                                    chat_process.active_agent.tool_names.clone(),
+                                    chat_session.active_agent.name.clone(),
+                                    chat_session.active_agent.tool_names.clone(),
                                 )
                             };
                             let config_tools = get_application_config()

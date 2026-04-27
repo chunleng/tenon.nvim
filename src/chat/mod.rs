@@ -27,29 +27,29 @@ pub use log::{
 
 use history::save_to_history;
 
-pub static CHAT_PROCESSES: LazyLock<Mutex<Vec<Arc<RwLock<ChatProcess>>>>> =
+pub static CHAT_SESSIONS: LazyLock<Mutex<Vec<Arc<RwLock<ChatSession>>>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
 
-/// Returns the chat process at `index`, creating new ones as needed.
-pub fn get_or_create_chat_process(index: usize) -> Arc<RwLock<ChatProcess>> {
-    let mut processes = CHAT_PROCESSES.lock().unwrap();
-    while processes.len() <= index {
-        processes.push(Arc::new(RwLock::new(ChatProcess::new())));
+/// Returns the chat session at `index`, creating new ones as needed.
+pub fn get_or_create_chat_session(index: usize) -> Arc<RwLock<ChatSession>> {
+    let mut sessions = CHAT_SESSIONS.lock().unwrap();
+    while sessions.len() <= index {
+        sessions.push(Arc::new(RwLock::new(ChatSession::new())));
     }
-    processes[index].clone()
+    sessions[index].clone()
 }
 
-/// Removes the chat process at `index`, shifting subsequent indices down.
-pub fn remove_chat_process(index: usize) {
-    let mut processes = CHAT_PROCESSES.lock().unwrap();
-    if index < processes.len() {
-        processes.remove(index);
+/// Removes the chat session at `index`, shifting subsequent indices down.
+pub fn remove_chat_session(index: usize) {
+    let mut sessions = CHAT_SESSIONS.lock().unwrap();
+    if index < sessions.len() {
+        sessions.remove(index);
     }
 }
 
-/// Returns the current number of chat processes.
-pub fn chat_process_count() -> usize {
-    CHAT_PROCESSES.lock().unwrap().len()
+/// Returns the current number of chat sessions.
+pub fn chat_session_count() -> usize {
+    CHAT_SESSIONS.lock().unwrap().len()
 }
 
 fn generate_chat_id() -> String {
@@ -59,7 +59,7 @@ fn generate_chat_id() -> String {
     format!("{}_{}", date, hash)
 }
 
-pub struct ChatProcess {
+pub struct ChatSession {
     pub id: String,
     pub title: Arc<RwLock<Option<String>>>,
     pub logs: Arc<RwLock<LinkedList<TenonLog>>>,
@@ -117,7 +117,7 @@ impl TenonAgent {
     }
 }
 
-impl ChatProcess {
+impl ChatSession {
     pub fn new() -> Self {
         Self::with_agent_name(get_application_config().default_agent)
             .expect("the program failed to enforce default_agent validation")
