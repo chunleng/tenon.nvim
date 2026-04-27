@@ -54,9 +54,9 @@ pub fn chat_session_count() -> usize {
 
 fn generate_chat_id() -> String {
     let now = Local::now();
-    let date = now.format("%Y-%m-%d");
+    let datetime = now.format("%Y-%m-%dT%H:%M:%S");
     let hash = format!("{:08x}", now.timestamp_subsec_nanos());
-    format!("{}_{}", date, hash)
+    format!("{}_{}", datetime, hash)
 }
 
 pub struct ChatSession {

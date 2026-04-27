@@ -55,7 +55,9 @@ impl Default for TitleConfig {
     fn default() -> Self {
         Self {
             model: None,
-            prompt: "2-6 specific words. Unclear → random adjective + noun (e.g., 'Silent Storm'). Title only.".to_string(),
+            prompt: "2-6 words from prompt. Title only. \
+                e.g. \"Fix login bug in auth module\" → Login bug fix"
+                .to_string(),
         }
     }
 }

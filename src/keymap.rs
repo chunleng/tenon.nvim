@@ -265,11 +265,14 @@ fn select_history_fn() -> Function<(), ()> {
                 let options: Vec<String> = histories
                     .iter()
                     .map(|h| {
-                        let date = h.id.split('_').next().unwrap_or(&h.id);
+                        let datetime =
+                            h.id.rsplit_once('_')
+                                .map(|(dt, _)| dt.replace('T', " "))
+                                .unwrap_or_else(|| h.id.clone());
                         let title = h.title.as_deref().unwrap_or("Untitled");
                         format!(
                             "{} | {} | agent: {} | {}",
-                            date, title, h.agent_name, h.model_display
+                            datetime, title, h.agent_name, h.model_display
                         )
                     })
                     .collect();
