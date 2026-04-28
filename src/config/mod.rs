@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use crate::{
     chat::TenonAgent,
-    clients::{AnthropicProviderConfig, OllamaProviderConfig, ProviderConfig, SupportedModels},
+    clients::{
+        AnthropicProviderConfig, ApiKey, OllamaProviderConfig, ProviderConfig, SupportedModels,
+    },
 };
 
 pub mod user;
@@ -85,7 +87,9 @@ impl Default for TenonConfig {
             "zai".to_string(),
             ProviderConfig::Anthropic(AnthropicProviderConfig {
                 base_url: "https://api.z.ai/api/anthropic".to_string(),
-                api_key: std::env::var("ZAI_API_KEY").unwrap_or_default(),
+                api_key: ApiKey::Env {
+                    env: "ZAI_API_KEY".to_string(),
+                },
             }),
         );
         let default_model = SupportedModels {

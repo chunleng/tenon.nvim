@@ -1,3 +1,4 @@
+use crate::clients::ApiKey;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use rig::{
     agent::Agent,
@@ -11,14 +12,16 @@ use serde::Deserialize;
 #[serde(default, deny_unknown_fields)]
 pub struct OllamaProviderConfig {
     pub base_url: String,
-    pub bearer: Option<String>,
+    pub bearer: Option<ApiKey>,
 }
 
 impl Default for OllamaProviderConfig {
     fn default() -> Self {
         Self {
             base_url: "http://127.0.0.1:11434".to_string(),
-            bearer: std::env::var("OLLAMA_API_KEY").ok(),
+            bearer: Some(ApiKey::Env {
+                env: "OLLAMA_API_KEY".to_string(),
+            }),
         }
     }
 }
@@ -31,10 +34,12 @@ pub fn get_ollama_agent(
 ) -> Agent<ollama::CompletionModel> {
     let mut headers = HeaderMap::new();
     if let Some(bearer) = config.bearer {
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", bearer)).unwrap(),
-        );
+        if let Ok(token) = bearer.resolve() {
+            headers.insert(
+                AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+            );
+        }
     }
     let client = ollama::Client::builder()
         .base_url(config.base_url)

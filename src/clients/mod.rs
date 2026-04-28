@@ -16,6 +16,41 @@ use rig::{
 };
 use serde::Deserialize;
 
+/// API key that can be either a direct value or an environment variable reference.
+///
+/// Supports two formats in configuration:
+/// - Direct string: `api_key = "sk-..."`
+/// - Env reference: `api_key = { env = "MY_API_KEY" }`
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ApiKey {
+    /// Direct API key value.
+    Value(String),
+    /// Reference to an environment variable.
+    Env { env: String },
+}
+
+impl ApiKey {
+    /// Resolves the API key to its actual value.
+    ///
+    /// For `Value` variants, returns the string directly.
+    /// For `Env` variants, reads from environment and returns error if not set.
+    pub fn resolve(&self) -> Result<String, String> {
+        match self {
+            ApiKey::Value(v) => Ok(v.clone()),
+            ApiKey::Env { env } => {
+                std::env::var(env).map_err(|_| format!("Environment variable '{}' not set", env))
+            }
+        }
+    }
+}
+
+impl Default for ApiKey {
+    fn default() -> Self {
+        ApiKey::Value(String::new())
+    }
+}
+
 pub use anthropic::{AnthropicProviderConfig, get_anthropic_agent};
 pub use bedrock::get_bedrock_agent;
 pub use gemini::{GeminiProviderConfig, get_gemini_agent};

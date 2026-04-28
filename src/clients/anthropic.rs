@@ -1,3 +1,4 @@
+use crate::clients::ApiKey;
 use rig::{agent::Agent, client::CompletionClient, providers::anthropic, tool::ToolDyn};
 use serde::Deserialize;
 
@@ -5,14 +6,16 @@ use serde::Deserialize;
 #[serde(default, deny_unknown_fields)]
 pub struct AnthropicProviderConfig {
     pub base_url: String,
-    pub api_key: String,
+    pub api_key: ApiKey,
 }
 
 impl Default for AnthropicProviderConfig {
     fn default() -> Self {
         Self {
             base_url: "https://api.anthropic.com".to_string(),
-            api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+            api_key: ApiKey::Env {
+                env: "ANTHROPIC_API_KEY".to_string(),
+            },
         }
     }
 }
@@ -23,9 +26,13 @@ pub fn get_anthropic_agent(
     preamble: Option<String>,
     tools: Vec<Box<dyn ToolDyn>>,
 ) -> Agent<anthropic::completion::CompletionModel> {
+    let api_key = config.api_key.resolve().unwrap_or_else(|e| {
+        eprintln!("[tenon] {}", e);
+        String::new()
+    });
     let client = anthropic::Client::builder()
         .base_url(config.base_url)
-        .api_key(config.api_key)
+        .api_key(api_key)
         .build()
         .unwrap();
     let mut agent = client.agent(model_name);
