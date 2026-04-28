@@ -299,6 +299,37 @@ impl ChatSession {
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
+                if let Ok(mut logs) = logs_clone.write() {
+                    // Remove trailing tool calls without results to prevent message sending errors.
+                    let mut logs_vec: Vec<_> = logs.iter().cloned().collect();
+                    logs.clear();
+
+                    let trailing_start = logs_vec
+                        .iter()
+                        .rposition(|log| !matches!(log, TenonLog::Tool(_)))
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
+
+                    let trailing_tools: Vec<_> = logs_vec[trailing_start..]
+                        .iter()
+                        .cloned()
+                        .filter(|log| {
+                            if let TenonLog::Tool(tool_log) = log {
+                                tool_log.tool_result.is_some()
+                            } else {
+                                true
+                            }
+                        })
+                        .collect();
+
+                    logs_vec.truncate(trailing_start);
+                    logs_vec.extend(trailing_tools);
+
+                    for log in logs_vec {
+                        logs.push_back(log);
+                    }
+                }
+
                 let tools = resolve_tools(&agent_clone.tool_names);
                 let agent = agent_clone.build_chat_adapter(tools);
                 let chat_history;
@@ -309,7 +340,7 @@ impl ChatSession {
                         .flat_map(|x| Vec::<Message>::from(x))
                         .collect::<Vec<_>>();
                 } else {
-                    todo!("fix after error is introduced")
+                    chat_history = vec![];
                 }
 
                 if let Ok(mut logs) = logs_clone.write() {
