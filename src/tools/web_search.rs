@@ -53,7 +53,7 @@ impl Tool for WebSearch {
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query"
+                        "description": "Search query. No year/date unless user specified."
                     },
                     "freshness": {
                         "type": "string",
