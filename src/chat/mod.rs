@@ -158,21 +158,36 @@ fn find_top_k_similar(query_embedding: &[f64], embeddings: &[Vec<f64>], k: usize
 }
 
 /// Gets cached embeddings or generates new ones for the given logs.
-/// Updates the cache if new embeddings are generated.
-/// Regenerates if cache size doesn't match logs size (stale cache).
+/// Incrementally generates embeddings only for logs that don't have them cached.
 fn get_or_generate_embeddings(
     logs: &[TenonLog],
     cache: &Arc<RwLock<Option<Vec<Vec<f64>>>>>,
 ) -> Option<Vec<Vec<f64>>> {
-    // Check if cache is valid (exists and matches logs length)
-    if let Some(cached) = cache.read().ok()?.as_ref() {
-        if cached.len() == logs.len() {
-            return Some(cached.clone());
-        }
-        // Cache is stale (size mismatch), fall through to regenerate
+    let cached_len = cache.read().ok()?.as_ref().map(|c| c.len()).unwrap_or(0);
+
+    // Check if cache has all embeddings
+    if cached_len == logs.len() {
+        return cache.read().ok()?.as_ref().cloned();
     }
 
-    // Generate and cache
+    // Cache is missing some embeddings - generate only for new logs
+    if cached_len < logs.len() {
+        // Generate embeddings for logs that don't have them yet
+        let new_texts: Vec<_> = logs[cached_len..].iter().map(log_to_text).collect();
+        let new_embeddings = generate_embeddings(&new_texts)?;
+
+        // Append to existing cache
+        if let Ok(mut lock) = cache.write() {
+            match lock.as_mut() {
+                Some(existing) => existing.extend(new_embeddings),
+                None => *lock = Some(new_embeddings),
+            }
+        }
+
+        return cache.read().ok()?.as_ref().cloned();
+    }
+
+    // Cache has more embeddings than logs (shouldn't happen, but regenerate to be safe)
     let texts: Vec<_> = logs.iter().map(log_to_text).collect();
     let embeddings = generate_embeddings(&texts)?;
 
@@ -547,22 +562,23 @@ impl ChatSession {
                 return;
             }
 
+            // Collect new logs for rag_logs
+            let new_logs: Vec<_> = logs
+                .iter()
+                .skip(current_resume)
+                .take(new_resume - current_resume)
+                .cloned()
+                .collect();
+
             // Copy truncated logs to rag_logs (keep in self.logs for display)
-            // Invalidate embeddings cache since rag_logs changed
             if let Ok(mut rag_logs) = self.rag_logs.write() {
-                for log in logs
-                    .iter()
-                    .skip(current_resume)
-                    .take(new_resume - current_resume)
-                {
-                    rag_logs.push(log.clone());
+                for log in new_logs {
+                    rag_logs.push(log);
                 }
             }
 
-            // Invalidate stale embeddings cache since rag_logs now has new content
-            if let Ok(mut cache) = self.rag_embeddings.write() {
-                *cache = None;
-            }
+            // Note: Embeddings cache is NOT invalidated - get_or_generate_embeddings
+            // will incrementally generate embeddings for new logs off-thread
 
             self.resume_from.store(new_resume, Ordering::SeqCst);
         }
