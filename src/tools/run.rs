@@ -5,6 +5,7 @@ use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
@@ -23,6 +24,7 @@ pub struct RunArgs {
     pub filter: Option<String>,
     pub direction: Option<String>,
     pub limit: Option<usize>,
+    pub env: Option<HashMap<String, String>>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -45,6 +47,16 @@ fn find_shell_metacharacter(command: &str) -> Option<&'static str> {
         }
     }
     None
+}
+
+/// Check if command starts with env var prefix (VAR=value).
+/// Returns true if the first token matches VAR=pattern.
+fn has_env_var_prefix(command: &str) -> bool {
+    command
+        .split_whitespace()
+        .next()
+        .map(|first| first.contains('='))
+        .unwrap_or(false)
 }
 
 /// Arg allowance for a whitelist pattern.
@@ -284,9 +296,9 @@ impl Tool for Run {
         ToolDefinition {
             name: "run".to_string(),
             description:
-                "Execute a permitted command. No shell features (pipes, &&, redirects, $()). \
-                Use filter/limit/direction to reduce output instead of piping. \
-                Output: stdout (filtered by limit) + all stderr."
+                "Execute permitted command. No shell features (pipes, &&, redirects, $()). No env var prefix (VAR=1 cmd). \
+                Use filter/limit/direction → reduce output. Use env field → set env vars. \
+                Output: stdout (filtered) + all stderr."
                     .to_string(),
             parameters: json!({
                 "type": "object",
@@ -314,6 +326,11 @@ impl Tool for Run {
                     "limit": {
                         "type": "integer",
                         "description": "Max stdout lines. null = no limit."
+                    },
+                    "env": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "description": "Env vars to set."
                     }
                 },
                 "required": ["command"]
@@ -327,9 +344,17 @@ impl Tool for Run {
             return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!(
-                    "Shell metacharacter '{}' not allowed. The run tool executes commands directly — no shell features (pipes, &&, redirects, $()). Use filter/limit/direction to reduce output.",
+                    "Shell metacharacter '{}' not allowed. No shell features (pipes, &&, redirects, $()). Use filter/limit/direction.",
                     mc
                 ),
+            ))));
+        }
+
+        // Check for env var prefix (VAR=value cmd)
+        if has_env_var_prefix(&args.command) {
+            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Env var prefix not allowed. No shell features (VAR=value cmd). Use env field.",
             ))));
         }
 
@@ -370,6 +395,10 @@ impl Tool for Run {
 
         if let Some(ref cwd) = args.cwd {
             cmd.current_dir(cwd);
+        }
+
+        if let Some(ref env) = args.env {
+            cmd.envs(env);
         }
 
         let child = cmd.spawn().map_err(|e| {
