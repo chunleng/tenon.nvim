@@ -656,6 +656,12 @@ impl ChatSession {
                     }
                 }
 
+                if let Ok(mut logs) = logs_clone.write() {
+                    logs.push(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+                        TenonUserTextMessage(message.clone()),
+                    ))))
+                }
+
                 // let tools = resolve_tools(&agent_clone.tool_names);
                 let agent = agent_clone.build_chat_adapter(session_datetime);
 
@@ -686,12 +692,6 @@ impl ChatSession {
                             ))),
                         },
                     );
-                }
-
-                if let Ok(mut logs) = logs_clone.write() {
-                    logs.push(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                        TenonUserTextMessage(message.clone()),
-                    ))))
                 }
 
                 let mut stream = agent.stream_chat(message, chat_history).await;
