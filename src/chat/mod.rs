@@ -598,16 +598,18 @@ impl ChatSession {
         }
     }
 
-    pub fn send_message(&mut self, message: String) {
+    /// Internal method to send a chat request.
+    /// If user_message is Some, it will be added to logs before sending.
+    /// RAG context is computed inside the spawned thread to avoid blocking.
+    fn send_chat_request(&mut self, prompt: String, user_message: Option<String>) {
         // Cancel previous thread
         self.cancel_token.store(true, Ordering::SeqCst);
-
-        // Create new cancel token for the new thread
         self.cancel_token = Arc::new(AtomicBool::new(false));
-        let cancel_token = Arc::clone(&self.cancel_token);
 
-        // Generate title if not already set
-        self.generate_title(message.clone());
+        // Generate title if this is a new user message
+        if let Some(msg) = &user_message {
+            self.generate_title(msg.clone());
+        }
 
         // Apply context truncation if needed
         self.apply_context_truncation();
@@ -619,23 +621,26 @@ impl ChatSession {
         let title_clone = Arc::clone(&self.title);
         let session_datetime = self.session_datetime.clone();
         let resume_from = Arc::clone(&self.resume_from);
+        let cancel_token = Arc::clone(&self.cancel_token);
         let rag_logs_clone = Arc::clone(&self.rag_logs);
         let rag_embeddings_clone = Arc::clone(&self.rag_embeddings);
 
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
+                // Clean up trailing tool calls without results
                 if let Ok(mut logs) = logs_clone.write() {
-                    // Remove trailing tool calls without results to prevent message sending errors.
                     let mut logs_vec: Vec<_> = logs.iter().cloned().collect();
                     logs.clear();
 
+                    // Find where trailing tools start (last non-tool or tool with result)
                     let trailing_start = logs_vec
                         .iter()
                         .rposition(|log| !matches!(log.data(), TenonLogData::Tool(_)))
                         .map(|i| i + 1)
                         .unwrap_or(0);
 
+                    // Keep only tools with results in the trailing section
                     let trailing_tools: Vec<_> = logs_vec[trailing_start..]
                         .iter()
                         .cloned()
@@ -656,18 +661,21 @@ impl ChatSession {
                     }
                 }
 
-                if let Ok(mut logs) = logs_clone.write() {
-                    logs.push(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                        TenonUserTextMessage(message.clone()),
-                    ))))
+                // Build RAG context (inside thread to avoid blocking main)
+                let rag_context = user_message
+                    .as_ref()
+                    .and_then(|msg| build_rag_context(&rag_logs_clone, &rag_embeddings_clone, msg));
+
+                // Add user message if provided
+                if let Some(ref msg) = user_message {
+                    if let Ok(mut logs) = logs_clone.write() {
+                        logs.push(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+                            TenonUserTextMessage(msg.clone()),
+                        ))));
+                    }
                 }
 
-                // let tools = resolve_tools(&agent_clone.tool_names);
                 let agent = agent_clone.build_chat_adapter(session_datetime);
-
-                // RAG: Find relevant context from earlier conversation
-                let rag_context =
-                    build_rag_context(&rag_logs_clone, &rag_embeddings_clone, &message);
 
                 // Build chat_history
                 let resume_idx = resume_from.load(Ordering::SeqCst);
@@ -681,7 +689,7 @@ impl ChatSession {
                     vec![]
                 };
 
-                // Inject RAG context as a system-like message at the start of history
+                // Inject RAG context if available
                 if let Some(ctx) = rag_context {
                     chat_history.insert(
                         0,
@@ -694,7 +702,7 @@ impl ChatSession {
                     );
                 }
 
-                let mut stream = agent.stream_chat(message, chat_history).await;
+                let mut stream = agent.stream_chat(prompt, chat_history).await;
                 while let Some(result) = stream.next().await {
                     if cancel_token.load(Ordering::SeqCst) {
                         break;
@@ -801,7 +809,6 @@ impl ChatSession {
                         }
                         Ok(StreamItem::Other) => {}
                         Err(e) => {
-                            // TODO add tracing logs
                             let _ = GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
                                 format!("error occurred while streaming response from LLM: {}", e),
                                 LogLevel::Error,
@@ -811,5 +818,15 @@ impl ChatSession {
                 }
             });
         }));
+    }
+
+    /// Continue the chat without adding a new user message.
+    /// Useful for prompting the LLM to continue from where it left off.
+    pub fn continue_chat(&mut self) {
+        self.send_chat_request("[continue]".to_string(), None);
+    }
+
+    pub fn send_message(&mut self, message: String) {
+        self.send_chat_request(message.clone(), Some(message));
     }
 }

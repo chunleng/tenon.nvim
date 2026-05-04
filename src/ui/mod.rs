@@ -144,6 +144,18 @@ impl ChatWindow {
         Ok(())
     }
 
+    /// Continue the chat without adding new user input.
+    /// Prompts the LLM to continue from where it left off.
+    pub fn continue_chat(&mut self) -> OxiResult<()> {
+        self.scroll_output_to_bottom()?;
+        if let Ok(loaded) = self.loaded_chat_session.read() {
+            if let Ok(mut chat_session) = loaded.write() {
+                chat_session.continue_chat();
+            }
+        }
+        Ok(())
+    }
+
     /// Insert text into the input buffer and move cursor to the end.
     pub fn insert_to_input(&mut self, text: String) -> OxiResult<()> {
         let input_panel = self.get_or_create_input_window()?;
@@ -484,6 +496,12 @@ impl ChatWindow {
                     modes: vec![Mode::Normal],
                     lhs: "<cr>".to_string(),
                     rhs: "<cmd>lua require('tenon').action.select_chat()<cr>".to_string(),
+                    opts: SetKeymapOpts::default(),
+                },
+                NvimKeymap {
+                    modes: vec![Mode::Normal],
+                    lhs: "gC".to_string(),
+                    rhs: "<cmd>lua require('tenon').action.continue_chat()<cr>".to_string(),
                     opts: SetKeymapOpts::default(),
                 },
             ],

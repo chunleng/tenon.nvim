@@ -1,4 +1,6 @@
-use nvim_oxi::{Dictionary, Function, Object, api::Buffer, conversion::FromObject};
+use nvim_oxi::{
+    Dictionary, Function, Object, api::Buffer, api::types::LogLevel, conversion::FromObject,
+};
 
 use crate::{get_chat_window, utils::format_path_relative};
 
@@ -6,6 +8,7 @@ pub fn create_lua_action_module() -> Dictionary {
     let mut action_dict = Dictionary::new();
     action_dict.insert("insert_selection", Object::from(insert_selection_fn()));
     action_dict.insert("select_chat", Object::from(select_chat_fn()));
+    action_dict.insert("continue_chat", Object::from(continue_chat_fn()));
     action_dict
 }
 
@@ -213,6 +216,19 @@ fn select_chat_fn() -> Function<(), ()> {
                         .notify_on_main_thread(format!("picker error: {}", e), LogLevel::Error);
                 }
             });
+        }
+    })
+}
+
+/// Continue the chat without adding a new user message.
+fn continue_chat_fn() -> Function<(), ()> {
+    Function::from_fn({
+        move |()| {
+            if let Ok(mut win) = get_chat_window().lock() {
+                if let Err(e) = win.continue_chat() {
+                    crate::utils::notify(format!("{}", e), LogLevel::Error);
+                }
+            }
         }
     })
 }
