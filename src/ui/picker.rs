@@ -50,6 +50,9 @@ local resolved = false
 
 fzf.fzf_exec({options}, {{
     prompt = '{prompt}> ',
+    fzf_opts = {{
+        ['--no-sort'] = '',
+    }},
     winopts = {{
         on_create = function()
             local winid = vim.api.nvim_get_current_win()
@@ -166,6 +169,7 @@ local resolved = false
 fzf.fzf_exec({options}, {{
     prompt = '{prompt}> ',
     fzf_opts = {{
+        ['--no-sort'] = '',
         ['--multi'] = '',
         ['--marker'] = '✓',
         ['--header'] = '(use <TAB> to toggle  <ENTER> to confirm)',
