@@ -5,6 +5,7 @@ use crate::{get_chat_window, utils::format_path_relative};
 pub fn create_lua_action_module() -> Dictionary {
     let mut action_dict = Dictionary::new();
     action_dict.insert("insert_selection", Object::from(insert_selection_fn()));
+    action_dict.insert("select_chat", Object::from(select_chat_fn()));
     action_dict
 }
 
@@ -128,4 +129,90 @@ fn insert_selection_fn() -> Function<(i32, usize, Option<usize>, usize, Option<u
             }
         },
     )
+}
+
+/// Show a picker to select and load a chat session.
+fn select_chat_fn() -> Function<(), ()> {
+    use crate::{chat::CHAT_SESSIONS, ui::picker::pick};
+    use nvim_oxi::api::types::LogLevel;
+
+    Function::from_fn({
+        move |()| {
+            // Get current chat index on main thread
+            let current_index = (|| {
+                let win_arc = get_chat_window();
+                let win = win_arc.lock().ok()?;
+                Some(
+                    win.loaded_chat_index
+                        .load(std::sync::atomic::Ordering::SeqCst),
+                )
+            })()
+            .unwrap_or(0);
+
+            // Spawn thread to read sessions and show picker
+            std::thread::spawn(move || {
+                let sessions = CHAT_SESSIONS.lock().unwrap();
+                if sessions.is_empty() {
+                    crate::utils::GLOBAL_EXECUTION_HANDLER
+                        .notify_on_main_thread("no chat sessions", LogLevel::Warn);
+                    return;
+                }
+
+                // Build display options: "Chat N | Title"
+                let options: Vec<String> = sessions
+                    .iter()
+                    .enumerate()
+                    .map(|(i, session)| {
+                        let guard = session.read().unwrap();
+                        let title = guard
+                            .title
+                            .read()
+                            .ok()
+                            .and_then(|t| t.clone())
+                            .unwrap_or_else(|| "Untitled".to_string());
+                        format!("Chat {} | {}", i + 1, title)
+                    })
+                    .collect();
+
+                let options_clone = options.clone();
+                let options_refs: Vec<&str> = options.iter().map(|s| s.as_str()).collect();
+                let current_selection = options.get(current_index).map(|s| s.as_str());
+
+                if let Err(e) = pick(
+                    "Select Chat",
+                    &options_refs,
+                    current_selection,
+                    move |selected| {
+                        if let Some(selection) = selected {
+                            let idx = options_clone.iter().position(|s| *s == selection);
+                            if let Some(idx) = idx {
+                                if let Err(e) = crate::utils::GLOBAL_EXECUTION_HANDLER
+                                    .execute_rust_on_main_thread(move || {
+                                        let win_arc = get_chat_window();
+                                        if let Ok(mut win) = win_arc.lock() {
+                                            if let Err(e) = win.load_chat(idx) {
+                                                crate::utils::notify(
+                                                    format!("failed to load chat: {}", e),
+                                                    LogLevel::Error,
+                                                );
+                                            }
+                                        }
+                                        Ok(())
+                                    })
+                                {
+                                    crate::utils::GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                                        format!("failed to load chat: {}", e),
+                                        LogLevel::Error,
+                                    );
+                                }
+                            }
+                        }
+                    },
+                ) {
+                    crate::utils::GLOBAL_EXECUTION_HANDLER
+                        .notify_on_main_thread(format!("picker error: {}", e), LogLevel::Error);
+                }
+            });
+        }
+    })
 }

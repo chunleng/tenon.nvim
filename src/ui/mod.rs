@@ -480,6 +480,12 @@ impl ChatWindow {
                     rhs: "<cmd>lua require('tenon').keymap.select_history()<cr>".to_string(),
                     opts: SetKeymapOpts::default(),
                 },
+                NvimKeymap {
+                    modes: vec![Mode::Normal],
+                    lhs: "<cr>".to_string(),
+                    rhs: "<cmd>lua require('tenon').action.select_chat()<cr>".to_string(),
+                    opts: SetKeymapOpts::default(),
+                },
             ],
             ..Default::default()
         })
@@ -652,6 +658,12 @@ impl ChatWindow {
                         modes: vec![Mode::Normal],
                         lhs: "gh".to_string(),
                         rhs: "<cmd>lua require('tenon').keymap.select_history()<cr>".to_string(),
+                        opts: SetKeymapOpts::default(),
+                    },
+                    NvimKeymap {
+                        modes: vec![Mode::Normal],
+                        lhs: "<cr>".to_string(),
+                        rhs: "<cmd>lua require('tenon').action.select_chat()<cr>".to_string(),
                         opts: SetKeymapOpts::default(),
                     },
                 ],
