@@ -159,13 +159,17 @@ fn find_top_k_similar(query_embedding: &[f64], embeddings: &[Vec<f64>], k: usize
 
 /// Gets cached embeddings or generates new ones for the given logs.
 /// Updates the cache if new embeddings are generated.
+/// Regenerates if cache size doesn't match logs size (stale cache).
 fn get_or_generate_embeddings(
     logs: &[TenonLog],
     cache: &Arc<RwLock<Option<Vec<Vec<f64>>>>>,
 ) -> Option<Vec<Vec<f64>>> {
-    // Try cached first
+    // Check if cache is valid (exists and matches logs length)
     if let Some(cached) = cache.read().ok()?.as_ref() {
-        return Some(cached.clone());
+        if cached.len() == logs.len() {
+            return Some(cached.clone());
+        }
+        // Cache is stale (size mismatch), fall through to regenerate
     }
 
     // Generate and cache
@@ -544,17 +548,20 @@ impl ChatSession {
             }
 
             // Copy truncated logs to rag_logs (keep in self.logs for display)
-            drop(logs);
-            if let Ok(logs) = self.logs.read() {
-                if let Ok(mut rag_logs) = self.rag_logs.write() {
-                    for log in logs
-                        .iter()
-                        .skip(current_resume)
-                        .take(new_resume - current_resume)
-                    {
-                        rag_logs.push(log.clone());
-                    }
+            // Invalidate embeddings cache since rag_logs changed
+            if let Ok(mut rag_logs) = self.rag_logs.write() {
+                for log in logs
+                    .iter()
+                    .skip(current_resume)
+                    .take(new_resume - current_resume)
+                {
+                    rag_logs.push(log.clone());
                 }
+            }
+
+            // Invalidate stale embeddings cache since rag_logs now has new content
+            if let Ok(mut cache) = self.rag_embeddings.write() {
+                *cache = None;
             }
 
             self.resume_from.store(new_resume, Ordering::SeqCst);
