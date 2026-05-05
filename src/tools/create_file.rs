@@ -23,7 +23,8 @@ impl Tool for CreateFile {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "create_file".to_string(),
-            description: "Create empty file. Error if exists.".to_string(),
+            description: "Create empty file. Error if exists. Auto-creates parent dirs."
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
