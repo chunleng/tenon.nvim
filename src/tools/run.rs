@@ -295,17 +295,14 @@ impl Tool for Run {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "run".to_string(),
-            description:
-                "Execute permitted command. No shell features (pipes, &&, redirects, $()). No env var prefix (VAR=1 cmd). \
-                Use filter/limit/direction → reduce output. Use env field → set env vars. \
-                Output: stdout (filtered) + all stderr."
-                    .to_string(),
+            description: "Execute allowed commands. Output: stdout (filtered) + all stderr."
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "Command to execute. Quotes supported."
+                        "description": "Command to execute. Runs directly without shell. Example: to run \"VAR=1 cargo build 2>&1 | grep error\", instead set env: {\"VAR\": \"1\"}, command: \"cargo build\", filter: \"error\". No need for 2>&1 - stderr always included."
                     },
                     "cwd": {
                         "type": "string",
