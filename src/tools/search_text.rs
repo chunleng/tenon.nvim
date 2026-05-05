@@ -19,7 +19,6 @@ pub struct SearchTextArgs {
     pub ignore_case: Option<bool>,
     pub context_lines: Option<usize>,
     pub max_files: Option<usize>,
-    pub show_gitignored: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -135,10 +134,6 @@ impl Tool for SearchText {
                     "max_files": {
                         "type": "integer",
                         "description": "Max files returned. Default=all"
-                    },
-                    "show_gitignored": {
-                        "type": "boolean",
-                        "description": "Include gitignored+hidden files. Default=false"
                     }
                 },
                 "required": ["pattern"]
@@ -160,7 +155,6 @@ impl Tool for SearchText {
         let is_regex = args.is_regex.unwrap_or(false);
         let ignore_case = args.ignore_case.unwrap_or(false);
         let context_lines = args.context_lines.unwrap_or(0);
-        let show_gitignored = args.show_gitignored.unwrap_or(false);
         let max_files = args.max_files;
 
         let pattern_str = if is_regex {
@@ -198,10 +192,10 @@ impl Tool for SearchText {
 
         let mut walker = WalkBuilder::new(search_path);
         walker
-            .git_ignore(!show_gitignored)
-            .git_exclude(!show_gitignored)
-            .git_global(!show_gitignored)
-            .hidden(!show_gitignored)
+            .git_ignore(true)
+            .git_exclude(true)
+            .git_global(true)
+            .hidden(false)
             .follow_links(true)
             .require_git(true);
 
