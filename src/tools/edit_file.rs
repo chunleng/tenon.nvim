@@ -12,6 +12,118 @@ fn line_at(content: &str, byte_offset: usize) -> usize {
     content[..byte_offset].lines().count() + 1
 }
 
+/// Core edit logic: performs find/replace on content.
+/// Returns (new_content, edits_info) where edits_info contains line numbers.
+/// Ensures trailing newline when editing at EOF.
+fn perform_edit(
+    content: &str,
+    search: &str,
+    replace: &str,
+    replace_mode: &str,
+    search_mode: &str,
+) -> Result<(String, Vec<serde_json::Value>), std::io::Error> {
+    // Check if edit touches EOF (need to ensure trailing newline)
+    let edits_at_end = if search_mode == "regex" {
+        RegexBuilder::new(search)
+            .dot_matches_new_line(true)
+            .build()
+            .map(|re| re.find_iter(content).any(|m| m.end() == content.len()))
+            .unwrap_or(false)
+    } else {
+        content.ends_with(search)
+    };
+
+    let (new_content, edits) = if search_mode == "regex" {
+        let re = RegexBuilder::new(search)
+            .dot_matches_new_line(true)
+            .build()
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Bad regex: {}", e),
+                )
+            })?;
+
+        let matches: Vec<_> = re.find_iter(content).collect();
+        let match_count = matches.len();
+
+        if match_count == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "No match found".to_string(),
+            ));
+        }
+
+        if replace_mode == "one" && match_count > 1 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{} matches. Use 'all' or narrow search", match_count),
+            ));
+        }
+
+        let edits: Vec<serde_json::Value> = matches
+            .iter()
+            .map(|m| {
+                json!({
+                    "line": line_at(content, m.start()),
+                    "text_replaced": m.as_str(),
+                })
+            })
+            .collect();
+
+        let result = match replace_mode {
+            "one" => re.replace(content, regex::NoExpand(replace)).to_string(),
+            _ => re
+                .replace_all(content, regex::NoExpand(replace))
+                .to_string(),
+        };
+
+        (result, edits)
+    } else {
+        let matches: Vec<_> = content.match_indices(search).collect();
+        let match_count = matches.len();
+
+        if match_count == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "No match found".to_string(),
+            ));
+        }
+
+        if replace_mode == "one" && match_count > 1 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{} matches. Use 'all' or narrow search", match_count),
+            ));
+        }
+
+        let edits: Vec<serde_json::Value> = matches
+            .iter()
+            .map(|(offset, _)| {
+                json!({
+                    "line": line_at(content, *offset),
+                })
+            })
+            .collect();
+
+        let new_content = match replace_mode {
+            "one" => content.replacen(search, replace, 1),
+            _ => content.replace(search, replace),
+        };
+
+        (new_content, edits)
+    };
+
+    // Ensure trailing newline when editing at EOF
+    let final_content = if edits_at_end && !new_content.ends_with('\n') {
+        format!("{}\n", new_content)
+    } else {
+        new_content
+    };
+
+    Ok((final_content, edits))
+}
+
 #[derive(Deserialize)]
 pub struct EditFileArgs {
     pub filepath: String,
@@ -85,90 +197,16 @@ impl Tool for EditFile {
             )))
         })?;
 
-        let (new_content, edits) = if search_mode == "regex" {
-            let re = RegexBuilder::new(&args.search)
-                .dot_matches_new_line(true)
-                .build()
-                .map_err(|e| {
-                    ToolError::ToolCallError(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        format!("Bad regex '{}': {}", args.search, e),
-                    )))
-                })?;
+        let (final_content, edits) = perform_edit(
+            &content,
+            &args.search,
+            &args.replace,
+            &replace_mode,
+            &search_mode,
+        )
+        .map_err(|e| ToolError::ToolCallError(Box::new(e)))?;
 
-            let matches: Vec<_> = re.find_iter(&content).collect();
-            let match_count = matches.len();
-
-            if match_count == 0 {
-                return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("No match in '{}'", args.filepath),
-                ))));
-            }
-
-            if replace_mode == "one" && match_count > 1 {
-                return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("{} matches. Use 'all' or narrow search", match_count),
-                ))));
-            }
-
-            let edits: Vec<serde_json::Value> = matches
-                .iter()
-                .map(|m| {
-                    json!({
-                        "line": line_at(&content, m.start()),
-                        "text_replaced": m.as_str(),
-                    })
-                })
-                .collect();
-
-            let result = match replace_mode.as_str() {
-                "one" => re
-                    .replace(&content, regex::NoExpand(&args.replace))
-                    .to_string(),
-                _ => re
-                    .replace_all(&content, regex::NoExpand(&args.replace))
-                    .to_string(),
-            };
-
-            (result, edits)
-        } else {
-            let matches: Vec<_> = content.match_indices(&args.search).collect();
-            let match_count = matches.len();
-
-            if match_count == 0 {
-                return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("No match in '{}'", args.filepath),
-                ))));
-            }
-
-            if replace_mode == "one" && match_count > 1 {
-                return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("{} matches. Use 'all' or narrow search", match_count),
-                ))));
-            }
-
-            let edits: Vec<serde_json::Value> = matches
-                .iter()
-                .map(|(offset, _)| {
-                    json!({
-                        "line": line_at(&content, *offset),
-                    })
-                })
-                .collect();
-
-            let new_content = match replace_mode.as_str() {
-                "one" => content.replacen(&args.search, &args.replace, 1),
-                _ => content.replace(&args.search, &args.replace),
-            };
-
-            (new_content, edits)
-        };
-
-        fs::write(path, &new_content).map_err(|e| {
+        fs::write(path, &final_content).map_err(|e| {
             ToolError::ToolCallError(Box::new(std::io::Error::new(
                 e.kind(),
                 format!("Write fail '{}': {}", args.filepath, e),
@@ -182,5 +220,87 @@ impl Tool for EditFile {
             "count": edits.len(),
         })
         .to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_edit_at_eof_adds_trailing_newline() {
+        let content = "hello world";
+        let (result, _) = perform_edit(content, "world", "universe", "one", "literal").unwrap();
+        assert_eq!(result, "hello universe\n");
+    }
+
+    #[test]
+    fn test_edit_at_eof_preserves_existing_newline() {
+        let content = "hello world\n";
+        let (result, _) = perform_edit(content, "world", "universe", "one", "literal").unwrap();
+        assert_eq!(result, "hello universe\n");
+    }
+
+    #[test]
+    fn test_edit_in_middle_does_not_add_newline() {
+        let content = "hello world foo";
+        let (result, _) = perform_edit(content, "hello", "hey", "one", "literal").unwrap();
+        assert_eq!(result, "hey world foo");
+    }
+
+    #[test]
+    fn test_edit_in_middle_preserves_existing_newline() {
+        let content = "hello world\n";
+        let (result, _) = perform_edit(content, "hello", "hey", "one", "literal").unwrap();
+        assert_eq!(result, "hey world\n");
+    }
+
+    #[test]
+    fn test_regex_edit_at_eof_adds_newline() {
+        let content = "hello world";
+        let (result, _) = perform_edit(content, "w.*d", "universe", "one", "regex").unwrap();
+        assert_eq!(result, "hello universe\n");
+    }
+
+    #[test]
+    fn test_replace_all_at_eof_adds_newline() {
+        let content = "foo bar foo";
+        let (result, _) = perform_edit(content, "foo", "baz", "all", "literal").unwrap();
+        assert_eq!(result, "baz bar baz\n");
+    }
+
+    #[test]
+    fn test_replace_all_in_middle_no_newline() {
+        let content = "foo bar foo baz";
+        let (result, _) = perform_edit(content, "foo", "baz", "all", "literal").unwrap();
+        assert_eq!(result, "baz bar baz baz");
+    }
+
+    #[test]
+    fn test_edit_eof_multiline() {
+        let content = "line1\nline2\nlast";
+        let (result, _) = perform_edit(content, "last", "final", "one", "literal").unwrap();
+        assert_eq!(result, "line1\nline2\nfinal\n");
+    }
+
+    #[test]
+    fn test_no_match_returns_error() {
+        let content = "hello world";
+        let result = perform_edit(content, "notfound", "replacement", "one", "literal");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multiple_matches_one_mode_error() {
+        let content = "foo foo foo";
+        let result = perform_edit(content, "foo", "bar", "one", "literal");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_replace_all_multiple_matches() {
+        let content = "foo bar foo bar";
+        let (result, _) = perform_edit(content, "foo", "baz", "all", "literal").unwrap();
+        assert_eq!(result, "baz bar baz bar");
     }
 }
