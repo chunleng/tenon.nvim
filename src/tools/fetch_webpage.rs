@@ -1,4 +1,4 @@
-use crate::clients::{BehaviorSource, get_agent};
+use crate::clients::{Behavior, BehaviorSource, get_agent};
 use crate::get_application_config;
 use html_to_markdown_rs::{ConversionOptions, PreprocessingOptions, PreprocessingPreset};
 use rig::completion::ToolDefinition;
@@ -101,12 +101,18 @@ async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, Tool
         }
     };
 
-    let behavior = BehaviorSource::Text {
-        value: "Webpage content only. No preamble/hedge/commentary/source refs. Preserve format: code→code blocks, steps→numbered lists, comparisons→tables, items→bullets. Caveman mode".to_string(),
+    let behavior = Behavior {
+        condition: None,
+        source: BehaviorSource::Text {
+            value: "Webpage content only. No preamble/hedge/commentary/source refs. Preserve format: code→code blocks, steps→numbered lists, comparisons→tables, items→bullets".to_string(),
+        },
     };
 
-    let caveman_mode_behavior = BehaviorSource::Text {
-        value: "Caveman mode. Short sentences. Drop filler (the/a/an/is/are). Symbols > words (→/=/vs). No politeness. Max meaning/token".to_string()
+    let caveman_mode_behavior = Behavior {
+        condition: Some("on chat".to_string()),
+        source: BehaviorSource::Knowledge {
+            name: "Caveman Mode".to_string(),
+        },
     };
 
     let agent = get_agent(model, vec![behavior, caveman_mode_behavior], vec![]);

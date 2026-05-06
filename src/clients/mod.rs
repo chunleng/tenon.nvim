@@ -93,6 +93,37 @@ impl BehaviorSource {
     }
 }
 
+/// A behavior with an optional condition for conditional application.
+///
+/// Wraps a `BehaviorSource` with an optional condition that determines
+/// when the behavior should be applied. When resolved, outputs XML format.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Behavior {
+    /// Optional condition for conditional behavior application.
+    #[serde(default)]
+    pub condition: Option<String>,
+    /// The source of the behavior content.
+    #[serde(flatten)]
+    pub source: BehaviorSource,
+}
+
+impl Behavior {
+    /// Resolve the behavior into its final XML string format.
+    ///
+    /// - If condition is Some: `<behavior condition="...">resolved_source</behavior>`
+    /// - If condition is None: `<behavior>resolved_source</behavior>`
+    pub fn resolve(&self) -> Result<String, std::io::Error> {
+        let source_content = self.source.resolve()?;
+        match &self.condition {
+            Some(cond) => Ok(format!(
+                r#"<behavior condition="{}">{}</behavior>"#,
+                cond, source_content
+            )),
+            None => Ok(format!("<behavior>{}</behavior>", source_content)),
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SupportedModels {
@@ -339,7 +370,7 @@ impl ChatAgent {
 
 pub fn get_agent(
     model: SupportedModels,
-    behavior: Vec<BehaviorSource>,
+    behavior: Vec<Behavior>,
     tools: Vec<Box<dyn ToolDyn>>,
 ) -> ChatAgent {
     let resolved_behavior = if behavior.is_empty() {
@@ -348,7 +379,7 @@ pub fn get_agent(
         Some(
             behavior
                 .into_iter()
-                .filter_map(|p| match p.resolve() {
+                .filter_map(|b| match b.resolve() {
                     Ok(resolved) => Some(resolved),
                     Err(e) => {
                         crate::utils::GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(

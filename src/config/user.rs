@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 use crate::{
     chat::TenonAgent,
-    clients::{BehaviorSource, ProviderConfig, SupportedModels},
+    clients::{Behavior, ProviderConfig, SupportedModels},
     config::TenonConfig,
     knowledge::Knowledge,
 };
@@ -61,7 +61,7 @@ pub struct FetchWebpageUserConfig {
 pub struct TenonAgentConfig {
     model: ModelConfig,
     #[serde(default)]
-    behavior: Vec<BehaviorSource>,
+    behavior: Vec<Behavior>,
     #[serde(default)]
     tool_names: Vec<String>,
     #[serde(default)]

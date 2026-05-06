@@ -1,4 +1,4 @@
-use crate::clients::{BehaviorSource, get_agent};
+use crate::clients::{Behavior, BehaviorSource, get_agent};
 use crate::get_application_config;
 use futures::stream::{self, StreamExt};
 use rig::completion::ToolDefinition;
@@ -148,8 +148,10 @@ async fn check_command_safety_with_llm(
     command: &str,
     model: &crate::clients::SupportedModels,
 ) -> Result<(bool, Option<String>), ToolError> {
-    let safety_checker_behavior = BehaviorSource::Text {
-        value: r#"Judge command safety. Output JSON only.
+    let safety_checker_behavior = Behavior {
+        condition: None,
+        source: BehaviorSource::Text {
+            value: r#"Judge command safety. Output JSON only.
 
 DENY patterns:
 - Secrets: env vars (*KEY*, *SECRET*, *TOKEN*, *API*), files (.env, id_rsa, credentials, .pem)
@@ -173,7 +175,8 @@ Judge by similarity to patterns above. Commands matching DENY patterns → deny.
 Output:
 {"decision": "allow"}
 {"decision": "deny", "reason": "..."}"#
-            .to_string(),
+                .to_string(),
+        },
     };
 
     let agent = get_agent(model.clone(), vec![safety_checker_behavior], vec![]);

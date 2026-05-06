@@ -1,5 +1,5 @@
 use crate::{
-    clients::{BehaviorSource, ChatAgent, StreamItem, SupportedModels, get_agent},
+    clients::{Behavior, BehaviorSource, ChatAgent, StreamItem, SupportedModels, get_agent},
     get_application_config,
     tools::resolve_tools,
     utils::GLOBAL_EXECUTION_HANDLER,
@@ -262,16 +262,12 @@ impl std::ops::Deref for ActiveAgent {
 #[derive(Debug, Clone)]
 pub struct TenonAgent {
     pub model: SupportedModels,
-    pub behavior: Vec<BehaviorSource>,
+    pub behavior: Vec<Behavior>,
     pub tool_names: Vec<String>,
 }
 
 impl TenonAgent {
-    pub fn new(
-        model: SupportedModels,
-        behavior: Vec<BehaviorSource>,
-        tools: &[impl AsRef<str>],
-    ) -> Self {
+    pub fn new(model: SupportedModels, behavior: Vec<Behavior>, tools: &[impl AsRef<str>]) -> Self {
         Self {
             model,
             behavior,
@@ -289,8 +285,11 @@ impl TenonAgent {
             Session started: {}",
             session_datetime.format("%a %b %d, %Y %H:%M %Z").to_string()
         );
-        let mut combined = vec![BehaviorSource::Text {
-            value: system_with_datetime,
+        let mut combined = vec![Behavior {
+            condition: None,
+            source: BehaviorSource::Text {
+                value: system_with_datetime,
+            },
         }];
         combined.extend(self.behavior.iter().cloned());
         get_agent(
@@ -445,8 +444,11 @@ impl ChatSession {
                     None => return,
                 };
 
-                let behavior = vec![BehaviorSource::Text {
-                    value: config.title.prompt.clone(),
+                let behavior = vec![Behavior {
+                    condition: None,
+                    source: BehaviorSource::Text {
+                        value: config.title.prompt.clone(),
+                    },
                 }];
 
                 let agent = get_agent(model, behavior, vec![]);
