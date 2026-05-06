@@ -1,4 +1,12 @@
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
+
 use serde::Deserialize;
+
+use crate::utils::plugin_path;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Knowledge {
@@ -14,6 +22,46 @@ pub enum KnowledgeSource {
 
     /// A file path. Relative paths are resolved against the current working directory.
     File { path: std::path::PathBuf },
+}
+
+pub static KNOWLEDGE_BASE: OnceLock<PathBuf> = OnceLock::new();
+
+pub fn knowledge_path(relative: impl AsRef<Path>) -> PathBuf {
+    KNOWLEDGE_BASE
+        .get_or_init(|| plugin_path(PathBuf::from("markdown/knowledge")))
+        .join(relative)
+}
+
+/// Returns the handcrafted system knowledge entries.
+pub fn load_system_knowledge() -> HashMap<String, Knowledge> {
+    let mut map = HashMap::new();
+
+    map.insert(
+        "AGENTS.md".into(),
+        Knowledge {
+            name: "AGENTS.md".into(),
+            sources: vec![
+                KnowledgeSource::File {
+                    path: PathBuf::from("./AGENTS.md"),
+                },
+                KnowledgeSource::File {
+                    path: PathBuf::from("./AGENTS.local.md"),
+                },
+            ],
+        },
+    );
+
+    map.insert(
+        "Caveman Mode".into(),
+        Knowledge {
+            name: "Caveman Mode".into(),
+            sources: vec![KnowledgeSource::File {
+                path: knowledge_path("caveman_mode.md"),
+            }],
+        },
+    );
+
+    map
 }
 
 impl Knowledge {

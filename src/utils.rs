@@ -1,5 +1,6 @@
+use std::path::{Path, PathBuf};
 use std::sync::{
-    LazyLock,
+    LazyLock, OnceLock,
     mpsc::{self, Sender},
 };
 
@@ -12,6 +13,8 @@ use nvim_oxi::{
 };
 use serde_json::Value;
 
+pub static PLUGIN_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
 /// Convert an absolute path to a relative path (./relative) if within cwd,
 /// or return the absolute path if outside cwd.
 pub fn format_path_relative(path: &str) -> String {
@@ -23,6 +26,16 @@ pub fn format_path_relative(path: &str) -> String {
                 .map(|rest| format!("./{}", rest.trim_start_matches('/')))
         })
         .unwrap_or_else(|| path.to_string())
+}
+
+/// Resolve a path relative to the plugin root directory.
+///
+/// Returns the absolute path. If `relative` is already absolute, returns it as-is.
+pub fn plugin_path(relative: impl AsRef<Path>) -> PathBuf {
+    PLUGIN_ROOT
+        .get()
+        .expect("PLUGIN_ROOT not initialized")
+        .join(relative.as_ref())
 }
 
 fn escape_lua_string(s: &str) -> String {

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 use nvim_oxi::{
@@ -33,7 +34,11 @@ pub static KNOWLEDGE_REGISTRY: OnceLock<HashMap<String, Knowledge>> = OnceLock::
 
 pub fn get_knowledge_registry() -> HashMap<String, Knowledge> {
     KNOWLEDGE_REGISTRY
-        .get_or_init(|| get_application_config().knowledge.clone())
+        .get_or_init(|| {
+            let mut knowledge = knowledge::load_system_knowledge();
+            knowledge.extend(get_application_config().knowledge.clone());
+            knowledge
+        })
         .clone()
 }
 
@@ -67,6 +72,14 @@ fn tenon() -> OxiResult<Dictionary> {
         .exec();
 
     LazyLock::force(&GLOBAL_EXECUTION_HANDLER);
+
+    utils::PLUGIN_ROOT.get_or_init(|| {
+        let path: String = lua()
+            .load(r#"return vim.fn.fnamemodify(vim.api.nvim_get_runtime_file("lua/tenon.so", false)[1], ":h:h")"#)
+            .eval()
+            .unwrap_or_default();
+        PathBuf::from(path)
+    });
 
     let open_fn = Function::from_fn_mut({
         move |()| {
