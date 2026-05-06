@@ -628,15 +628,6 @@ impl ChatSession {
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                // Add user message if provided
-                if let Some(ref msg) = user_message {
-                    if let Ok(mut logs) = logs_clone.write() {
-                        logs.push(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                            TenonUserTextMessage(msg.clone()),
-                        ))));
-                    }
-                }
-
                 // Clean up trailing tool calls without results
                 if let Ok(mut logs) = logs_clone.write() {
                     let mut logs_vec: Vec<_> = logs.iter().cloned().collect();
@@ -670,11 +661,6 @@ impl ChatSession {
                     }
                 }
 
-                // Build RAG context (inside thread to avoid blocking main)
-                let rag_context = user_message
-                    .as_ref()
-                    .and_then(|msg| build_rag_context(&rag_logs_clone, &rag_embeddings_clone, msg));
-
                 let agent = agent_clone.build_chat_adapter(session_datetime);
 
                 // Build chat_history
@@ -688,6 +674,20 @@ impl ChatSession {
                 } else {
                     vec![]
                 };
+
+                // Add user message if provided
+                if let Some(ref msg) = user_message {
+                    if let Ok(mut logs) = logs_clone.write() {
+                        logs.push(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+                            TenonUserTextMessage(msg.clone()),
+                        ))));
+                    }
+                }
+
+                // Build RAG context (inside thread to avoid blocking main)
+                let rag_context = user_message
+                    .as_ref()
+                    .and_then(|msg| build_rag_context(&rag_logs_clone, &rag_embeddings_clone, msg));
 
                 // Inject RAG context if available
                 if let Some(ctx) = rag_context {
