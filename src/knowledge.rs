@@ -71,6 +71,16 @@ pub fn load_system_knowledge() -> HashMap<String, Knowledge> {
         },
     );
 
+    map.insert(
+        "Edit Prompt Process".into(),
+        Knowledge {
+            name: "Edit Prompt Process".into(),
+            sources: vec![KnowledgeSource::File {
+                path: knowledge_path("edit_prompt_process.md"),
+            }],
+        },
+    );
+
     map
 }
 
