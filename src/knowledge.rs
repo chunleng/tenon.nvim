@@ -61,6 +61,16 @@ pub fn load_system_knowledge() -> HashMap<String, Knowledge> {
         },
     );
 
+    map.insert(
+        "Code Review Process".into(),
+        Knowledge {
+            name: "Code Review Process".into(),
+            sources: vec![KnowledgeSource::File {
+                path: knowledge_path("code_review_process.md"),
+            }],
+        },
+    );
+
     map
 }
 
