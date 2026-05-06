@@ -91,6 +91,16 @@ pub fn load_system_knowledge() -> HashMap<String, Knowledge> {
         },
     );
 
+    map.insert(
+        "YAGNI Mode".into(),
+        Knowledge {
+            name: "YAGNI Mode".into(),
+            sources: vec![KnowledgeSource::File {
+                path: knowledge_path("yagni_mode.md"),
+            }],
+        },
+    );
+
     map
 }
 
