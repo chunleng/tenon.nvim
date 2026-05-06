@@ -348,9 +348,17 @@ pub fn get_agent(
         Some(
             behavior
                 .into_iter()
-                .map(|p| p.resolve())
-                .collect::<Result<Vec<_>, _>>()
-                .expect("failed to resolve behavior")
+                .filter_map(|p| match p.resolve() {
+                    Ok(resolved) => Some(resolved),
+                    Err(e) => {
+                        crate::utils::GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                            format!("failed to resolve behavior: {}", e),
+                            nvim_oxi::api::types::LogLevel::Warn,
+                        );
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
                 .join("\n"),
         )
     };
