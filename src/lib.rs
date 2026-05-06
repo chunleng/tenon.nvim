@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 use nvim_oxi::{
@@ -8,6 +9,7 @@ use serde::Deserialize;
 
 use crate::{
     config::{TenonConfig, user::TenonUserConfig},
+    knowledge::Knowledge,
     lua_modules::{action::create_lua_action_module, keymap::create_lua_keymap_module},
     ui::ChatWindow,
     utils::{GLOBAL_EXECUTION_HANDLER, notify},
@@ -27,9 +29,18 @@ pub fn get_application_config() -> TenonConfig {
     CONFIG.get_or_init(|| TenonConfig::default()).clone()
 }
 
+pub static KNOWLEDGE_REGISTRY: OnceLock<HashMap<String, Knowledge>> = OnceLock::new();
+
+pub fn get_knowledge_registry() -> HashMap<String, Knowledge> {
+    KNOWLEDGE_REGISTRY
+        .get_or_init(|| get_application_config().knowledge.clone())
+        .clone()
+}
+
 mod chat;
 mod clients;
 mod config;
+mod knowledge;
 mod lua_modules;
 mod mcp;
 mod tools;

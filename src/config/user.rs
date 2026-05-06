@@ -7,6 +7,7 @@ use crate::{
     chat::TenonAgent,
     clients::{BehaviorSource, ProviderConfig, SupportedModels},
     config::TenonConfig,
+    knowledge::Knowledge,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -18,6 +19,7 @@ pub struct TenonUserConfig {
     pub tools: Option<ToolsUserConfig>,
     pub history: Option<HistoryUserConfig>,
     pub title: Option<TitleUserConfig>,
+    pub knowledge: Option<Vec<Knowledge>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -216,6 +218,10 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
             if let Some(prompt) = title.prompt {
                 conf.title.prompt = prompt;
             }
+        }
+
+        if let Some(knowledge) = value.knowledge {
+            conf.knowledge = knowledge.into_iter().map(|k| (k.name.clone(), k)).collect();
         }
 
         Ok(conf)

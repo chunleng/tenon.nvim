@@ -57,38 +57,37 @@ pub use gemini::{GeminiProviderConfig, get_gemini_agent};
 pub use ollama::{OllamaProviderConfig, get_ollama_agent};
 pub use openai::{OpenAIProviderConfig, get_openai_agent};
 
-/// Describes where a behavior comes from: an inline string or a file path.
+/// Describes where a behavior comes from: an inline string or a knowledge reference.
 ///
-/// When `BehaviorSource::File` is used with a relative path, it is resolved
-/// relative to the current working directory.
+/// When `BehaviorSource::Knowledge` is used, it looks up the knowledge by name
+/// from the global knowledge registry.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum BehaviorSource {
-    /// An inline string.
+    /// An inline string. Easy for user to provide directly
     Text { value: String },
-    /// A file path. Relative paths are resolved against the current working directory.
-    File { path: std::path::PathBuf },
+
+    /// Refer to a knowledge
+    Knowledge { name: String },
 }
 
 impl BehaviorSource {
     /// Resolve the source into its final string content.
     ///
     /// For `Text` this returns the value directly.
-    /// For `File` this reads the file contents, resolving relative paths against CWD.
+    /// For `Knowledge` this looks up the knowledge by name and resolves it.
     pub fn resolve(&self) -> Result<String, std::io::Error> {
         match self {
             BehaviorSource::Text { value } => Ok(value.clone()),
-            BehaviorSource::File { path } => {
-                let resolved = if path.is_absolute() {
-                    path.clone()
-                } else {
-                    std::env::current_dir()?.join(path)
-                };
-                if resolved.exists() {
-                    std::fs::read_to_string(&resolved)
-                } else {
-                    Ok("".to_string())
-                }
+            BehaviorSource::Knowledge { name } => {
+                let registry = crate::get_knowledge_registry();
+                let knowledge = registry.get(name).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("Knowledge '{}' not found", name),
+                    )
+                })?;
+                knowledge.resolve()
             }
         }
     }
