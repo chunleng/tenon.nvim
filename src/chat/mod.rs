@@ -282,6 +282,7 @@ impl TenonAgent {
             User may edit files between steps → files change silently. File ≠ expected → user edited → re-read → preserve changes. \
             History shows active behavior/prompt at that time. Prior actions may span agents → trust reported behavior. \
             Earlier history may be truncated. Missing context → ask user for clarification. \
+            <knowledge></knowledge>=important info agent knows. <behavior></behavior>=rules for agent conduct; no condition→always, condition→when matched. Both take priority; only explicit user instruction overrides them. \
             Session started: {}",
             session_datetime.format("%a %b %d, %Y %H:%M %Z").to_string()
         );
@@ -301,8 +302,8 @@ impl TenonAgent {
 
     pub fn token_count(&self) -> usize {
         // TODO: make tool estimate count with actual definition
-        // NOTE: 116 is from skimtoken estimation of system prompt
-        self.tool_names.len() * 150 + 116
+        // NOTE: Update this when system prompt changes. Last estimate: ~150 tokens.
+        self.tool_names.len() * 150 + 150
     }
 }
 
