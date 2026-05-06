@@ -81,6 +81,16 @@ pub fn load_system_knowledge() -> HashMap<String, Knowledge> {
         },
     );
 
+    map.insert(
+        "No Perfect Solution Mode".into(),
+        Knowledge {
+            name: "No Perfect Solution Mode".into(),
+            sources: vec![KnowledgeSource::File {
+                path: knowledge_path("no_perfect_solution_mode.md"),
+            }],
+        },
+    );
+
     map
 }
 
