@@ -82,21 +82,21 @@ pub fn load_system_knowledge() -> HashMap<String, Knowledge> {
     );
 
     map.insert(
-        "No Perfect Solution Mode".into(),
+        "No Perfect Solution Attitude".into(),
         Knowledge {
-            name: "No Perfect Solution Mode".into(),
+            name: "No Perfect Solution Attitude".into(),
             sources: vec![KnowledgeSource::File {
-                path: knowledge_path("no_perfect_solution_mode.md"),
+                path: knowledge_path("no_perfect_solution_attitude.md"),
             }],
         },
     );
 
     map.insert(
-        "YAGNI Mode".into(),
+        "YAGNI Attitude".into(),
         Knowledge {
-            name: "YAGNI Mode".into(),
+            name: "YAGNI Attitude".into(),
             sources: vec![KnowledgeSource::File {
-                path: knowledge_path("yagni_mode.md"),
+                path: knowledge_path("yagni_attitude.md"),
             }],
         },
     );
