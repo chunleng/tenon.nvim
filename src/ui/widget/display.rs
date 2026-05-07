@@ -85,7 +85,8 @@ impl ChatDisplay {
 
     fn spawn_refresh_display_thread(&mut self) -> OxiResult<()> {
         let (tx, rx) = mpsc::channel();
-        let ns_id = api::create_namespace("TenonSigns");
+        let ns_frozen = api::create_namespace("TenonFrozen");
+        let ns_current = api::create_namespace("TenonCurrent");
         let render_state = self.render_state.clone();
         let spinner_frame = self.spinner_frame.clone();
         let tool_added = self.tool_added.clone();
@@ -238,29 +239,47 @@ impl ChatDisplay {
 
                     // Collect sign placements: (buf_line_idx, SignIcon)
                     // Collect line highlight placements: (buf_line_idx, hl_group)
-                    let mut signs: Vec<(usize, SignIcon)> = Vec::new();
-                    let mut line_highlights: Vec<(usize, &str)> = Vec::new();
+                    // Split into frozen and current based on which entries will become frozen
+                    let mut frozen_signs: Vec<(usize, SignIcon)> = Vec::new();
+                    let mut frozen_line_highlights: Vec<(usize, &str)> = Vec::new();
+                    let mut current_signs: Vec<(usize, SignIcon)> = Vec::new();
+                    let mut current_line_highlights: Vec<(usize, &str)> = Vec::new();
+
+                    // Compute which entries will become frozen
+                    let newly_frozen_count = if log_count == 0 {
+                        0
+                    } else {
+                        log_count - 1 - start_idx
+                    };
+
                     let mut buf_line = frozen_line_count;
-                    for (lines, sign) in &entry_lines {
-                        signs.push((buf_line, *sign));
+
+                    for (i, (lines, sign)) in entry_lines.iter().enumerate() {
+                        // Choose which vectors to add to based on whether this entry will become frozen
+                        let (target_signs, target_highlights) = if i < newly_frozen_count {
+                            (&mut frozen_signs, &mut frozen_line_highlights)
+                        } else {
+                            (&mut current_signs, &mut current_line_highlights)
+                        };
+
+                        target_signs.push((buf_line, *sign));
                         if let Some(hl) = sign.line_hl_group() {
                             for offset in 0..lines.len() {
-                                line_highlights.push((buf_line + offset, hl));
+                                target_highlights.push((buf_line + offset, hl));
                             }
                         }
                         buf_line += lines.len();
                     }
                     if let Some(ul) = usage_buf_line {
-                        line_highlights.push((ul, "TenonLineChatMeta"));
+                        current_line_highlights.push((ul, "TenonLineChatMeta"));
                     }
-                    line_highlights.push((spinner_buf_line, "TenonLineChatMeta"));
+                    current_line_highlights.push((spinner_buf_line, "TenonLineChatMeta"));
 
                     // Compute new render state for after buffer update
                     let (new_next_render_from, new_frozen_line_count) = if log_count == 0 {
                         (0, 0)
                     } else {
                         // Entries that become frozen: start_idx..log_count-1 (exclusive of last)
-                        let newly_frozen_count = log_count - 1 - start_idx;
                         let newly_frozen_lines: usize = entry_lines[..newly_frozen_count]
                             .iter()
                             .map(|(l, _)| l.len())
@@ -282,6 +301,11 @@ impl ChatDisplay {
                                         follow_last_line = cursor_row == line_count;
                                     };
 
+                                    // Clear current namespace (frozen namespace is never cleared)
+                                    buffer
+                                        .clear_namespace(ns_current, frozen_line_count..line_count)
+                                        .ok();
+
                                     let buf_opts =
                                         OptionOpts::builder().buffer(buffer.clone()).build();
                                     let _ = api::set_option_value("modifiable", true, &buf_opts);
@@ -289,17 +313,40 @@ impl ChatDisplay {
                                     let _ = api::set_option_value("modifiable", false, &buf_opts);
                                     let _ = api::set_option_value("modified", false, &buf_opts);
 
-                                    // Place sign extmarks
-                                    buffer
-                                        .clear_namespace(ns_id, frozen_line_count..line_count)
-                                        .ok();
-                                    for (line, icon) in &signs {
+                                    // Place frozen extmarks (never cleared)
+                                    for (line, icon) in &frozen_signs {
                                         let opts = SetExtmarkOpts::builder()
                                             .sign_text(icon.text())
                                             .sign_hl_group(icon.hl_group())
                                             .build();
-                                        buffer.set_extmark(ns_id, *line, 0, &opts).ok();
+                                        buffer.set_extmark(ns_frozen, *line, 0, &opts).ok();
                                     }
+                                    for (line, hl) in &frozen_line_highlights {
+                                        let opts = SetExtmarkOpts::builder()
+                                            .end_line((line + 1).try_into().unwrap())
+                                            .hl_group(*hl)
+                                            .hl_eol(true)
+                                            .build();
+                                        buffer.set_extmark(ns_frozen, *line, 0, &opts).ok();
+                                    }
+
+                                    // Place current extmarks (cleared each render)
+                                    for (line, icon) in &current_signs {
+                                        let opts = SetExtmarkOpts::builder()
+                                            .sign_text(icon.text())
+                                            .sign_hl_group(icon.hl_group())
+                                            .build();
+                                        buffer.set_extmark(ns_current, *line, 0, &opts).ok();
+                                    }
+                                    for (line, hl) in &current_line_highlights {
+                                        let opts = SetExtmarkOpts::builder()
+                                            .end_line((line + 1).try_into().unwrap())
+                                            .hl_group(*hl)
+                                            .hl_eol(true)
+                                            .build();
+                                        buffer.set_extmark(ns_current, *line, 0, &opts).ok();
+                                    }
+                                    // Place spinner (always current)
                                     let spinner_sign = if is_currently_processing {
                                         SPINNER_CHARS[spinner_idx]
                                     } else {
@@ -310,17 +357,9 @@ impl ChatDisplay {
                                             .sign_text(spinner_sign)
                                             .sign_hl_group("TenonSignProcessing")
                                             .build();
-                                        buffer.set_extmark(ns_id, spinner_buf_line, 0, &opts).ok();
-                                    }
-
-                                    // Place line highlight extmarks
-                                    for (line, hl) in &line_highlights {
-                                        let opts = SetExtmarkOpts::builder()
-                                            .end_line((line + 1).try_into().unwrap())
-                                            .hl_group(*hl)
-                                            .hl_eol(true)
-                                            .build();
-                                        buffer.set_extmark(ns_id, *line, 0, &opts).ok();
+                                        buffer
+                                            .set_extmark(ns_current, spinner_buf_line, 0, &opts)
+                                            .ok();
                                     }
 
                                     if follow_last_line
