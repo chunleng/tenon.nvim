@@ -101,6 +101,16 @@ pub fn load_system_knowledge() -> HashMap<String, Knowledge> {
         },
     );
 
+    map.insert(
+        "Fix Software Bug Process".into(),
+        Knowledge {
+            name: "Fix Software Bug Process".into(),
+            sources: vec![KnowledgeSource::File {
+                path: knowledge_path("fix_software_bug_process.md"),
+            }],
+        },
+    );
+
     map
 }
 
