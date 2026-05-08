@@ -58,6 +58,13 @@ pub struct FetchWebpageUserConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct WorkflowConfig {
+    pub id: String,
+    #[serde(default)]
+    pub condition: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct TenonAgentConfig {
     model: ModelConfig,
     #[serde(default)]
@@ -66,6 +73,8 @@ pub struct TenonAgentConfig {
     tool_names: Vec<String>,
     #[serde(default)]
     default: bool,
+    #[serde(default)]
+    workflows: Vec<WorkflowConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -124,6 +133,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                             },
                             v.behavior,
                             &v.tool_names,
+                            v.workflows,
                         ),
                     ))
                 })

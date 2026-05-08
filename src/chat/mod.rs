@@ -1,6 +1,8 @@
 use crate::{
+    chat::workflow::GotoStep,
     clients::{Behavior, BehaviorSource, ChatAgent, StreamItem, SupportedModels, get_agent},
-    get_application_config,
+    config::user::WorkflowConfig,
+    get_application_config, get_workflow_registry,
     tools::resolve_tools,
     utils::GLOBAL_EXECUTION_HANDLER,
 };
@@ -21,13 +23,102 @@ const MAX_CONTEXT_TOKENS: usize = 20_000;
 
 pub mod history;
 pub mod log;
+pub mod workflow;
 
 pub use log::{
     TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData, TenonToolCall,
     TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage, TenonUserTextMessage,
+    TenonWorkflowLog,
 };
 
 use history::save_to_history;
+
+/// Builds a workflow-wrapped prompt if there's an active workflow.
+fn build_workflow_prompt(
+    active_workflow: &Arc<RwLock<Option<ActiveWorkflow>>>,
+    base_prompt: String,
+) -> String {
+    if let Ok(active_lock) = active_workflow.read() {
+        if let Some(ref active) = active_lock.as_ref() {
+            let registry = get_workflow_registry();
+            let workflow = registry
+                .get(&active.id)
+                .expect("active workflow id must exist in workflow registry");
+            let total_steps = workflow.steps.len();
+            if let Some(step) = workflow.steps.get(active.step - 1) {
+                let mut goto_lines: Vec<String> = step
+                    .goto_instructions
+                    .iter()
+                    .map(|instr| {
+                        let target_step = match &instr.to {
+                            GotoStep::Next => active.step + 1,
+                            GotoStep::Step(n) => *n,
+                        };
+                        if target_step > total_steps {
+                            format!(
+                                "{}end_workflow output:{}",
+                                instr
+                                    .condition
+                                    .as_ref()
+                                    .map(|x| { format!("{} → ", x) })
+                                    .unwrap_or("".to_string()),
+                                instr.output
+                            )
+                        } else {
+                            format!(
+                                "{}navigate_output step:{} output:{}",
+                                instr
+                                    .condition
+                                    .as_ref()
+                                    .map(|x| { format!("{} → ", x) })
+                                    .unwrap_or("".to_string()),
+                                target_step,
+                                instr.output
+                            )
+                        }
+                    })
+                    .collect();
+
+                // Only add default ending if at last step and no goto already ends workflow
+                if active.step == total_steps {
+                    let has_ending_goto = step.goto_instructions.iter().any(|instr| {
+                        let target_step = match &instr.to {
+                            GotoStep::Next => active.step + 1,
+                            GotoStep::Step(n) => *n,
+                        };
+                        target_step > total_steps
+                    });
+                    if !has_ending_goto {
+                        goto_lines.push("end_workflow output:nothing".to_string());
+                    }
+                }
+
+                let goto_instruction = goto_lines.join("\n");
+
+                return format!(
+                    "<context>\n\
+                    Currently in {} step of {} workflow. In a workflow, user prompt first, workflow instruction second and chat history is just reference\n\
+                    Follow through the process of the workflow step by step. Following is instruction of current step:\n\
+                    <instruction>\n\
+                    {}\n\
+                    </instruction>\n\
+                    After all process instruction has been completed, call navigate_workflow tool with the appropriate step number and your step_output.\n\
+                    <navigation>\n\
+                    {}\n\
+                    </navigation>\n\
+                    </context>\n\
+                    {}",
+                    step.title,
+                    workflow.title,
+                    step.instruction.resolve().unwrap_or_default(),
+                    goto_instruction,
+                    base_prompt
+                );
+            }
+        }
+    }
+    base_prompt
+}
 
 pub static CHAT_SESSIONS: LazyLock<Mutex<Vec<Arc<RwLock<ChatSession>>>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
@@ -63,19 +154,20 @@ fn generate_chat_id() -> String {
 
 /// Converts a TenonLog to a string for embedding.
 /// Extracts the text content from the log for semantic search.
-fn log_to_text(log: &TenonLog) -> String {
+fn log_to_text(log: &TenonLog) -> Option<String> {
     match log.data() {
         TenonLogData::User(msg) => match msg {
-            TenonUserMessage::Text(TenonUserTextMessage(text)) => text.clone(),
+            TenonUserMessage::Text(TenonUserTextMessage(text)) => Some(text.clone()),
         },
-        TenonLogData::Assistant(msg) => msg
-            .content
-            .iter()
-            .filter_map(|c| match c {
-                TenonAssistantMessageContent::Text(t) => Some(t.clone()),
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
+        TenonLogData::Assistant(msg) => Some(
+            msg.content
+                .iter()
+                .filter_map(|c| match c {
+                    TenonAssistantMessageContent::Text(t) => Some(t.clone()),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
         TenonLogData::Tool(tool_log) => {
             let mut text = format!(
                 "Tool: {}\nArgs: {}",
@@ -94,8 +186,9 @@ fn log_to_text(log: &TenonLog) -> String {
                     }
                 }
             }
-            text
+            Some(text)
         }
+        TenonLogData::Workflow(_) => None, // Workflow does not need to be indexed for RAG
     }
 }
 
@@ -173,7 +266,7 @@ fn get_or_generate_embeddings(
     // Cache is missing some embeddings - generate only for new logs
     if cached_len < logs.len() {
         // Generate embeddings for logs that don't have them yet
-        let new_texts: Vec<_> = logs[cached_len..].iter().map(log_to_text).collect();
+        let new_texts: Vec<_> = logs[cached_len..].iter().filter_map(log_to_text).collect();
         let new_embeddings = generate_embeddings(&new_texts)?;
 
         // Append to existing cache
@@ -188,7 +281,7 @@ fn get_or_generate_embeddings(
     }
 
     // Cache has more embeddings than logs (shouldn't happen, but regenerate to be safe)
-    let texts: Vec<_> = logs.iter().map(log_to_text).collect();
+    let texts: Vec<_> = logs.iter().filter_map(log_to_text).collect();
     let embeddings = generate_embeddings(&texts)?;
 
     if let Ok(mut lock) = cache.write() {
@@ -219,7 +312,7 @@ fn build_rag_context(
     let context_parts: Vec<_> = top_indices
         .into_iter()
         .filter_map(|i| logs.get(i))
-        .map(log_to_text)
+        .filter_map(log_to_text)
         .collect();
 
     (!context_parts.is_empty()).then(|| {
@@ -239,6 +332,7 @@ pub struct ChatSession {
     pub resume_from: Arc<AtomicUsize>,
     pub usage: Arc<RwLock<Option<Usage>>>,
     pub active_agent: ActiveAgent,
+    pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
     pub session_datetime: DateTime<Local>,
     cancel_token: Arc<AtomicBool>,
     active_thread: Option<std::thread::JoinHandle<()>>,
@@ -260,44 +354,133 @@ impl std::ops::Deref for ActiveAgent {
 }
 
 #[derive(Debug, Clone)]
+pub struct ActiveWorkflow {
+    pub id: String,
+    pub step: usize,
+}
+
+impl ActiveWorkflow {
+    pub fn new(id: impl ToString, step: usize) -> Self {
+        Self {
+            id: id.to_string(),
+            step,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TenonAgent {
     pub model: SupportedModels,
     pub behavior: Vec<Behavior>,
     pub tool_names: Vec<String>,
+    pub workflows: Vec<WorkflowConfig>,
 }
 
 impl TenonAgent {
-    pub fn new(model: SupportedModels, behavior: Vec<Behavior>, tools: &[impl AsRef<str>]) -> Self {
+    pub fn new(
+        model: SupportedModels,
+        behavior: Vec<Behavior>,
+        tools: &[impl AsRef<str>],
+        workflows: Vec<WorkflowConfig>,
+    ) -> Self {
         Self {
             model,
             behavior,
             tool_names: tools.iter().map(|t| t.as_ref().to_string()).collect(),
+            workflows,
         }
     }
 
-    pub fn build_chat_adapter(&self, session_datetime: DateTime<Local>) -> ChatAgent {
+    pub fn build_chat_adapter(
+        &self,
+        session_datetime: DateTime<Local>,
+        workflow_context: Arc<RwLock<Option<ActiveWorkflow>>>,
+        logs: Arc<RwLock<Vec<TenonLog>>>,
+    ) -> ChatAgent {
         // NOTE: Update token estimation when this prompt changes
-        let system_with_datetime = format!(
-            "Output markdown. Concise, not verbose. No filler or hedging or unnecessary words. Reduce emoji use. \
+        let mut system_prompt = "Output markdown. Concise, not verbose. No filler or hedging or unnecessary words. Reduce emoji use. \
             User may edit files between steps → files change silently. File ≠ expected → user edited → re-read → preserve changes. \
             History shows active behavior/prompt at that time. Prior actions may span agents → trust reported behavior. \
             Earlier history may be truncated. Missing context → ask user for clarification. \
-            <knowledge></knowledge>=important info agent knows. <behavior></behavior>=rules for agent conduct; no condition→always, condition→when matched. Both take priority; only explicit user instruction overrides them. \
-            Session started: {}",
+            <knowledge></knowledge>=important info agent knows. <behavior></behavior>=rules for agent conduct; no condition→always, condition→when matched. Both take priority; only explicit user instruction overrides them.".to_string();
+
+        // Add workflow information if agent has workflows configured
+        if !self.workflows.is_empty() {
+            let registry = get_workflow_registry();
+            let workflow_info: Vec<String> = self
+                .workflows
+                .iter()
+                .filter_map(|w| {
+                    let condition = w
+                        .condition
+                        .as_ref()
+                        .or_else(|| registry.get(&w.id).map(|wf| &wf.default_condition))?;
+                    Some(format!("{} -> {}", w.id, condition))
+                })
+                .collect();
+
+            system_prompt.push_str(&format!(
+                " You have workflow to help you solve problems, always prioritize workflow, if they match the condition, over manually figuring out a process\n\
+                In workflow + question for user → ask directly. Never via navigate/end_workflow.\n<workflows>{}</workflows>",
+                workflow_info.join(", ")
+            ));
+        }
+
+        system_prompt = format!(
+            "{} Session started: {}",
+            system_prompt,
             session_datetime.format("%a %b %d, %Y %H:%M %Z").to_string()
         );
+
         let mut combined = vec![Behavior {
             condition: None,
             source: BehaviorSource::Text {
-                value: system_with_datetime,
+                value: system_prompt,
             },
         }];
         combined.extend(self.behavior.iter().cloned());
-        get_agent(
-            self.model.clone(),
-            combined,
-            resolve_tools(&self.tool_names),
-        )
+
+        let mut tools = resolve_tools(&self.tool_names);
+
+        // Add start_workflow tool if agent has workflows configured (and no active workflow)
+        if !self.workflows.is_empty() {
+            let has_active = workflow_context
+                .read()
+                .map(|g| g.is_some())
+                .unwrap_or(false);
+
+            if !has_active {
+                use crate::tools::start_workflow::StartWorkflow;
+                tools.push(Box::new(StartWorkflow {
+                    workflow_ids: self.workflows.iter().map(|w| w.id.clone()).collect(),
+                    active_workflow: workflow_context.clone(),
+                    logs: logs.clone(),
+                }));
+            }
+        }
+
+        // Add workflow navigation tool if there's an active workflow
+        let has_active = {
+            if let Ok(active_read) = workflow_context.read() {
+                active_read.is_some()
+            } else {
+                false
+            }
+        };
+        if has_active {
+            use crate::tools::end_workflow::EndWorkflow;
+            use crate::tools::navigate_workflow::NavigateWorkflow;
+            tools.push(Box::new(NavigateWorkflow {
+                active_workflow: workflow_context.clone(),
+                logs: logs.clone(),
+            }));
+            tools.push(Box::new(EndWorkflow {
+                active_workflow: workflow_context,
+                logs,
+            }));
+        }
+
+        get_agent(self.model.clone(), combined, tools)
     }
 
     pub fn token_count(&self) -> usize {
@@ -330,6 +513,7 @@ impl ChatSession {
                     .ok_or(nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("".into())))?
                     .clone(),
             },
+            active_workflow: Arc::new(RwLock::new(None)),
             session_datetime: Local::now(),
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
@@ -365,6 +549,28 @@ impl ChatSession {
             })
             .collect();
 
+        // Replay workflow logs to reconstruct active_workflow state.
+        // Active workflow is derived from history, not stored directly,
+        // because it's constructed from logic (step progression/end), not raw state.
+        let active_workflow: Option<ActiveWorkflow> = {
+            let mut wf: Option<ActiveWorkflow> = None;
+            for log in &logs {
+                if let TenonLogData::Workflow(wf_log) = log.data() {
+                    match wf_log.step {
+                        Some(step) => {
+                            // Navigate/create: set workflow to this step
+                            wf = Some(ActiveWorkflow::new(&wf_log.id, step));
+                        }
+                        None => {
+                            // End: clear active workflow
+                            wf = None;
+                        }
+                    }
+                }
+            }
+            wf
+        };
+
         let session = Self {
             id: history.id,
             title: Arc::new(RwLock::new(history.title)),
@@ -377,6 +583,7 @@ impl ChatSession {
                 name: agent_name,
                 inner: agent,
             },
+            active_workflow: Arc::new(RwLock::new(active_workflow)),
             session_datetime: history.session_datetime,
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
@@ -627,10 +834,12 @@ impl ChatSession {
         let cancel_token = Arc::clone(&self.cancel_token);
         let rag_logs_clone = Arc::clone(&self.rag_logs);
         let rag_embeddings_clone = Arc::clone(&self.rag_embeddings);
+        let active_workflow_clone = Arc::clone(&self.active_workflow);
 
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
+                let mut prompt = build_workflow_prompt(&active_workflow_clone, prompt);
                 // Clean up trailing tool calls without results
                 if let Ok(mut logs) = logs_clone.write() {
                     let mut logs_vec: Vec<_> = logs.iter().cloned().collect();
@@ -663,8 +872,6 @@ impl ChatSession {
                         logs.push(log);
                     }
                 }
-
-                let agent = agent_clone.build_chat_adapter(session_datetime);
 
                 // Build chat_history
                 let resume_idx = resume_from.load(Ordering::SeqCst);
@@ -705,119 +912,200 @@ impl ChatSession {
                     );
                 }
 
-                let mut stream = agent.stream_chat(prompt, chat_history).await;
-                while let Some(result) = stream.next().await {
-                    if cancel_token.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    match result {
-                        Ok(StreamItem::ToolResult {
-                            tool_result,
-                            internal_call_id,
-                        }) => {
-                            if let Ok(mut logs) = logs_clone.write() {
-                                if let Some(log) = logs.iter_mut().find_map(|x| {
-                                    if let TenonLogData::Tool(tool) = x.data() {
-                                        if tool.tool_call.internal_call_id == internal_call_id {
-                                            return Some(x);
-                                        }
-                                    }
-                                    None
-                                }) {
-                                    let tool_result = tool_result.content.first();
-                                    let result = match tool_result {
-                                        ToolResultContent::Text(text) => {
-                                            if text.text.starts_with("Toolset error: ") {
-                                                Err(TenonToolError(text.text))
-                                            } else {
-                                                Ok(TenonToolResult::Text(text))
+                loop {
+                    let mut should_continue = false;
+                    let mut next_prompt = String::new();
+                    let agent = agent_clone.build_chat_adapter(
+                        session_datetime,
+                        active_workflow_clone.clone(),
+                        logs_clone.clone(),
+                    );
+
+                    let mut stream = agent
+                        .stream_chat(prompt.clone(), chat_history.clone())
+                        .await;
+
+                    while let Some(result) = stream.next().await {
+                        if cancel_token.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        match result {
+                            Ok(StreamItem::ToolResult {
+                                tool_result,
+                                internal_call_id,
+                            }) => {
+                                if let Ok(mut logs) = logs_clone.write() {
+                                    if let Some(log) = logs.iter_mut().find_map(|x| {
+                                        if let TenonLogData::Tool(tool) = x.data() {
+                                            if tool.tool_call.internal_call_id == internal_call_id {
+                                                return Some(x);
                                             }
                                         }
-                                        ToolResultContent::Image(img) => {
-                                            Ok(TenonToolResult::Image(img))
+                                        None
+                                    }) {
+                                        let tool_result = tool_result.content.first();
+                                        let result = match tool_result {
+                                            ToolResultContent::Text(text) => {
+                                                if text.text.starts_with("Toolset error: ") {
+                                                    Err(TenonToolError(text.text))
+                                                } else {
+                                                    Ok(TenonToolResult::Text(text))
+                                                }
+                                            }
+                                            ToolResultContent::Image(img) => {
+                                                Ok(TenonToolResult::Image(img))
+                                            }
+                                        };
+
+                                        log.set_tool_result(Some(result.clone()));
+
+                                        // Handle workflow tool results
+                                        if let TenonLogData::Tool(tool_log) = log.data() {
+                                            match tool_log.tool_call.name.as_str() {
+                                                "start_workflow" if result.is_ok() => {
+                                                    // Continue to first workflow step
+                                                    should_continue = true;
+                                                    next_prompt = "[continue]".to_string();
+                                                    break;
+                                                }
+                                                "navigate_workflow" if result.is_ok() => {
+                                                    // Extract step_output for continuation
+                                                    if let Some(args_obj) =
+                                                        tool_log.tool_call.args.as_object()
+                                                        && let Some(serde_json::Value::String(
+                                                            step_output,
+                                                        )) = args_obj.get("step_output")
+                                                    {
+                                                        should_continue = true;
+                                                        next_prompt = format!(
+                                                            "The previous step output: {}",
+                                                            step_output
+                                                        );
+                                                        break;
+                                                    }
+                                                }
+                                                "end_workflow" if result.is_ok() => {
+                                                    // Extract output for continuation
+                                                    if let Some(args_obj) =
+                                                        tool_log.tool_call.args.as_object()
+                                                        && let Some(serde_json::Value::String(
+                                                            output,
+                                                        )) = args_obj.get("output")
+                                                    {
+                                                        should_continue = true;
+                                                        next_prompt = format!(
+                                                            "Workflow ended with output: {}",
+                                                            output
+                                                        );
+                                                        break;
+                                                    }
+                                                }
+                                                _ => {}
+                                            }
                                         }
-                                    };
-                                    log.set_tool_result(Some(result));
+                                    }
                                 }
                             }
-                        }
-                        Ok(StreamItem::ReasoningDelta { reasoning }) => {
-                            if let Ok(mut logs) = logs_clone.write() {
-                                let mut updated = false;
-                                if let Some(log) = logs.last_mut() {
-                                    updated = log.append_reasoning(&reasoning);
-                                }
+                            Ok(StreamItem::ReasoningDelta { reasoning }) => {
+                                if let Ok(mut logs) = logs_clone.write() {
+                                    let mut updated = false;
+                                    if let Some(log) = logs.last_mut() {
+                                        updated = log.append_reasoning(&reasoning);
+                                    }
 
-                                if !updated {
-                                    logs.push(TenonLog::new(TenonLogData::Assistant(
-                                        TenonAssistantMessage {
-                                            reasoning: Some(reasoning),
-                                            content: vec![],
-                                        },
-                                    )));
+                                    if !updated {
+                                        logs.push(TenonLog::new(TenonLogData::Assistant(
+                                            TenonAssistantMessage {
+                                                reasoning: Some(reasoning),
+                                                content: vec![],
+                                            },
+                                        )));
+                                    }
                                 }
                             }
-                        }
-                        Ok(StreamItem::Text { text }) => {
-                            if let Ok(mut logs) = logs_clone.write() {
-                                let mut updated = false;
-                                if let Some(log) = logs.last_mut() {
-                                    updated = log.append_text(&text);
-                                }
+                            Ok(StreamItem::Text { text }) => {
+                                if let Ok(mut logs) = logs_clone.write() {
+                                    let mut updated = false;
+                                    if let Some(log) = logs.last_mut() {
+                                        updated = log.append_text(&text);
+                                    }
 
-                                if !updated {
-                                    logs.push(TenonLog::new(TenonLogData::Assistant(
-                                        TenonAssistantMessage {
-                                            reasoning: None,
-                                            content: vec![TenonAssistantMessageContent::Text(text)],
+                                    if !updated {
+                                        logs.push(TenonLog::new(TenonLogData::Assistant(
+                                            TenonAssistantMessage {
+                                                reasoning: None,
+                                                content: vec![TenonAssistantMessageContent::Text(
+                                                    text,
+                                                )],
+                                            },
+                                        )));
+                                    }
+                                }
+                            }
+                            Ok(StreamItem::ToolCall {
+                                tool_call,
+                                internal_call_id,
+                            }) => {
+                                if let Ok(mut logs) = logs_clone.write() {
+                                    logs.push(TenonLog::new(TenonLogData::Tool(TenonToolLog {
+                                        tool_call: TenonToolCall {
+                                            id: tool_call.id,
+                                            internal_call_id: internal_call_id,
+                                            name: tool_call.function.name,
+                                            args: tool_call.function.arguments,
                                         },
-                                    )));
+                                        tool_result: None,
+                                    })));
                                 }
                             }
-                        }
-                        Ok(StreamItem::ToolCall {
-                            tool_call,
-                            internal_call_id,
-                        }) => {
-                            if let Ok(mut logs) = logs_clone.write() {
-                                logs.push(TenonLog::new(TenonLogData::Tool(TenonToolLog {
-                                    tool_call: TenonToolCall {
-                                        id: tool_call.id,
-                                        internal_call_id: internal_call_id,
-                                        name: tool_call.function.name,
-                                        args: tool_call.function.arguments,
-                                    },
-                                    tool_result: None,
-                                })));
-                            }
-                        }
-                        Ok(StreamItem::Final { token_usage }) => {
-                            if let Some(usage) = token_usage {
-                                if let Ok(mut usage_lock) = usage_clone.write() {
-                                    *usage_lock = Some(usage);
+                            Ok(StreamItem::Final { token_usage }) => {
+                                if let Some(usage) = token_usage {
+                                    if let Ok(mut usage_lock) = usage_clone.write() {
+                                        *usage_lock = Some(usage);
+                                    }
                                 }
+                                let history_dir = get_application_config().history.directory;
+                                let title_val = title_clone.read().ok().and_then(|t| t.clone());
+                                save_to_history(
+                                    &chat_id,
+                                    title_val.as_deref(),
+                                    &agent_clone.name,
+                                    &agent_clone.inner.model.display_name(),
+                                    session_datetime,
+                                    &logs_clone,
+                                    &usage_clone,
+                                    &history_dir,
+                                );
                             }
-                            let history_dir = get_application_config().history.directory;
-                            let title_val = title_clone.read().ok().and_then(|t| t.clone());
-                            save_to_history(
-                                &chat_id,
-                                title_val.as_deref(),
-                                &agent_clone.name,
-                                &agent_clone.inner.model.display_name(),
-                                session_datetime,
-                                &logs_clone,
-                                &usage_clone,
-                                &history_dir,
-                            );
-                        }
-                        Ok(StreamItem::Other) => {}
-                        Err(e) => {
-                            let _ = GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
-                                format!("error occurred while streaming response from LLM: {}", e),
-                                LogLevel::Error,
-                            );
+                            Ok(StreamItem::Other) => {}
+                            Err(e) => {
+                                let _ = GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                                    format!(
+                                        "error occurred while streaming response from LLM: {}",
+                                        e
+                                    ),
+                                    LogLevel::Error,
+                                );
+                            }
                         }
                     }
+
+                    if !should_continue || cancel_token.load(Ordering::SeqCst) {
+                        break;
+                    }
+
+                    prompt = build_workflow_prompt(&active_workflow_clone, next_prompt);
+
+                    let resume_idx = resume_from.load(Ordering::SeqCst);
+                    chat_history = if let Ok(logs) = logs_clone.read() {
+                        logs.iter()
+                            .skip(resume_idx)
+                            .cloned()
+                            .flat_map(|x| Vec::<Message>::from(x))
+                            .collect()
+                    } else {
+                        vec![]
+                    };
                 }
             });
         }));
@@ -832,4 +1120,39 @@ impl ChatSession {
     pub fn send_message(&mut self, message: String) {
         self.send_chat_request(message.clone(), Some(message));
     }
+
+    // pub fn start_workflow(&mut self, workflow_id: String) -> anyhow::Result<()> {
+    //     // Check if agent has this workflow configured
+    //     if !self
+    //         .active_agent
+    //         .inner
+    //         .workflows
+    //         .iter()
+    //         .any(|w| w.id == workflow_id)
+    //     {
+    //         return Err(anyhow::anyhow!(
+    //             "Agent '{}' does not have workflow '{}' configured.",
+    //             self.active_agent.name,
+    //             workflow_id,
+    //         ));
+    //     }
+    //
+    //     // Validate workflow exists in registry
+    //     let registry = get_workflow_registry();
+    //     let workflow = registry
+    //         .get(&workflow_id)
+    //         .ok_or_else(|| anyhow::anyhow!("Workflow '{}' not found in registry.", workflow_id,))?;
+    //
+    //     let step_number = 1;
+    //     if let Ok(mut logs) = self.logs.write() {
+    //         logs.push(TenonLog::new(TenonLogData::Workflow(
+    //             workflow.generate_log(step_number).unwrap(),
+    //         )));
+    //     }
+    //     if let Ok(mut active) = self.active_workflow.write() {
+    //         *active = Some(ActiveWorkflow::new(workflow.id.clone(), step_number));
+    //     }
+    //     self.send_chat_request("[continue]".to_string(), None);
+    //     Ok(())
+    // }
 }

@@ -499,6 +499,7 @@ enum SignIcon {
     AssistantReasoning,
     AssistantTalk,
     Tool,
+    Workflow,
 }
 
 impl SignIcon {
@@ -508,6 +509,7 @@ impl SignIcon {
             SignIcon::AssistantReasoning => " ",
             SignIcon::AssistantTalk => "󰚩 ",
             SignIcon::Tool => "󰣖 ",
+            SignIcon::Workflow => " ",
         }
     }
     fn hl_group(&self) -> &str {
@@ -516,6 +518,7 @@ impl SignIcon {
             SignIcon::AssistantReasoning => "TenonSignAssistantReasoning",
             SignIcon::AssistantTalk => "TenonSignAssistantTalk",
             SignIcon::Tool => "TenonSignTool",
+            SignIcon::Workflow => "TenonSignWorkflow",
         }
     }
     fn line_hl_group(&self) -> Option<&'static str> {
@@ -592,6 +595,9 @@ impl DisplayAsChat for TenonLog {
                 let mut lines = vec![line];
                 lines.extend(extra_lines);
                 (lines, SignIcon::Tool)
+            }
+            TenonLogData::Workflow(workflow) => {
+                (vec![format!("# {}", workflow.content)], SignIcon::Workflow)
             }
         }
     }

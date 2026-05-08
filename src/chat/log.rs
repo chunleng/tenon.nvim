@@ -123,10 +123,30 @@ impl From<TenonToolLog> for Vec<Message> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenonWorkflowLog {
+    pub id: String,
+    pub content: String,
+    /// Step number within the workflow. `None` for end-of-workflow logs.
+    #[serde(default)]
+    pub step: Option<usize>,
+}
+
+impl TenonWorkflowLog {
+    pub fn new(id: impl ToString, content: impl ToString, step: Option<usize>) -> Self {
+        Self {
+            id: id.to_string(),
+            content: content.to_string(),
+            step,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TenonLogData {
     User(TenonUserMessage),
     Assistant(TenonAssistantMessage),
     Tool(TenonToolLog),
+    Workflow(TenonWorkflowLog),
 }
 
 fn zero() -> usize {
@@ -136,9 +156,9 @@ fn zero() -> usize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonLog {
     #[serde(default = "zero")]
-    token_count: usize,
+    pub token_count: usize,
     #[serde(flatten)]
-    data: TenonLogData,
+    pub data: TenonLogData,
 }
 
 impl TenonLog {
@@ -241,6 +261,7 @@ impl TenonLogData {
                 };
                 call_tokens + result_tokens
             }
+            TenonLogData::Workflow(_) => 0,
         }
     }
 }
@@ -256,6 +277,7 @@ impl From<TenonLog> for Vec<Message> {
                 }
             }
             TenonLogData::Tool(tool_log) => tool_log.into(),
+            TenonLogData::Workflow(_) => vec![],
         }
     }
 }

@@ -118,6 +118,7 @@ impl Default for TenonConfig {
                     "web_search",
                     "think",
                 ],
+                vec![],
             ),
         );
         TenonConfig {

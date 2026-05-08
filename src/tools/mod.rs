@@ -1,12 +1,15 @@
 pub mod create_file;
 pub mod edit_file;
+pub mod end_workflow;
 pub mod fetch_webpage;
 pub mod list_files;
 pub mod move_path;
+pub mod navigate_workflow;
 pub mod read_file;
 pub mod remove_path;
 pub mod run;
 pub mod search_text;
+pub mod start_workflow;
 pub mod web_search;
 
 use crate::mcp::McpHubCaller;
@@ -36,6 +39,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
         "list_files" | "search_text" => "pattern",
         "fetch_webpage" => "url",
         "run" => "command",
+        "navigate_workflow" => "step",
         _ => return None,
     };
     args.get(core_arg).and_then(|v| v.as_str()).map(|x| {

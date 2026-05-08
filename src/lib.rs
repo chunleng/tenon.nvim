@@ -9,6 +9,7 @@ use nvim_oxi::{
 use serde::Deserialize;
 
 use crate::{
+    chat::workflow::Workflow,
     config::{TenonConfig, user::TenonUserConfig},
     knowledge::Knowledge,
     lua_modules::{action::create_lua_action_module, keymap::create_lua_keymap_module},
@@ -38,6 +39,17 @@ pub fn get_knowledge_registry() -> HashMap<String, Knowledge> {
             let mut knowledge = knowledge::load_system_knowledge();
             knowledge.extend(get_application_config().knowledge.clone());
             knowledge
+        })
+        .clone()
+}
+
+pub static WORKFLOW_REGISTRY: OnceLock<HashMap<String, Workflow>> = OnceLock::new();
+
+pub fn get_workflow_registry() -> HashMap<String, Workflow> {
+    WORKFLOW_REGISTRY
+        .get_or_init(|| {
+            let workflow = chat::workflow::load_system_workflow();
+            HashMap::from([(workflow.id.clone(), workflow)])
         })
         .clone()
 }

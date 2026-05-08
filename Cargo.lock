@@ -4103,6 +4103,7 @@ dependencies = [
 name = "tenon-nvim"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "dyn-clone",
  "fastembed",
