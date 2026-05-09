@@ -111,6 +111,16 @@ pub fn load_system_knowledge() -> HashMap<String, Knowledge> {
         },
     );
 
+    map.insert(
+        "Bug Isolation".into(),
+        Knowledge {
+            name: "Bug Isolation".into(),
+            sources: vec![KnowledgeSource::File {
+                path: knowledge_path("bug_isolation.md"),
+            }],
+        },
+    );
+
     map
 }
 
