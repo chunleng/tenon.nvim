@@ -48,8 +48,10 @@ pub static WORKFLOW_REGISTRY: OnceLock<HashMap<String, Workflow>> = OnceLock::ne
 pub fn get_workflow_registry() -> HashMap<String, Workflow> {
     WORKFLOW_REGISTRY
         .get_or_init(|| {
-            let workflow = chat::workflow::load_system_workflow();
-            HashMap::from([(workflow.id.clone(), workflow)])
+            chat::workflow::load_system_workflows()
+                .into_iter()
+                .map(|w| (w.id.clone(), w))
+                .collect()
         })
         .clone()
 }

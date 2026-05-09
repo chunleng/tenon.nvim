@@ -51,67 +51,83 @@ impl Default for Instruction {
     }
 }
 
-pub fn load_system_workflow() -> Workflow {
-    Workflow {
-        id: "ask_and_answer".to_string(),
-        title: "Ask and Answer".to_string(),
+pub fn load_system_workflows() -> Vec<Workflow> {
+    vec![Workflow {
+        id: "find_software_bug_root_cause".to_string(),
+        title: "Find Software Bug Root Cause".to_string(),
         steps: vec![
             WorkflowStep {
-                title: "Generate Question".to_string(),
-                instruction: Instruction::Text(
-                    "Generate a single multiple-choice question with exactly 4 options (A, B, C, D). \
-                Example:\n\
-                Question: <question text>\n\
-                A) <option A>\n\
-                B) <option B>\n\
-                C) <option C>\n\
-                D) <option D>\n\
-                No explanation, no extra questions. Output question to chat"
-                        .to_string(),
-                ),
+                title: "Define".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("find_software_bug_root_cause/1_define.md"),
+                },
+                goto_instructions: vec![WorkflowGotoInstruction {
+                    to: GotoStep::Next,
+                    condition: None,
+                    output: "list of bug definition".to_string(),
+                }],
+            },
+            WorkflowStep {
+                title: "Locate".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("find_software_bug_root_cause/2_locate.md"),
+                },
                 goto_instructions: vec![
+                    WorkflowGotoInstruction {
+                        to: GotoStep::Step(1),
+                        condition: Some("unable to locate".to_string()),
+                        output: "reason why unable to locate".to_string(),
+                    },
                     WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "the question and options".to_string(),
-                    }
+                        output: "list of files+explanation related to bug".to_string(),
+                    },
                 ],
             },
             WorkflowStep {
-                title: "Random Answer".to_string(),
-                instruction: Instruction::Text(
-                    "- Fetch https://www.random.org/integers/?num=1&min=0&max=999&col=1&base=10&format=plain, a random number will be generated. Do not reuse this number.\n\
-                    - 0–249 → A\n\
-                    - 250–499 → B\n\
-                    - 500–749 → C\n\
-                    - 750–999 → D
-                    - Output choice to chat"
-                        .to_string(),
-                ),
+                title: "Reproduce".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("find_software_bug_root_cause/3_reproduce.md"),
+                },
                 goto_instructions: vec![
+                    WorkflowGotoInstruction {
+                        to: GotoStep::Step(1),
+                        condition: Some("unable to create test".to_string()),
+                        output: "reason why unable to create test".to_string(),
+                    },
                     WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "chosen answer".to_string(),
-                    }
+                        output: "list of test case".to_string(),
+                    },
                 ],
             },
             WorkflowStep {
-                title: "Evaluate Answer".to_string(),
-                instruction: Instruction::Text(
-                    "You are an evaluator. Check whether the random answer from the previous step \
-                is correct for the generated question. Output correct or wrong with explanation. Congratulate the user if correct"
-                        .to_string(),
-                ),
-                goto_instructions: vec![WorkflowGotoInstruction{
-                    to: GotoStep::Step(2),
-                    condition: Some("wrong answer".to_string()),
-                    output: "reason why answer is wrong. never reveal the correct answer".to_string(),
+                title: "Cleanup".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("find_software_bug_root_cause/4_cleanup.md"),
+                },
+                goto_instructions: vec![WorkflowGotoInstruction {
+                    to: GotoStep::Next,
+                    condition: None,
+                    output: "cleanup done".to_string(),
+                }],
+            },
+            WorkflowStep {
+                title: "Conclude".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("find_software_bug_root_cause/5_conclude.md"),
+                },
+                goto_instructions: vec![WorkflowGotoInstruction {
+                    to: GotoStep::Next,
+                    condition: None,
+                    output: "analysis of the bug".to_string(),
                 }],
             },
         ],
-        default_condition: "user is bored".to_string(),
-    }
+        default_condition: "before trying to resolve a bug".to_string(),
+    }]
 }
 
 #[derive(Clone, Deserialize)]
