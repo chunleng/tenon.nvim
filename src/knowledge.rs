@@ -131,6 +131,26 @@ pub fn load_system_knowledge() -> HashMap<String, Knowledge> {
         },
     );
 
+    map.insert(
+        "Prompt Editing Basics".into(),
+        Knowledge {
+            name: "Prompt Editing Basics".into(),
+            sources: vec![KnowledgeSource::File {
+                path: knowledge_path("prompt_editing_basics.md"),
+            }],
+        },
+    );
+
+    map.insert(
+        "Prompting Basics".into(),
+        Knowledge {
+            name: "Prompting Basics".into(),
+            sources: vec![KnowledgeSource::File {
+                path: knowledge_path("prompting_basics.md"),
+            }],
+        },
+    );
+
     map
 }
 
