@@ -92,6 +92,16 @@ pub fn load_system_knowledge() -> HashMap<String, Knowledge> {
     );
 
     map.insert(
+        "Read First Attitude".into(),
+        Knowledge {
+            name: "Read First Attitude".into(),
+            sources: vec![KnowledgeSource::File {
+                path: knowledge_path("read_first_attitude.md"),
+            }],
+        },
+    );
+
+    map.insert(
         "YAGNI Attitude".into(),
         Knowledge {
             name: "YAGNI Attitude".into(),
