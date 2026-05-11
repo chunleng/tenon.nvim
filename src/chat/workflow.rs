@@ -120,7 +120,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     file: workflow_path("find_software_bug_root_cause/5_conclude.md"),
                 },
                 goto_instructions: vec![WorkflowGotoInstruction {
-                    to: GotoStep::Next,
+                    to: GotoStep::EndWorkflow,
                     condition: None,
                     output: "analysis of the bug".to_string(),
                 }],
@@ -162,6 +162,20 @@ impl Workflow {
 pub enum GotoStep {
     Next,
     Step(usize),
+    EndWorkflow,
+}
+
+impl GotoStep {
+    /// Resolves this goto target to a concrete step index.
+    /// Returns `Some(step_index)` for `Next` (based on current_step) and `Step(n)`.
+    /// Returns `None` for `EndWorkflow` (not a step-based target).
+    pub fn resolve_step_index(&self, current_step: usize) -> Option<usize> {
+        match self {
+            GotoStep::Next => Some(current_step + 1),
+            GotoStep::Step(n) => Some(*n),
+            GotoStep::EndWorkflow => None,
+        }
+    }
 }
 
 #[derive(Clone, Deserialize)]

@@ -1,5 +1,4 @@
 use crate::{
-    chat::workflow::GotoStep,
     clients::{Behavior, BehaviorSource, ChatAgent, StreamItem, SupportedModels, get_agent},
     config::user::WorkflowConfig,
     get_application_config, get_workflow_registry,
@@ -50,31 +49,23 @@ fn build_workflow_prompt(
                     .goto_instructions
                     .iter()
                     .map(|instr| {
-                        let target_step = match &instr.to {
-                            GotoStep::Next => active.step + 1,
-                            GotoStep::Step(n) => *n,
-                        };
-                        if target_step > total_steps {
-                            format!(
-                                "{}end_workflow output:{}",
-                                instr
-                                    .condition
-                                    .as_ref()
-                                    .map(|x| { format!("{} → ", x) })
-                                    .unwrap_or("".to_string()),
-                                instr.output
-                            )
-                        } else {
-                            format!(
-                                "{}navigate_output step:{} output:{}",
-                                instr
-                                    .condition
-                                    .as_ref()
-                                    .map(|x| { format!("{} → ", x) })
-                                    .unwrap_or("".to_string()),
-                                target_step,
-                                instr.output
-                            )
+                        let condition = instr
+                            .condition
+                            .as_ref()
+                            .map(|x| format!("{} → ", x))
+                            .unwrap_or_default();
+                        let target_step = instr.to.resolve_step_index(active.step);
+                        match target_step {
+                            None => format!("{}end_workflow output:{}", condition, instr.output),
+                            Some(step) if step > total_steps => {
+                                format!("{}end_workflow output:{}", condition, instr.output)
+                            }
+                            Some(step) => {
+                                format!(
+                                    "{}navigate_output step:{} output:{}",
+                                    condition, step, instr.output
+                                )
+                            }
                         }
                     })
                     .collect();
@@ -82,11 +73,11 @@ fn build_workflow_prompt(
                 // Only add default ending if at last step and no goto already ends workflow
                 if active.step == total_steps {
                     let has_ending_goto = step.goto_instructions.iter().any(|instr| {
-                        let target_step = match &instr.to {
-                            GotoStep::Next => active.step + 1,
-                            GotoStep::Step(n) => *n,
-                        };
-                        target_step > total_steps
+                        let target_step = instr.to.resolve_step_index(active.step);
+                        match target_step {
+                            None => true,
+                            Some(s) => s > total_steps,
+                        }
                     });
                     if !has_ending_goto {
                         goto_lines.push("end_workflow output:nothing".to_string());
