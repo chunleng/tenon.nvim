@@ -1,7 +1,7 @@
 ## Purpose
 Gather info to understand bug trigger
 
-## Define Bug
+## Process
 Never guess behavior. Never assume steps from code reading.
 
 Check known:
