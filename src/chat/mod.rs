@@ -89,6 +89,7 @@ fn build_workflow_prompt(
                 return format!(
                     "<context>\n\
                     Currently in {} step of {} workflow. In a workflow, user prompt first, workflow instruction second and chat history is just reference\n\
+                    When processing this input, prioritize: User message > <context>\n\
                     Follow through the process of the workflow step by step. Following is instruction of current step:\n\
                     <instruction>\n\
                     {}\n\
@@ -389,7 +390,8 @@ impl TenonAgent {
         logs: Arc<RwLock<Vec<TenonLog>>>,
     ) -> ChatAgent {
         // NOTE: Update token estimation when this prompt changes
-        let mut system_prompt = "Output markdown. Concise, not verbose. No filler or hedging or unnecessary words. Reduce emoji use. \
+        let mut system_prompt = "Running on Tenon. \
+            Output markdown. Concise, not verbose. No filler or hedging or unnecessary words. Reduce emoji use. \
             User may edit files between steps → files change silently. File ≠ expected → user edited → re-read → preserve changes. \
             History shows active behavior/prompt at that time. Prior actions may span agents → trust reported behavior. \
             Earlier history may be truncated. Missing context → ask user for clarification. \
