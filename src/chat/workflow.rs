@@ -52,82 +52,172 @@ impl Default for Instruction {
 }
 
 pub fn load_system_workflows() -> Vec<Workflow> {
-    vec![Workflow {
-        id: "find_software_bug_root_cause".to_string(),
-        title: "Find Software Bug Root Cause".to_string(),
-        steps: vec![
-            WorkflowStep {
-                title: "Define".to_string(),
-                instruction: Instruction::File {
-                    file: workflow_path("find_software_bug_root_cause/1_define.md"),
-                },
-                goto_instructions: vec![WorkflowGotoInstruction {
-                    to: GotoStep::Next,
-                    condition: None,
-                    output: "list of bug definition".to_string(),
-                }],
-            },
-            WorkflowStep {
-                title: "Locate".to_string(),
-                instruction: Instruction::File {
-                    file: workflow_path("find_software_bug_root_cause/2_locate.md"),
-                },
-                goto_instructions: vec![
-                    WorkflowGotoInstruction {
-                        to: GotoStep::Step(1),
-                        condition: Some("unable to locate".to_string()),
-                        output: "reason why unable to locate".to_string(),
+    vec![
+        Workflow {
+            id: "find_software_bug_root_cause".to_string(),
+            title: "Find Software Bug Root Cause".to_string(),
+            steps: vec![
+                WorkflowStep {
+                    title: "Define".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("find_software_bug_root_cause/1_define.md"),
                     },
-                    WorkflowGotoInstruction {
+                    goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "list of files+explanation related to bug".to_string(),
-                    },
-                ],
-            },
-            WorkflowStep {
-                title: "Reproduce".to_string(),
-                instruction: Instruction::File {
-                    file: workflow_path("find_software_bug_root_cause/3_reproduce.md"),
+                        output: "list of bug definition".to_string(),
+                    }],
                 },
-                goto_instructions: vec![
-                    WorkflowGotoInstruction {
-                        to: GotoStep::Step(1),
-                        condition: Some("unable to create test".to_string()),
-                        output: "reason why unable to create test".to_string(),
+                WorkflowStep {
+                    title: "Locate".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("find_software_bug_root_cause/2_locate.md"),
                     },
-                    WorkflowGotoInstruction {
+                    goto_instructions: vec![
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Step(1),
+                            condition: Some("unable to locate".to_string()),
+                            output: "reason why unable to locate".to_string(),
+                        },
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Next,
+                            condition: None,
+                            output: "list of files+explanation related to bug".to_string(),
+                        },
+                    ],
+                },
+                WorkflowStep {
+                    title: "Reproduce".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("find_software_bug_root_cause/3_reproduce.md"),
+                    },
+                    goto_instructions: vec![
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Step(1),
+                            condition: Some("unable to create test".to_string()),
+                            output: "reason why unable to create test".to_string(),
+                        },
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Next,
+                            condition: None,
+                            output: "list of test case".to_string(),
+                        },
+                    ],
+                },
+                WorkflowStep {
+                    title: "Cleanup".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("find_software_bug_root_cause/4_cleanup.md"),
+                    },
+                    goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "list of test case".to_string(),
+                        output: "cleanup done".to_string(),
+                    }],
+                },
+                WorkflowStep {
+                    title: "Conclude".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("find_software_bug_root_cause/5_conclude.md"),
                     },
-                ],
-            },
-            WorkflowStep {
-                title: "Cleanup".to_string(),
-                instruction: Instruction::File {
-                    file: workflow_path("find_software_bug_root_cause/4_cleanup.md"),
+                    goto_instructions: vec![WorkflowGotoInstruction {
+                        to: GotoStep::EndWorkflow,
+                        condition: None,
+                        output: "analysis of the bug".to_string(),
+                    }],
                 },
-                goto_instructions: vec![WorkflowGotoInstruction {
-                    to: GotoStep::Next,
-                    condition: None,
-                    output: "cleanup done".to_string(),
-                }],
-            },
-            WorkflowStep {
-                title: "Conclude".to_string(),
-                instruction: Instruction::File {
-                    file: workflow_path("find_software_bug_root_cause/5_conclude.md"),
+            ],
+            default_condition: "before trying to resolve a bug".to_string(),
+        },
+        Workflow {
+            id: "create_workflow".to_string(),
+            title: "Create Workflow".to_string(),
+            steps: vec![
+                WorkflowStep {
+                    title: "Define Goal & Steps".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("create_workflow/1_define.md"),
+                    },
+                    goto_instructions: vec![WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output: "workflow goal and step definitions".to_string(),
+                    }],
                 },
-                goto_instructions: vec![WorkflowGotoInstruction {
-                    to: GotoStep::EndWorkflow,
-                    condition: None,
-                    output: "analysis of the bug".to_string(),
-                }],
-            },
-        ],
-        default_condition: "before trying to resolve a bug".to_string(),
-    }]
+                WorkflowStep {
+                    title: "Draft Workflow".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("create_workflow/2_draft.md"),
+                    },
+                    goto_instructions: vec![WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output: "drafted workflow".to_string(),
+                    }],
+                },
+                WorkflowStep {
+                    title: "Flag Vague Lines".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("create_workflow/3_flag.md"),
+                    },
+                    goto_instructions: vec![WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output: "flagged lines with reasons (or none if no issues)".to_string(),
+                    }],
+                },
+                WorkflowStep {
+                    title: "Prune Flagged Lines".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("create_workflow/4_prune.md"),
+                    },
+                    goto_instructions: vec![WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output: "pruned workflow".to_string(),
+                    }],
+                },
+                WorkflowStep {
+                    title: "Validate Flows".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("create_workflow/5_validate.md"),
+                    },
+                    goto_instructions: vec![
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Step(2),
+                            condition: Some("flow issues found".to_string()),
+                            output: "flow issues description".to_string(),
+                        },
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Next,
+                            condition: None,
+                            output: "validated workflow".to_string(),
+                        },
+                    ],
+                },
+                WorkflowStep {
+                    title: "Review & Finalize".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("create_workflow/6_finalize.md"),
+                    },
+                    goto_instructions: vec![
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Step(2),
+                            condition: Some("user requests changes".to_string()),
+                            output: "change requests".to_string(),
+                        },
+                        WorkflowGotoInstruction {
+                            to: GotoStep::EndWorkflow,
+                            condition: None,
+                            output: "final workflow".to_string(),
+                        },
+                    ],
+                },
+            ],
+            default_condition:
+                "when user wants to create a workflow (agent-prompting related only)".to_string(),
+        },
+    ]
 }
 
 #[derive(Clone, Deserialize)]
