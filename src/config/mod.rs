@@ -5,7 +5,6 @@ use crate::{
     clients::{
         AnthropicProviderConfig, ApiKey, OllamaProviderConfig, ProviderConfig, SupportedModels,
     },
-    knowledge::Knowledge,
 };
 
 pub mod user;
@@ -75,7 +74,6 @@ pub struct TenonConfig {
     pub tools: ToolsConfig,
     pub history: HistoryConfig,
     pub title: TitleConfig,
-    pub knowledge: HashMap<String, Knowledge>,
 }
 
 impl Default for TenonConfig {
@@ -129,7 +127,6 @@ impl Default for TenonConfig {
             tools: ToolsConfig::default(),
             history: HistoryConfig::default(),
             title: TitleConfig::default(),
-            knowledge: HashMap::new(),
         }
     }
 }

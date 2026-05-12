@@ -4,6 +4,7 @@ mod gemini;
 mod ollama;
 mod openai;
 
+use crate::directive::Directive;
 use rig::{
     agent::Agent,
     message::Message,
@@ -56,73 +57,6 @@ pub use bedrock::get_bedrock_agent;
 pub use gemini::{GeminiProviderConfig, get_gemini_agent};
 pub use ollama::{OllamaProviderConfig, get_ollama_agent};
 pub use openai::{OpenAIProviderConfig, get_openai_agent};
-
-/// Describes where a behavior comes from: an inline string or a knowledge reference.
-///
-/// When `BehaviorSource::Knowledge` is used, it looks up the knowledge by name
-/// from the global knowledge registry.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
-pub enum BehaviorSource {
-    /// An inline string. Easy for user to provide directly
-    Text { value: String },
-
-    /// Refer to a knowledge
-    Knowledge { name: String },
-}
-
-impl BehaviorSource {
-    /// Resolve the source into its final string content.
-    ///
-    /// For `Text` this returns the value directly.
-    /// For `Knowledge` this looks up the knowledge by name and resolves it.
-    pub fn resolve(&self) -> Result<String, std::io::Error> {
-        match self {
-            BehaviorSource::Text { value } => Ok(value.clone()),
-            BehaviorSource::Knowledge { name } => {
-                let registry = crate::get_knowledge_registry();
-                let knowledge = registry.get(name).ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        format!("Knowledge '{}' not found", name),
-                    )
-                })?;
-                knowledge.resolve()
-            }
-        }
-    }
-}
-
-/// A behavior with an optional condition for conditional application.
-///
-/// Wraps a `BehaviorSource` with an optional condition that determines
-/// when the behavior should be applied. When resolved, outputs XML format.
-#[derive(Debug, Clone, Deserialize)]
-pub struct Behavior {
-    /// Optional condition for conditional behavior application.
-    #[serde(default)]
-    pub condition: Option<String>,
-    /// The source of the behavior content.
-    #[serde(flatten)]
-    pub source: BehaviorSource,
-}
-
-impl Behavior {
-    /// Resolve the behavior into its final XML string format.
-    ///
-    /// - If condition is Some: `<behavior condition="...">resolved_source</behavior>`
-    /// - If condition is None: `<behavior>resolved_source</behavior>`
-    pub fn resolve(&self) -> Result<String, std::io::Error> {
-        let source_content = self.source.resolve()?;
-        match &self.condition {
-            Some(cond) => Ok(format!(
-                r#"<behavior condition="{}">{}</behavior>"#,
-                cond, source_content
-            )),
-            None => Ok(format!("<behavior>{}</behavior>", source_content)),
-        }
-    }
-}
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -370,20 +304,20 @@ impl ChatAgent {
 
 pub fn get_agent(
     model: SupportedModels,
-    behavior: Vec<Behavior>,
+    directive: Vec<Directive>,
     tools: Vec<Box<dyn ToolDyn>>,
 ) -> ChatAgent {
-    let resolved_behavior = if behavior.is_empty() {
+    let resolved_directive = if directive.is_empty() {
         None
     } else {
         Some(
-            behavior
+            directive
                 .into_iter()
-                .filter_map(|b| match b.resolve() {
+                .filter_map(|d| match d.resolve() {
                     Ok(resolved) => Some(resolved),
                     Err(e) => {
                         crate::utils::GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
-                            format!("failed to resolve behavior: {}", e),
+                            format!("failed to resolve directive: {}", e),
                             nvim_oxi::api::types::LogLevel::Warn,
                         );
                         None
@@ -397,30 +331,30 @@ pub fn get_agent(
         ProviderConfig::Ollama(config) => ChatAgent::Ollama(get_ollama_agent(
             config,
             model.model_name,
-            resolved_behavior,
+            resolved_directive,
             tools,
         )),
         ProviderConfig::Gemini(config) => ChatAgent::Gemini(get_gemini_agent(
             config,
             model.model_name,
-            resolved_behavior,
+            resolved_directive,
             tools,
         )),
         ProviderConfig::OpenAI(config) => ChatAgent::OpenAI(get_openai_agent(
             config,
             model.model_name,
-            resolved_behavior,
+            resolved_directive,
             tools,
         )),
         ProviderConfig::Anthropic(config) => ChatAgent::Anthropic(get_anthropic_agent(
             config,
             model.model_name,
-            resolved_behavior,
+            resolved_directive,
             tools,
         )),
         ProviderConfig::Bedrock(_config) => ChatAgent::Bedrock(get_bedrock_agent(
             model.model_name,
-            resolved_behavior,
+            resolved_directive,
             tools,
         )),
     }

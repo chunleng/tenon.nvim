@@ -11,7 +11,7 @@ use serde::Deserialize;
 use crate::{
     chat::workflow::Workflow,
     config::{TenonConfig, user::TenonUserConfig},
-    knowledge::Knowledge,
+    directive::Directive,
     lua_modules::{action::create_lua_action_module, keymap::create_lua_keymap_module},
     ui::ChatWindow,
     utils::{GLOBAL_EXECUTION_HANDLER, notify},
@@ -31,15 +31,11 @@ pub fn get_application_config() -> TenonConfig {
     CONFIG.get_or_init(|| TenonConfig::default()).clone()
 }
 
-pub static KNOWLEDGE_REGISTRY: OnceLock<HashMap<String, Knowledge>> = OnceLock::new();
+pub static DIRECTIVE_REGISTRY: OnceLock<HashMap<String, Directive>> = OnceLock::new();
 
-pub fn get_knowledge_registry() -> HashMap<String, Knowledge> {
-    KNOWLEDGE_REGISTRY
-        .get_or_init(|| {
-            let mut knowledge = knowledge::load_system_knowledge();
-            knowledge.extend(get_application_config().knowledge.clone());
-            knowledge
-        })
+pub fn get_directive_registry() -> HashMap<String, Directive> {
+    DIRECTIVE_REGISTRY
+        .get_or_init(|| directive::load_system_directives())
         .clone()
 }
 
@@ -59,7 +55,7 @@ pub fn get_workflow_registry() -> HashMap<String, Workflow> {
 mod chat;
 mod clients;
 mod config;
-mod knowledge;
+mod directive;
 mod lua_modules;
 mod mcp;
 mod tools;

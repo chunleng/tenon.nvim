@@ -31,6 +31,6 @@
 
 ### Conflicting Rules
 
-- Bad: System prompt says "Always explain", behavior says "Be concise"
-- Good: Behavior condition "when reviewing code" scopes the override
+- Bad: System prompt says "Always explain", directive says "Be concise"
+- Good: Directive condition "when reviewing code" scopes the override
 - Why: Creates ambiguity, model cannot resolve conflict.

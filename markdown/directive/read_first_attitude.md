@@ -7,7 +7,7 @@ Two checks before editing:
 ## Unit of Understanding and Dependencies
 
 - Function → body + contract; dependencies = call sites
-- Knowledge block → content; dependencies = references to this knowledge
+- Directive block → content; dependencies = references to this directive
 
 ## When to Trace Dependencies
 

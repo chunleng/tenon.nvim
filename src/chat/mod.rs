@@ -1,6 +1,7 @@
 use crate::{
-    clients::{Behavior, BehaviorSource, ChatAgent, StreamItem, SupportedModels, get_agent},
+    clients::{ChatAgent, StreamItem, SupportedModels, get_agent},
     config::user::WorkflowConfig,
+    directive::{Directive, DirectiveSource},
     get_application_config, get_workflow_registry,
     tools::resolve_tools,
     utils::GLOBAL_EXECUTION_HANDLER,
@@ -363,7 +364,7 @@ impl ActiveWorkflow {
 #[derive(Debug, Clone)]
 pub struct TenonAgent {
     pub model: SupportedModels,
-    pub behavior: Vec<Behavior>,
+    pub directive: Vec<Directive>,
     pub tool_names: Vec<String>,
     pub workflows: Vec<WorkflowConfig>,
 }
@@ -371,13 +372,13 @@ pub struct TenonAgent {
 impl TenonAgent {
     pub fn new(
         model: SupportedModels,
-        behavior: Vec<Behavior>,
+        directive: Vec<Directive>,
         tools: &[impl AsRef<str>],
         workflows: Vec<WorkflowConfig>,
     ) -> Self {
         Self {
             model,
-            behavior,
+            directive,
             tool_names: tools.iter().map(|t| t.as_ref().to_string()).collect(),
             workflows,
         }
@@ -395,7 +396,8 @@ impl TenonAgent {
             User may edit files between steps → files change silently. File ≠ expected → user edited → re-read → preserve changes. \
             History shows active behavior/prompt at that time. Prior actions may span agents → trust reported behavior. \
             Earlier history may be truncated. Missing context → ask user for clarification. \
-            <knowledge></knowledge>=important info agent knows. <behavior></behavior>=rules for agent conduct; no condition→always, condition→when matched. Both take priority; only explicit user instruction overrides them.".to_string();
+            <directive></directive>=rules for agent conduct; no condition→always, condition→when matched. \
+            Explicit user instruction overrides directives.".to_string();
 
         // Add workflow information if agent has workflows configured
         if !self.workflows.is_empty() {
@@ -425,13 +427,13 @@ impl TenonAgent {
             session_datetime.format("%a %b %d, %Y %H:%M %Z").to_string()
         );
 
-        let mut combined = vec![Behavior {
+        let mut combined = vec![Directive {
             condition: None,
-            source: BehaviorSource::Text {
+            source: DirectiveSource::Text {
                 value: system_prompt,
             },
         }];
-        combined.extend(self.behavior.iter().cloned());
+        combined.extend(self.directive.iter().cloned());
 
         let mut tools = resolve_tools(&self.tool_names);
 
@@ -645,14 +647,14 @@ impl ChatSession {
                     None => return,
                 };
 
-                let behavior = vec![Behavior {
+                let directive = vec![Directive {
                     condition: None,
-                    source: BehaviorSource::Text {
+                    source: DirectiveSource::Text {
                         value: config.title.prompt.clone(),
                     },
                 }];
 
-                let agent = get_agent(model, behavior, vec![]);
+                let agent = get_agent(model, directive, vec![]);
 
                 match agent
                     .chat(format!("Generate title:\n```\n{}\n```", first_message))

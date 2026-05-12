@@ -11,11 +11,10 @@ Prompt engineering = context control. Right information at right time → signif
     - Set boundaries
     - Add Tenon instructions
 
-#### Behavior & Knowledge (Tenon Concept)
+#### Directive (Tenon Concept)
 
-- Behavior: Scoping mechanism with optional conditions
-- Knowledge: Information blocks inside behavior
-- Both = prompt components, defined at program start
+- Directive: Scoping mechanism with optional conditions
+- Contains information/rules for agent behavior
 - Use when:
     - Reusable instructions shared across agents
     - Conditional execution
@@ -43,7 +42,7 @@ How it works:
 
 ## Instruction Priority
 ```
-Latest User Prompt > Earlier User/Tool Prompt > System Prompt (includes Behavior & Knowledge)
+Latest User Prompt > Earlier User/Tool Prompt > System Prompt (includes Directive)
 ```
 
 Inside Each Type:

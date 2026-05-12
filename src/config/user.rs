@@ -5,9 +5,9 @@ use serde::Deserialize;
 
 use crate::{
     chat::TenonAgent,
-    clients::{Behavior, ProviderConfig, SupportedModels},
+    clients::{ProviderConfig, SupportedModels},
     config::TenonConfig,
-    knowledge::Knowledge,
+    directive::Directive,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -19,7 +19,6 @@ pub struct TenonUserConfig {
     pub tools: Option<ToolsUserConfig>,
     pub history: Option<HistoryUserConfig>,
     pub title: Option<TitleUserConfig>,
-    pub knowledge: Option<Vec<Knowledge>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -68,7 +67,7 @@ pub struct WorkflowConfig {
 pub struct TenonAgentConfig {
     model: ModelConfig,
     #[serde(default)]
-    behavior: Vec<Behavior>,
+    directive: Vec<Directive>,
     #[serde(default)]
     tool_names: Vec<String>,
     #[serde(default)]
@@ -131,7 +130,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                                 config: model_config.to_owned(),
                                 model_name: v.model.name,
                             },
-                            v.behavior,
+                            v.directive,
                             &v.tool_names,
                             v.workflows,
                         ),
@@ -228,10 +227,6 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
             if let Some(prompt) = title.prompt {
                 conf.title.prompt = prompt;
             }
-        }
-
-        if let Some(knowledge) = value.knowledge {
-            conf.knowledge = knowledge.into_iter().map(|k| (k.name.clone(), k)).collect();
         }
 
         Ok(conf)
