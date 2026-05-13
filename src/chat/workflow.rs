@@ -217,6 +217,140 @@ pub fn load_system_workflows() -> Vec<Workflow> {
             default_condition:
                 "when user wants to create a workflow (agent-prompting related only)".to_string(),
         },
+        Workflow {
+            id: "implement_software".to_string(),
+            title: "Implement Software".to_string(),
+            steps: vec![
+                WorkflowStep {
+                    title: "Understand".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("implement_software/1_understand.md"),
+                    },
+                    goto_instructions: vec![WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output: "requirements with acceptance criteria (each with verification method)".to_string(),
+                    }],
+                },
+                WorkflowStep {
+                    title: "Verify Baseline".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("implement_software/2_verify_baseline.md"),
+                    },
+                    goto_instructions: vec![
+                        WorkflowGotoInstruction {
+                            to: GotoStep::EndWorkflow,
+                            condition: Some("baseline broken".to_string()),
+                            output: "baseline verification failed: cannot proceed from broken state".to_string(),
+                        },
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Next,
+                            condition: None,
+                            output: "baseline verified: all tests pass".to_string(),
+                        },
+                    ],
+                },
+                WorkflowStep {
+                    title: "Plan".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("implement_software/3_plan.md"),
+                    },
+                    goto_instructions: vec![WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output: "next incremental change to make".to_string(),
+                    }],
+                },
+                WorkflowStep {
+                    title: "Prepare Test".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("implement_software/4_prepare_test.md"),
+                    },
+                    goto_instructions: vec![WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output: "test that fails before change, passes after".to_string(),
+                    }],
+                },
+                WorkflowStep {
+                    title: "Implement".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("implement_software/5_implement.md"),
+                    },
+                    goto_instructions: vec![WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output: "code changes made".to_string(),
+                    }],
+                },
+                WorkflowStep {
+                    title: "Verify".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("implement_software/6_verify.md"),
+                    },
+                    goto_instructions: vec![
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Step(5),
+                            condition: Some("verification failed".to_string()),
+                            output: "failure details".to_string(),
+                        },
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Next,
+                            condition: None,
+                            output: "build result + affected test results".to_string(),
+                        },
+                    ],
+                },
+                WorkflowStep {
+                    title: "Goal Check".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("implement_software/7_goal_check.md"),
+                    },
+                    goto_instructions: vec![
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Step(3),
+                            condition: Some("goal not reached".to_string()),
+                            output: "remaining gap".to_string(),
+                        },
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Next,
+                            condition: None,
+                            output: "goal reached: true/false with reasoning".to_string(),
+                        },
+                    ],
+                },
+                WorkflowStep {
+                    title: "Cleanup".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("implement_software/8_cleanup.md"),
+                    },
+                    goto_instructions: vec![WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output: "cleaned codebase".to_string(),
+                    }],
+                },
+                WorkflowStep {
+                    title: "Finalize".to_string(),
+                    instruction: Instruction::File {
+                        file: workflow_path("implement_software/9_finalize.md"),
+                    },
+                    goto_instructions: vec![
+                        WorkflowGotoInstruction {
+                            to: GotoStep::Step(3),
+                            condition: Some("tests fail".to_string()),
+                            output: "failed tests list".to_string(),
+                        },
+                        WorkflowGotoInstruction {
+                            to: GotoStep::EndWorkflow,
+                            condition: None,
+                            output: "all tests pass + unverifiable aspects documented".to_string(),
+                        },
+                    ],
+                },
+            ],
+            default_condition: "when implementing code changes. If requirement-defining workflow matches task, run that first.".to_string(),
+        },
     ]
 }
 
