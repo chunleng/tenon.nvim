@@ -60,3 +60,19 @@ Information needing highest priority → place in latest user prompt to ensure a
 ### Context via Program Flow Control
 
 Instead of placing information in mundane locations, improve chat processing procedure. Workflow example: instructions appear only when needed, removed when irrelevant. Requires state management in chat flow.
+
+## LLM Pitfalls
+
+### Cannot Count
+
+LLMs cannot reliably count. Without tools, they have no way to track line numbers, character counts, or item quantities.
+
+**Don't:**
+- Ask "how many lines were edited"
+- Request "edit lines 10-20"
+- Expect accurate counts of items, characters, lines
+
+**Do:**
+- Use tools for counting operations
+- Reference content by distinctive text, not line numbers
+- Let agent describe changes in natural language
