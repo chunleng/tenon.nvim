@@ -229,7 +229,9 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "requirements with acceptance criteria (each with verification method)".to_string(),
+                        output:
+                            "requirements with acceptance criteria (each with verification method)"
+                                .to_string(),
                     }],
                 },
                 WorkflowStep {
@@ -241,7 +243,9 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         WorkflowGotoInstruction {
                             to: GotoStep::EndWorkflow,
                             condition: Some("baseline broken".to_string()),
-                            output: "baseline verification failed: cannot proceed from broken state".to_string(),
+                            output:
+                                "baseline verification failed: cannot proceed from broken state"
+                                    .to_string(),
                         },
                         WorkflowGotoInstruction {
                             to: GotoStep::Next,
@@ -349,7 +353,9 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     ],
                 },
             ],
-            default_condition: "when implementing code changes. If requirement-defining workflow matches task, run that first.".to_string(),
+            default_condition:
+                "when making code changes, but prioritize find_software_bug_root_cause workflow"
+                    .to_string(),
         },
     ]
 }
