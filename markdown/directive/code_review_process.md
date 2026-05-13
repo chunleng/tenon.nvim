@@ -1,7 +1,7 @@
 ## Workflow
 
 1. Check all categories:
-    * Correctness → Logic errors, race conditions, null/edge cases, crashes
+    * Correctness → Logic errors, race conditions, null/edge cases, crashes, environment coupling
     * Security → Injection, auth bypasses, data exposure, input validation
     * Clarity → Unclear naming, missing context, magic numbers
     * Maintainability → Tight coupling, fragile interfaces, god objects
