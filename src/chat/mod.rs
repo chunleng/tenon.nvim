@@ -3,11 +3,11 @@ use crate::{
     config::user::WorkflowConfig,
     directive::{Directive, DirectiveSource},
     get_application_config, get_workflow_registry,
+    rag::RagContext,
     tools::resolve_tools,
     utils::GLOBAL_EXECUTION_HANDLER,
 };
 use chrono::{DateTime, Local};
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use nvim_oxi::{Result as OxiResult, api::types::LogLevel};
 use rig::{
     OneOrMany,
@@ -145,183 +145,11 @@ fn generate_chat_id() -> String {
     format!("{}_{}", datetime, hash)
 }
 
-/// Converts a TenonLog to a string for embedding.
-/// Extracts the text content from the log for semantic search.
-fn log_to_text(log: &TenonLog) -> Option<String> {
-    match log.data() {
-        TenonLogData::User(msg) => match msg {
-            TenonUserMessage::Text(TenonUserTextMessage(text)) => Some(text.clone()),
-        },
-        TenonLogData::Assistant(msg) => Some(
-            msg.content
-                .iter()
-                .filter_map(|c| match c {
-                    TenonAssistantMessageContent::Text(t) => Some(t.clone()),
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
-        ),
-        TenonLogData::Tool(tool_log) => {
-            let mut text = format!(
-                "Tool: {}\nArgs: {}",
-                tool_log.tool_call.name, tool_log.tool_call.args
-            );
-            if let Some(result) = &tool_log.tool_result {
-                match result {
-                    Ok(TenonToolResult::Text(t)) => {
-                        text.push_str(&format!("\nResult: {}", t.text));
-                    }
-                    Ok(TenonToolResult::Image(_)) => {
-                        text.push_str("\nResult: [Image]");
-                    }
-                    Err(e) => {
-                        text.push_str(&format!("\nError: {}", e.0));
-                    }
-                }
-            }
-            Some(text)
-        }
-        TenonLogData::Workflow(_) => None, // Workflow does not need to be indexed for RAG
-    }
-}
-
-/// Generates embeddings for a list of texts using FastEmbed.
-/// Returns a vector of embedding vectors.
-fn generate_embeddings(texts: &[String]) -> Option<Vec<Vec<f64>>> {
-    if texts.is_empty() {
-        return None;
-    }
-
-    // Use ~/.fastembed_cache for model storage
-    let cache_dir = std::env::var("HOME")
-        .map(|home| std::path::PathBuf::from(home).join(".fastembed_cache"))
-        .unwrap_or_else(|_| std::path::PathBuf::from(".fastembed_cache"));
-
-    let options = InitOptions::new(EmbeddingModel::BGESmallENV15)
-        .with_cache_dir(cache_dir)
-        .with_show_download_progress(false);
-
-    let model = TextEmbedding::try_new(options).ok()?;
-
-    // Generate embeddings (batch_size = None for default)
-    let embeddings = model
-        .embed(texts.iter().map(|s| s.as_str()).collect::<Vec<_>>(), None)
-        .ok()?;
-
-    // Convert Vec<Vec<f32>> to Vec<Vec<f64>>
-    Some(
-        embeddings
-            .into_iter()
-            .map(|v| v.into_iter().map(|f| f as f64).collect())
-            .collect(),
-    )
-}
-
-/// Computes cosine similarity between two vectors.
-fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
-    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let norm_a: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt();
-    let norm_b: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
-    if norm_a == 0.0 || norm_b == 0.0 {
-        0.0
-    } else {
-        dot / (norm_a * norm_b)
-    }
-}
-
-/// Finds the top-k most similar logs to the query embedding.
-/// Returns indices into the rag_logs array.
-fn find_top_k_similar(query_embedding: &[f64], embeddings: &[Vec<f64>], k: usize) -> Vec<usize> {
-    let mut similarities: Vec<(usize, f64)> = embeddings
-        .iter()
-        .enumerate()
-        .map(|(i, emb)| (i, cosine_similarity(query_embedding, emb)))
-        .collect();
-
-    similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-    similarities.into_iter().take(k).map(|(i, _)| i).collect()
-}
-
-/// Gets cached embeddings or generates new ones for the given logs.
-/// Incrementally generates embeddings only for logs that don't have them cached.
-fn get_or_generate_embeddings(
-    logs: &[TenonLog],
-    cache: &Arc<RwLock<Option<Vec<Vec<f64>>>>>,
-) -> Option<Vec<Vec<f64>>> {
-    let cached_len = cache.read().ok()?.as_ref().map(|c| c.len()).unwrap_or(0);
-
-    // Check if cache has all embeddings
-    if cached_len == logs.len() {
-        return cache.read().ok()?.as_ref().cloned();
-    }
-
-    // Cache is missing some embeddings - generate only for new logs
-    if cached_len < logs.len() {
-        // Generate embeddings for logs that don't have them yet
-        let new_texts: Vec<_> = logs[cached_len..].iter().filter_map(log_to_text).collect();
-        let new_embeddings = generate_embeddings(&new_texts)?;
-
-        // Append to existing cache
-        if let Ok(mut lock) = cache.write() {
-            match lock.as_mut() {
-                Some(existing) => existing.extend(new_embeddings),
-                None => *lock = Some(new_embeddings),
-            }
-        }
-
-        return cache.read().ok()?.as_ref().cloned();
-    }
-
-    // Cache has more embeddings than logs (shouldn't happen, but regenerate to be safe)
-    let texts: Vec<_> = logs.iter().filter_map(log_to_text).collect();
-    let embeddings = generate_embeddings(&texts)?;
-
-    if let Ok(mut lock) = cache.write() {
-        *lock = Some(embeddings.clone());
-    }
-
-    Some(embeddings)
-}
-
-/// Builds RAG context string by finding similar past conversation logs.
-/// Returns None if no relevant context is found.
-fn build_rag_context(
-    rag_logs: &Arc<RwLock<Vec<TenonLog>>>,
-    rag_embeddings: &Arc<RwLock<Option<Vec<Vec<f64>>>>>,
-    message: &str,
-) -> Option<String> {
-    let logs = rag_logs.read().ok()?;
-    if logs.is_empty() {
-        return None;
-    }
-
-    let embeddings = get_or_generate_embeddings(&logs, rag_embeddings)?;
-    let msg_embedding = generate_embeddings(&[message.to_string()])?
-        .into_iter()
-        .next()?;
-
-    let top_indices = find_top_k_similar(&msg_embedding, &embeddings, 3);
-    let context_parts: Vec<_> = top_indices
-        .into_iter()
-        .filter_map(|i| logs.get(i))
-        .filter_map(log_to_text)
-        .collect();
-
-    (!context_parts.is_empty()).then(|| {
-        format!(
-            "Relevant context from earlier conversation:\n{}\n\n",
-            context_parts.join("\n---\n")
-        )
-    })
-}
-
 pub struct ChatSession {
     pub id: String,
     pub title: Arc<RwLock<Option<String>>>,
     pub logs: Arc<RwLock<Vec<TenonLog>>>,
-    pub rag_logs: Arc<RwLock<Vec<TenonLog>>>,
-    pub rag_embeddings: Arc<RwLock<Option<Vec<Vec<f64>>>>>,
+    pub rag_context: RagContext,
     pub resume_from: Arc<AtomicUsize>,
     pub usage: Arc<RwLock<Option<Usage>>>,
     pub active_agent: ActiveAgent,
@@ -496,8 +324,7 @@ impl ChatSession {
             id: generate_chat_id(),
             title: Arc::new(RwLock::new(None)),
             logs: Arc::new(RwLock::new(Vec::new())),
-            rag_logs: Arc::new(RwLock::new(Vec::new())),
-            rag_embeddings: Arc::new(RwLock::new(None)),
+            rag_context: RagContext::new(),
             resume_from: Arc::new(AtomicUsize::new(0)),
             usage: Arc::new(RwLock::new(None)),
             active_agent: ActiveAgent {
@@ -570,8 +397,7 @@ impl ChatSession {
             id: history.id,
             title: Arc::new(RwLock::new(history.title)),
             logs: Arc::new(RwLock::new(logs)),
-            rag_logs: Arc::new(RwLock::new(Vec::new())),
-            rag_embeddings: Arc::new(RwLock::new(None)),
+            rag_context: RagContext::new(),
             resume_from: Arc::new(AtomicUsize::new(0)),
             usage: Arc::new(RwLock::new(history.usage)),
             active_agent: ActiveAgent {
@@ -775,14 +601,10 @@ impl ChatSession {
                 .cloned()
                 .collect();
 
-            // Copy truncated logs to rag_logs (keep in self.logs for display)
-            if let Ok(mut rag_logs) = self.rag_logs.write() {
-                for log in new_logs {
-                    rag_logs.push(log);
-                }
-            }
+            // Copy truncated logs to rag_context (keep in self.logs for display)
+            self.rag_context.add_logs(new_logs);
 
-            // Note: Embeddings cache is NOT invalidated - get_or_generate_embeddings
+            // Note: Embeddings cache is NOT invalidated - RagContext::get_or_generate_embeddings
             // will incrementally generate embeddings for new logs off-thread
 
             self.resume_from.store(new_resume, Ordering::SeqCst);
@@ -827,8 +649,7 @@ impl ChatSession {
         let session_datetime = self.session_datetime.clone();
         let resume_from = Arc::clone(&self.resume_from);
         let cancel_token = Arc::clone(&self.cancel_token);
-        let rag_logs_clone = Arc::clone(&self.rag_logs);
-        let rag_embeddings_clone = Arc::clone(&self.rag_embeddings);
+        let rag_context = self.rag_context.clone();
         let active_workflow_clone = Arc::clone(&self.active_workflow);
 
         self.active_thread = Some(std::thread::spawn(move || {
@@ -890,12 +711,12 @@ impl ChatSession {
                 }
 
                 // Build RAG context (inside thread to avoid blocking main)
-                let rag_context = user_message
+                let rag_context_str = user_message
                     .as_ref()
-                    .and_then(|msg| build_rag_context(&rag_logs_clone, &rag_embeddings_clone, msg));
+                    .and_then(|msg| rag_context.build_context(msg));
 
                 // Inject RAG context if available
-                if let Some(ctx) = rag_context {
+                if let Some(ctx) = rag_context_str {
                     chat_history.insert(
                         0,
                         Message::User {

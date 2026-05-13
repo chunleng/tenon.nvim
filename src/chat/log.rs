@@ -171,6 +171,46 @@ impl TenonLog {
         &self.data
     }
 
+    /// Converts the log to a string for embedding.
+    /// Returns None if the log type should not be indexed for RAG.
+    pub fn to_embeddable_text(&self) -> Option<String> {
+        match &self.data {
+            TenonLogData::User(msg) => match msg {
+                TenonUserMessage::Text(TenonUserTextMessage(text)) => Some(text.clone()),
+            },
+            TenonLogData::Assistant(msg) => Some(
+                msg.content
+                    .iter()
+                    .filter_map(|c| match c {
+                        TenonAssistantMessageContent::Text(t) => Some(t.clone()),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+            TenonLogData::Tool(tool_log) => {
+                let mut text = format!(
+                    "Tool: {}\nArgs: {}",
+                    tool_log.tool_call.name, tool_log.tool_call.args
+                );
+                if let Some(result) = &tool_log.tool_result {
+                    match result {
+                        Ok(TenonToolResult::Text(t)) => {
+                            text.push_str(&format!("\nResult: {}", t.text));
+                        }
+                        Ok(TenonToolResult::Image(_)) => {
+                            text.push_str("\nResult: [Image]");
+                        }
+                        Err(e) => {
+                            text.push_str(&format!("\nError: {}", e.0));
+                        }
+                    }
+                }
+                Some(text)
+            }
+            TenonLogData::Workflow(_) => None,
+        }
+    }
+
     /// Updates the tool result and recalculates token count.
     /// Panics if this is not a Tool log.
     pub fn set_tool_result(&mut self, result: Option<Result<TenonToolResult, TenonToolError>>) {

@@ -58,6 +58,7 @@ mod config;
 mod directive;
 mod lua_modules;
 mod mcp;
+mod rag;
 mod tools;
 mod ui;
 mod utils;
