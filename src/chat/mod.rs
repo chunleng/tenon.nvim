@@ -218,9 +218,8 @@ impl TenonAgent {
         logs: Arc<RwLock<Vec<TenonLog>>>,
     ) -> ChatAgent {
         // NOTE: Update token estimation when this prompt changes
-        let mut system_prompt = "Running on Tenon. \
-            Output markdown. Concise, not verbose. No filler or hedging or unnecessary words. Reduce emoji use. \
-            User may edit files between steps → files change silently. File ≠ expected → user edited → re-read → preserve changes. \
+        let mut system_prompt = "Running on Tenon. Output markdown. Be brief, No filler or hedging or unnecessary words. Reduce emoji use. \
+            Files content changes anytime. File ≠ expected → never revert, re-read → re-understand → changes. \
             History shows active behavior/prompt at that time. Prior actions may span agents → trust reported behavior. \
             Earlier history may be truncated. Missing context → ask user for clarification. \
             <directive></directive>=rules for agent conduct; no condition→always, condition→when matched. \
