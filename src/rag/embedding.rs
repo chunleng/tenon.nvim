@@ -1,13 +1,9 @@
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 
-/// Generates embeddings for a list of texts using FastEmbed.
-/// Returns a vector of embedding vectors.
-pub fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f64>>> {
-    if texts.is_empty() {
-        return Ok(Vec::new());
-    }
-
+/// Generates an embedding for a single text using FastEmbed.
+/// Returns the embedding vector.
+pub fn generate_embedding(text: &str) -> Result<Vec<f64>> {
     // Use ~/.fastembed_cache for model storage
     let cache_dir = std::env::var("HOME")
         .map(|home| std::path::PathBuf::from(home).join(".fastembed_cache"))
@@ -19,13 +15,16 @@ pub fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f64>>> {
 
     let model = TextEmbedding::try_new(options)?;
 
-    // Generate embeddings (batch_size = None for default)
-    let embeddings = model.embed(texts.iter().map(|s| s.as_str()).collect::<Vec<_>>(), None)?;
+    // Generate embedding (batch_size = None for default)
+    let embeddings = model.embed(vec![text], None)?;
 
-    // Convert Vec<Vec<f32>> to Vec<Vec<f64>>
+    // Convert Vec<f32> to Vec<f64>
     Ok(embeddings
         .into_iter()
-        .map(|v| v.into_iter().map(|f| f as f64).collect())
+        .next()
+        .expect("Single text should produce exactly one embedding")
+        .into_iter()
+        .map(|f| f as f64)
         .collect())
 }
 
@@ -64,30 +63,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_generate_embeddings_basic() {
-        let texts = vec!["Hello world".to_string(), "Testing embeddings".to_string()];
+    fn test_generate_embedding_basic() {
+        let text = "Hello world".to_string();
 
-        let result = generate_embeddings(&texts);
+        let result = generate_embedding(&text);
 
         assert!(
             result.is_ok(),
-            "generate_embeddings failed: {:?}",
+            "generate_embedding failed: {:?}",
             result.err()
         );
-        let embeddings = result.unwrap();
-
-        assert_eq!(embeddings.len(), 2, "Should return 2 embeddings");
+        let embedding = result.unwrap();
 
         // AllMiniLML6V2Q has 384 dimensions
-        assert_eq!(
-            embeddings[0].len(),
-            384,
-            "Each embedding should have 384 dimensions"
-        );
-        assert_eq!(
-            embeddings[1].len(),
-            384,
-            "Each embedding should have 384 dimensions"
-        );
+        assert_eq!(embedding.len(), 384, "Embedding should have 384 dimensions");
     }
 }

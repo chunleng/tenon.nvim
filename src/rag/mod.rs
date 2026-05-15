@@ -1,6 +1,6 @@
 mod embedding;
 
-pub use embedding::{find_top_k_similar, generate_embeddings};
+pub use embedding::{find_top_k_similar, generate_embedding};
 
 use std::sync::{Arc, RwLock};
 
@@ -55,12 +55,14 @@ impl RagContext {
                 .filter_map(|log| log.to_embeddable_text())
                 .collect();
 
-            let new_embeddings = match generate_embeddings(&new_texts) {
-                Ok(embeddings) => embeddings,
-                Err(_) => {
-                    return None;
-                }
-            };
+            let new_embeddings: Vec<Vec<f64>> = new_texts
+                .iter()
+                .filter_map(|text| generate_embedding(text).ok())
+                .collect();
+
+            if new_embeddings.is_empty() && !new_texts.is_empty() {
+                return None;
+            }
 
             // Append to existing cache
             if let Ok(mut lock) = self.embeddings.write() {
@@ -79,12 +81,14 @@ impl RagContext {
             .filter_map(|log| log.to_embeddable_text())
             .collect();
 
-        let embeddings = match generate_embeddings(&texts) {
-            Ok(embeddings) => embeddings,
-            Err(_) => {
-                return None;
-            }
-        };
+        let embeddings: Vec<Vec<f64>> = texts
+            .iter()
+            .filter_map(|text| generate_embedding(text).ok())
+            .collect();
+
+        if embeddings.is_empty() && !texts.is_empty() {
+            return None;
+        }
 
         if let Ok(mut lock) = self.embeddings.write() {
             *lock = Some(embeddings.clone());
@@ -102,8 +106,8 @@ impl RagContext {
         }
 
         let embeddings = self.get_or_generate_embeddings()?;
-        let msg_embedding = match generate_embeddings(&[message.to_string()]) {
-            Ok(mut embs) => embs.pop()?,
+        let msg_embedding = match generate_embedding(message) {
+            Ok(emb) => emb,
             Err(_) => {
                 return None;
             }
