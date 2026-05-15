@@ -107,12 +107,7 @@ impl RagContext {
             .filter_map(|log| log.to_embeddable_text())
             .collect();
 
-        (!context_parts.is_empty()).then(|| {
-            format!(
-                "Relevant context from earlier conversation:\n{}\n\n",
-                context_parts.join("\n---\n")
-            )
-        })
+        (!context_parts.is_empty()).then(|| format!("{}\n\n", context_parts.join("\n---\n")))
     }
 }
 

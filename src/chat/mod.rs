@@ -604,7 +604,7 @@ impl ChatSession {
                         0,
                         Message::User {
                             content: OneOrMany::one(UserContent::text(format!(
-                                "[Context from earlier conversation]\n{}",
+                                "<chat-history>{}</chat-history>",
                                 ctx.trim()
                             ))),
                         },
