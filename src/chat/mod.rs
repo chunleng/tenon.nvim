@@ -9,9 +9,8 @@ use crate::{
 use chrono::{DateTime, Local};
 use nvim_oxi::{Result as OxiResult, api::types::LogLevel};
 use rig::{
-    OneOrMany,
     completion::Usage,
-    message::{Message, ToolResultContent, UserContent},
+    message::{Message, ToolResultContent},
 };
 use std::{
     sync::atomic::{AtomicBool, Ordering},
@@ -588,27 +587,12 @@ impl ChatSession {
                     ))));
                 }
 
-                // Build RAG context (inside thread to avoid blocking main)
-                let rag_context = if let Ok(indexer) = log_indexer_clone.read() {
-                    let inactive_logs = indexer.inactive_log();
-                    user_message
-                        .as_ref()
-                        .and_then(|msg| indexer.rag_context.build_context(&inactive_logs, msg))
-                } else {
-                    None
-                };
-
-                // Inject RAG context if available
-                if let Some(ctx) = rag_context {
-                    chat_history.insert(
-                        0,
-                        Message::User {
-                            content: OneOrMany::one(UserContent::text(format!(
-                                "<chat-history>{}</chat-history>",
-                                ctx.trim()
-                            ))),
-                        },
-                    );
+                // Inject history messages from RAG context if available
+                if let Ok(indexer) = log_indexer_clone.read() {
+                    let history_messages = indexer.get_relevant_context(user_message.as_ref());
+                    for msg in history_messages.into_iter().rev() {
+                        chat_history.insert(0, msg);
+                    }
                 }
 
                 loop {
