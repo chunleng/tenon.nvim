@@ -929,39 +929,4 @@ impl ChatSession {
     pub fn send_message(&mut self, message: String) {
         self.send_chat_request(message.clone(), Some(message));
     }
-
-    // pub fn start_workflow(&mut self, workflow_id: String) -> anyhow::Result<()> {
-    //     // Check if agent has this workflow configured
-    //     if !self
-    //         .active_agent
-    //         .inner
-    //         .workflows
-    //         .iter()
-    //         .any(|w| w.id == workflow_id)
-    //     {
-    //         return Err(anyhow::anyhow!(
-    //             "Agent '{}' does not have workflow '{}' configured.",
-    //             self.active_agent.name,
-    //             workflow_id,
-    //         ));
-    //     }
-    //
-    //     // Validate workflow exists in registry
-    //     let registry = get_workflow_registry();
-    //     let workflow = registry
-    //         .get(&workflow_id)
-    //         .ok_or_else(|| anyhow::anyhow!("Workflow '{}' not found in registry.", workflow_id,))?;
-    //
-    //     let step_number = 1;
-    //     if let Ok(mut logs) = self.logs.write() {
-    //         logs.push(TenonLog::new(TenonLogData::Workflow(
-    //             workflow.generate_log(step_number).unwrap(),
-    //         )));
-    //     }
-    //     if let Ok(mut active) = self.active_workflow.write() {
-    //         *active = Some(ActiveWorkflow::new(workflow.id.clone(), step_number));
-    //     }
-    //     self.send_chat_request("[continue]".to_string(), None);
-    //     Ok(())
-    // }
 }
