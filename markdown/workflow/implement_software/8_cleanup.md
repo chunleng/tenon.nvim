@@ -14,6 +14,7 @@ Remove non-production code:
 - Clean up temporary workarounds
 
 Verify removals don't break:
+- Skip if nothing was removed
 - Run build after cleanup
 - If build fails after removal, revert that removal and proceed
 
