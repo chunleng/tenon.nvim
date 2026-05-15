@@ -353,9 +353,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     ],
                 },
             ],
-            default_condition:
-                "when making code changes, but prioritize find_software_bug_root_cause workflow"
-                    .to_string(),
+            default_condition: "before modifying files that are production code".to_string(),
         },
     ]
 }

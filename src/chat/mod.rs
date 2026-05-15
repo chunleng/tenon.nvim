@@ -238,14 +238,18 @@ impl TenonAgent {
                         .condition
                         .as_ref()
                         .or_else(|| registry.get(&w.id).map(|wf| &wf.default_condition))?;
-                    Some(format!("{} -> {}", w.id, condition))
+                    Some(format!(
+                        "<workflow condition=\"{}\" id=\"{}\" />",
+                        condition, w.id
+                    ))
                 })
                 .collect();
 
             system_prompt.push_str(&format!(
-                " You have workflow to help you solve problems, always prioritize workflow, if they match the condition, over manually figuring out a process\n\
-                In workflow + question for user → ask directly. Never via navigate/end_workflow.\n<workflows>{}</workflows>",
-                workflow_info.join(", ")
+                " <workflow />=structures that help you solve problems, call `start_workflow <id>` to start them. if workflow matches condition, always prioritize workflow over manually figuring out a process\n\
+                In workflow + question for user → ask directly. Never via navigate/end_workflow.\n\
+                {}",
+                workflow_info.join("")
             ));
         }
 
