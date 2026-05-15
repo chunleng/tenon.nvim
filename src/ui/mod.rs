@@ -132,11 +132,11 @@ impl ChatWindow {
                 notify("please enter your message before sending", LogLevel::Error);
             } else {
                 self.scroll_output_to_bottom()?;
-                if let Ok(loaded) = self.loaded_chat_session.read() {
-                    if let Ok(mut chat_session) = loaded.write() {
-                        chat_session.send_message(message);
-                        let _ = input_win_buffer.set_lines(0.., false, Vec::<String>::new());
-                    }
+                if let Ok(loaded) = self.loaded_chat_session.read()
+                    && let Ok(mut chat_session) = loaded.write()
+                {
+                    chat_session.send_message(message);
+                    let _ = input_win_buffer.set_lines(0.., false, Vec::<String>::new());
                 }
             }
         }
@@ -148,10 +148,10 @@ impl ChatWindow {
     /// Prompts the LLM to continue from where it left off.
     pub fn continue_chat(&mut self) -> OxiResult<()> {
         self.scroll_output_to_bottom()?;
-        if let Ok(loaded) = self.loaded_chat_session.read() {
-            if let Ok(mut chat_session) = loaded.write() {
-                chat_session.continue_chat();
-            }
+        if let Ok(loaded) = self.loaded_chat_session.read()
+            && let Ok(mut chat_session) = loaded.write()
+        {
+            chat_session.continue_chat();
         }
         Ok(())
     }
@@ -201,10 +201,10 @@ impl ChatWindow {
     }
 
     pub fn stop_streaming(&mut self) -> OxiResult<()> {
-        if let Ok(loaded) = self.loaded_chat_session.read() {
-            if let Ok(mut chat_session) = loaded.write() {
-                chat_session.cancel();
-            }
+        if let Ok(loaded) = self.loaded_chat_session.read()
+            && let Ok(mut chat_session) = loaded.write()
+        {
+            chat_session.cancel();
         }
         Ok(())
     }
@@ -213,10 +213,10 @@ impl ChatWindow {
     /// Safe to call from any thread when the render thread is already running,
     /// since it only sets an atomic flag and resets an RwLock-protected state.
     pub fn force_render(&self) {
-        if let Ok(mut output_win) = self.output_window.lock() {
-            if let Some(panel) = output_win.as_mut() {
-                let _ = panel.widget.render();
-            }
+        if let Ok(mut output_win) = self.output_window.lock()
+            && let Some(panel) = output_win.as_mut()
+        {
+            let _ = panel.widget.render();
         }
     }
 
@@ -301,26 +301,26 @@ impl ChatWindow {
         panel.widget.render()?;
 
         // Swap the input window buffer to the one for this chat session.
-        if let Ok(mut input_panel) = self.input_window.lock() {
-            if let Some(panel) = input_panel.as_mut() {
-                let chat_key = Self::chat_key(
-                    &self
-                        .loaded_chat_session
-                        .read()
-                        .map_err(|_| {
-                            nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(
-                                "chat can't be read".to_string(),
-                            ))
-                        })?
-                        .clone(),
-                );
-                if !panel.widget_keys().any(|k| k == &chat_key) {
-                    let buffer = self.create_input_buffer()?;
-                    let widget = BasicWidget::new(buffer);
-                    panel.add_widget(&chat_key, Box::new(widget))?;
-                }
-                panel.swap_to(chat_key)?;
+        if let Ok(mut input_panel) = self.input_window.lock()
+            && let Some(panel) = input_panel.as_mut()
+        {
+            let chat_key = Self::chat_key(
+                &self
+                    .loaded_chat_session
+                    .read()
+                    .map_err(|_| {
+                        nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(
+                            "chat can't be read".to_string(),
+                        ))
+                    })?
+                    .clone(),
+            );
+            if !panel.widget_keys().any(|k| k == chat_key) {
+                let buffer = self.create_input_buffer()?;
+                let widget = BasicWidget::new(buffer);
+                panel.add_widget(&chat_key, Box::new(widget))?;
             }
+            panel.swap_to(chat_key)?;
         }
 
         Ok(())
@@ -359,10 +359,10 @@ impl ChatWindow {
         // Remove the dismissed chat's input buffer from the panel.
         if let Ok(loaded) = self.loaded_chat_session.read() {
             let old_key = Self::chat_key(&loaded);
-            if let Ok(mut input_panel) = self.input_window.lock() {
-                if let Some(panel) = input_panel.as_mut() {
-                    panel.remove_widget(old_key);
-                }
+            if let Ok(mut input_panel) = self.input_window.lock()
+                && let Some(panel) = input_panel.as_mut()
+            {
+                panel.remove_widget(old_key);
             }
         }
 

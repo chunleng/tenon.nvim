@@ -33,13 +33,13 @@ pub fn get_ollama_agent(
     tools: Vec<Box<dyn ToolDyn>>,
 ) -> Agent<ollama::CompletionModel> {
     let mut headers = HeaderMap::new();
-    if let Some(bearer) = config.bearer {
-        if let Ok(token) = bearer.resolve() {
-            headers.insert(
-                AUTHORIZATION,
-                HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
-            );
-        }
+    if let Some(bearer) = config.bearer
+        && let Ok(token) = bearer.resolve()
+    {
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        );
     }
     let client = ollama::Client::builder()
         .base_url(config.base_url)
@@ -51,10 +51,9 @@ pub fn get_ollama_agent(
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
-    let agent = agent
-        .additional_params(serde_json::json!({ "think": true }))
-        .tools(tools)
-        .build();
 
     agent
+        .additional_params(serde_json::json!({ "think": true }))
+        .tools(tools)
+        .build()
 }

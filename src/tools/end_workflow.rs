@@ -6,10 +6,10 @@ use serde_json::json;
 use std::sync::{Arc, RwLock};
 
 fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolError {
-    ToolError::ToolCallError(Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        format!("Failed to {}: {}", context, e),
-    )))
+    ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
+        "Failed to {}: {}",
+        context, e
+    ))))
 }
 
 #[derive(Deserialize)]

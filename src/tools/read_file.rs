@@ -82,7 +82,7 @@ impl Tool for ReadFile {
 
                 Ok(format!(
                     "<file path=\"{}\">{}</file>",
-                    path.to_str().unwrap_or_default().to_string(),
+                    path.to_str().unwrap_or_default(),
                     selected_lines
                 ))
             }

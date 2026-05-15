@@ -71,7 +71,7 @@ pub fn notify(message: impl ToString, log_level: LogLevel) {
 }
 
 pub static GLOBAL_EXECUTION_HANDLER: LazyLock<NeovimExecutionHandler> =
-    LazyLock::new(|| NeovimExecutionHandler::new());
+    LazyLock::new(NeovimExecutionHandler::new);
 
 type RustCallback = Box<dyn FnOnce() + Send>;
 

@@ -28,14 +28,14 @@ pub fn get_chat_window() -> Arc<Mutex<ChatWindow>> {
 pub static CONFIG: OnceLock<TenonConfig> = OnceLock::new();
 
 pub fn get_application_config() -> TenonConfig {
-    CONFIG.get_or_init(|| TenonConfig::default()).clone()
+    CONFIG.get_or_init(TenonConfig::default).clone()
 }
 
 pub static DIRECTIVE_REGISTRY: OnceLock<HashMap<String, Directive>> = OnceLock::new();
 
 pub fn get_directive_registry() -> HashMap<String, Directive> {
     DIRECTIVE_REGISTRY
-        .get_or_init(|| directive::load_system_directives())
+        .get_or_init(directive::load_system_directives)
         .clone()
 }
 
@@ -112,7 +112,7 @@ fn tenon() -> OxiResult<Dictionary> {
             CONFIG.get_or_init(|| {
                 match TenonUserConfig::deserialize(Deserializer::new(conf))
                     .map_err(|e| e.into())
-                    .and_then(|x| TenonConfig::try_from(x))
+                    .and_then(TenonConfig::try_from)
                 {
                     Ok(res) => res,
                     Err(e) => {
@@ -130,20 +130,20 @@ fn tenon() -> OxiResult<Dictionary> {
 
     let toggle_fn = Function::from_fn({
         move |()| {
-            if let Ok(mut win) = get_chat_window().lock() {
-                if let Err(e) = win.toggle() {
-                    notify(format!("{}", e), LogLevel::Error);
-                }
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.toggle()
+            {
+                notify(format!("{}", e), LogLevel::Error);
             }
         }
     });
 
     let close_fn = Function::from_fn({
         move |()| {
-            if let Ok(mut win) = get_chat_window().lock() {
-                if let Err(e) = win.close() {
-                    notify(format!("{}", e), LogLevel::Error);
-                }
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.close()
+            {
+                notify(format!("{}", e), LogLevel::Error);
             }
         }
     });

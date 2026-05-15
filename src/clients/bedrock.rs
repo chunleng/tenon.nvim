@@ -37,7 +37,6 @@ pub fn get_bedrock_agent(
             _ => {}
         }
     }
-    let agent = agent.tools(tools).build();
 
-    agent
+    agent.tools(tools).build()
 }

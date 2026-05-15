@@ -77,7 +77,7 @@ impl Tool for WebSearch {
             )))
         })?;
 
-        let count = args.count.unwrap_or(10).min(10).max(1);
+        let count = args.count.unwrap_or(10).clamp(1, 10);
 
         let mut body = json!({
             "query": args.query,
@@ -98,17 +98,16 @@ impl Tool for WebSearch {
             .send()
             .await
             .map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Request failed: {}", e),
-                )))
+                ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
+                    "Request failed: {}",
+                    e
+                ))))
             })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(ToolError::ToolCallError(Box::new(std::io::Error::other(
                 format!("API {} → {}", status, text),
             ))));
         }

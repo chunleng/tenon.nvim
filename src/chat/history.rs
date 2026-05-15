@@ -25,12 +25,17 @@ pub struct ChatHistory {
     pub session_datetime: DateTime<Local>,
 }
 
+/// Session metadata needed to save a chat history.
+pub struct SessionMetadata<'a> {
+    pub id: &'a str,
+    pub title: Option<&'a str>,
+    pub agent_name: &'a str,
+    pub model_display: &'a str,
+    pub session_datetime: DateTime<Local>,
+}
+
 pub fn save_to_history(
-    id: &str,
-    title: Option<&str>,
-    agent_name: &str,
-    model_display: &str,
-    session_datetime: DateTime<Local>,
+    metadata: SessionMetadata<'_>,
     log_indexer: &ChatLogIndexer,
     usage: &Arc<RwLock<Option<Usage>>>,
     history_directory: &str,
@@ -39,13 +44,13 @@ pub fn save_to_history(
     let usage_val = usage.read().ok().and_then(|u| *u);
 
     let history = ChatHistory {
-        id: id.to_string(),
-        title: title.map(|s| s.to_string()),
-        agent_name: agent_name.to_string(),
-        model_display: model_display.to_string(),
+        id: metadata.id.to_string(),
+        title: metadata.title.map(|s| s.to_string()),
+        agent_name: metadata.agent_name.to_string(),
+        model_display: metadata.model_display.to_string(),
         usage: usage_val,
         logs: logs_vec,
-        session_datetime: session_datetime,
+        session_datetime: metadata.session_datetime,
     };
 
     if let Ok(cwd) = std::env::current_dir() {
@@ -57,7 +62,7 @@ pub fn save_to_history(
             dir.to_path_buf()
         };
         if std::fs::create_dir_all(&dir).is_ok() {
-            let path = dir.join(format!("{}.json", id));
+            let path = dir.join(format!("{}.json", metadata.id));
             if let Ok(json) = serde_json::to_string_pretty(&history) {
                 let _ = std::fs::write(&path, json);
             }

@@ -152,12 +152,8 @@ impl ChatDisplay {
                         })
                         .collect();
 
-                    let mut content: Vec<String> = entry_lines
-                        .iter()
-                        .map(|(l, _)| l)
-                        .flatten()
-                        .cloned()
-                        .collect();
+                    let mut content: Vec<String> =
+                        entry_lines.iter().flat_map(|(l, _)| l).cloned().collect();
 
                     // Spinner line
                     const SPINNER_CHARS: [&str; 8] =
@@ -459,7 +455,7 @@ impl ChatDisplay {
                             tool_removed.store(removed, Ordering::SeqCst);
                         }
 
-                        if is_processing && tick % 3 == 0 {
+                        if is_processing && tick.is_multiple_of(3) {
                             spinner_frame.fetch_add(1, Ordering::SeqCst);
                         }
                         tick = tick.wrapping_add(1);
@@ -555,10 +551,10 @@ impl DisplayAsChat for TenonLog {
                         .skip(lines.len().saturating_sub(display_last_x))
                         .map(|y| y.to_string())
                         .collect::<Vec<_>>();
-                    if lines.len() > display_last_x {
-                        displayed_lines
-                            .get_mut(0)
-                            .map(|x| *x = format!("... {}", x));
+                    if lines.len() > display_last_x
+                        && let Some(x) = displayed_lines.get_mut(0)
+                    {
+                        *x = format!("... {}", x);
                     }
                     (displayed_lines, SignIcon::AssistantReasoning)
                 } else {

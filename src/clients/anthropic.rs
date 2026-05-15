@@ -39,13 +39,12 @@ pub fn get_anthropic_agent(
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
-    let agent = agent
+
+    agent
         .max_tokens(16000)
         .additional_params(serde_json::json!({
             "thinking": { "type": "enabled", "budget_tokens": 10000 }
         }))
         .tools(tools)
-        .build();
-
-    agent
+        .build()
 }

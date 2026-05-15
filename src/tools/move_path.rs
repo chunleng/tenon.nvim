@@ -41,7 +41,7 @@ fn collect_files(source: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
 }
 
 fn collect_files_recursive(
-    root: &Path,
+    _root: &Path,
     current: &Path,
     files: &mut Vec<PathBuf>,
 ) -> Result<(), std::io::Error> {
@@ -49,7 +49,7 @@ fn collect_files_recursive(
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            collect_files_recursive(root, &path, files)?;
+            collect_files_recursive(_root, &path, files)?;
         } else {
             files.push(path);
         }
@@ -123,7 +123,7 @@ impl Tool for MovePath {
             || source_abs
                 .to_str()
                 .zip(actual_dest.to_str())
-                .map_or(false, |(s, d)| s == d)
+                .is_some_and(|(s, d)| s == d)
         {
             return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -132,15 +132,14 @@ impl Tool for MovePath {
         }
 
         // 4. Create destination parent dirs if missing
-        if let Some(parent) = actual_dest.parent() {
-            if !parent.as_os_str().is_empty() {
-                if let Err(e) = fs::create_dir_all(parent) {
-                    return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                        e.kind(),
-                        format!("mkdir fail: {} {}", args.destination, e),
-                    ))));
-                }
-            }
+        if let Some(parent) = actual_dest.parent()
+            && !parent.as_os_str().is_empty()
+            && let Err(e) = fs::create_dir_all(parent)
+        {
+            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
+                e.kind(),
+                format!("mkdir fail: {} {}", args.destination, e),
+            ))));
         }
 
         // 5. Collect files before move

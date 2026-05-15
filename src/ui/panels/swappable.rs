@@ -104,9 +104,10 @@ impl SwappableBufferPanel {
     ) -> OxiResult<()> {
         let key = key.into();
         if self.widgets.contains_key(&key) {
-            return Err(nvim_oxi::Error::Api(nvim_oxi::api::Error::Other(
-                format!("Widget key '{}' already exists in this panel", key).into(),
-            )));
+            return Err(nvim_oxi::Error::Api(nvim_oxi::api::Error::Other(format!(
+                "Widget key '{}' already exists in this panel",
+                key
+            ))));
         }
         widget.buffer().set_bufhidden("hide")?;
         widget.set_window(self.window.clone());
@@ -126,9 +127,10 @@ impl SwappableBufferPanel {
         }
 
         let widget = self.widgets.get(&key).ok_or_else(|| {
-            nvim_oxi::Error::Api(nvim_oxi::api::Error::Other(
-                format!("No widget with key '{}' in this panel", key).into(),
-            ))
+            nvim_oxi::Error::Api(nvim_oxi::api::Error::Other(format!(
+                "No widget with key '{}' in this panel",
+                key
+            )))
         })?;
 
         self.window.inner.set_buf(&widget.buffer().inner)?;

@@ -145,10 +145,11 @@ impl ChatLogIndexer {
         }
 
         // Adjust to next user message if we landed on non-user
-        if new_resume < self.logs.len() && !Self::is_user_log(&self.logs[new_resume]) {
-            if let Some(user_idx) = self.find_next_user_index(new_resume) {
-                new_resume = user_idx;
-            }
+        if new_resume < self.logs.len()
+            && !Self::is_user_log(&self.logs[new_resume])
+            && let Some(user_idx) = self.find_next_user_index(new_resume)
+        {
+            new_resume = user_idx;
         }
 
         // Never truncate past the last exchange

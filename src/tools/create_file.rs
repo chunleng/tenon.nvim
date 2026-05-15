@@ -48,15 +48,14 @@ impl Tool for CreateFile {
             ))));
         }
 
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                if let Err(e) = fs::create_dir_all(parent) {
-                    return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                        e.kind(),
-                        format!("mkdir fail '{}': {}", args.filepath, e),
-                    ))));
-                }
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+            && let Err(e) = fs::create_dir_all(parent)
+        {
+            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
+                e.kind(),
+                format!("mkdir fail '{}': {}", args.filepath, e),
+            ))));
         }
 
         match fs::File::create_new(path) {

@@ -93,7 +93,7 @@ fzf.fzf_exec({options}, {{
                     result
                         .get("response")
                         .and_then(|v| v.as_str())
-                        .map(|s| clean_marker(s))
+                        .map(clean_marker)
                 }
             }
             Err(_) => None,

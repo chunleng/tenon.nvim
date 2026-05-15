@@ -94,7 +94,7 @@ impl Tool for ListFiles {
         for entry in walker.build() {
             match entry {
                 Ok(e) => {
-                    if !e.file_type().map_or(false, |ft| ft.is_file()) {
+                    if !e.file_type().is_some_and(|ft| ft.is_file()) {
                         continue;
                     }
                     // Never list files inside .git directories
@@ -106,10 +106,10 @@ impl Tool for ListFiles {
                         continue;
                     }
                     total_matched += 1;
-                    if files.len() < max_count {
-                        if let Some(path_str) = e.path().to_str() {
-                            files.push(path_str.to_string());
-                        }
+                    if files.len() < max_count
+                        && let Some(path_str) = e.path().to_str()
+                    {
+                        files.push(path_str.to_string());
                     }
                 }
                 Err(_) => continue,

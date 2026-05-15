@@ -4,6 +4,8 @@ use nvim_oxi::{
 
 use crate::{get_chat_window, utils::format_path_relative};
 
+type InsertSelectionParams = (i32, usize, Option<usize>, usize, Option<usize>);
+
 pub fn create_lua_action_module() -> Dictionary {
     let mut action_dict = Dictionary::new();
     action_dict.insert("insert_selection", Object::from(insert_selection_fn()));
@@ -20,15 +22,9 @@ pub fn create_lua_action_module() -> Dictionary {
 /// - start_col: start column byte offset (1-indexed, or nil for whole line)
 /// - end_line: end line (1-indexed)
 /// - end_col: end column byte offset (1-indexed, inclusive, or nil for whole line)
-fn insert_selection_fn() -> Function<(i32, usize, Option<usize>, usize, Option<usize>), ()> {
+fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
     Function::from_fn(
-        |(bufnr, start_line, start_col, end_line, end_col): (
-            i32,
-            usize,
-            Option<usize>,
-            usize,
-            Option<usize>,
-        )| {
+        |(bufnr, start_line, start_col, end_line, end_col): InsertSelectionParams| {
             let buf = Buffer::from(bufnr);
 
             // Get buffer filename and filetype
@@ -56,7 +52,7 @@ fn insert_selection_fn() -> Function<(i32, usize, Option<usize>, usize, Option<u
                 .and_then(|lines| lines.into_iter().next())
                 .map(|s| s.to_string())
                 .unwrap_or_default();
-            let col_end = end_col.unwrap_or_else(|| last_line_text.len());
+            let col_end = end_col.unwrap_or(last_line_text.len());
 
             // Get the selected text
             let text_lines: Vec<String> = buf
@@ -110,8 +106,8 @@ fn insert_selection_fn() -> Function<(i32, usize, Option<usize>, usize, Option<u
             let escaped_snippet = snippet_text
                 .lines()
                 .map(|line| {
-                    if line.starts_with("```") {
-                        format!("\\`\\`\\`{}", &line[3..])
+                    if let Some(stripped) = line.strip_prefix("```") {
+                        format!("\\`\\`\\`{}", stripped)
                     } else {
                         line.to_string()
                     }
@@ -188,26 +184,25 @@ fn select_chat_fn() -> Function<(), ()> {
                     move |selected| {
                         if let Some(selection) = selected {
                             let idx = options_clone.iter().position(|s| *s == selection);
-                            if let Some(idx) = idx {
-                                if let Err(e) = crate::utils::GLOBAL_EXECUTION_HANDLER
+                            if let Some(idx) = idx
+                                && let Err(e) = crate::utils::GLOBAL_EXECUTION_HANDLER
                                     .execute_rust_on_main_thread(move || {
                                         let win_arc = get_chat_window();
-                                        if let Ok(mut win) = win_arc.lock() {
-                                            if let Err(e) = win.load_chat(idx) {
-                                                crate::utils::notify(
-                                                    format!("failed to load chat: {}", e),
-                                                    LogLevel::Error,
-                                                );
-                                            }
+                                        if let Ok(mut win) = win_arc.lock()
+                                            && let Err(e) = win.load_chat(idx)
+                                        {
+                                            crate::utils::notify(
+                                                format!("failed to load chat: {}", e),
+                                                LogLevel::Error,
+                                            );
                                         }
                                         Ok(())
                                     })
-                                {
-                                    crate::utils::GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
-                                        format!("failed to load chat: {}", e),
-                                        LogLevel::Error,
-                                    );
-                                }
+                            {
+                                crate::utils::GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                                    format!("failed to load chat: {}", e),
+                                    LogLevel::Error,
+                                );
                             }
                         }
                     },
@@ -224,10 +219,10 @@ fn select_chat_fn() -> Function<(), ()> {
 fn continue_chat_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
-            if let Ok(mut win) = get_chat_window().lock() {
-                if let Err(e) = win.continue_chat() {
-                    crate::utils::notify(format!("{}", e), LogLevel::Error);
-                }
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.continue_chat()
+            {
+                crate::utils::notify(format!("{}", e), LogLevel::Error);
             }
         }
     })

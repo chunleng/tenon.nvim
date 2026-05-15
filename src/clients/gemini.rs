@@ -39,7 +39,6 @@ pub fn get_gemini_agent(
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
-    let agent = agent.tools(tools).build();
 
-    agent
+    agent.tools(tools).build()
 }

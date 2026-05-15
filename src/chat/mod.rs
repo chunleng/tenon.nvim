@@ -37,57 +37,58 @@ fn build_workflow_prompt(
     active_workflow: &Arc<RwLock<Option<ActiveWorkflow>>>,
     base_prompt: String,
 ) -> String {
-    if let Ok(active_lock) = active_workflow.read() {
-        if let Some(ref active) = active_lock.as_ref() {
-            let registry = get_workflow_registry();
-            let workflow = registry
-                .get(&active.id)
-                .expect("active workflow id must exist in workflow registry");
-            let total_steps = workflow.steps.len();
-            if let Some(step) = workflow.steps.get(active.step - 1) {
-                let mut goto_lines: Vec<String> = step
-                    .goto_instructions
-                    .iter()
-                    .map(|instr| {
-                        let condition = instr
-                            .condition
-                            .as_ref()
-                            .map(|x| format!("{} → ", x))
-                            .unwrap_or_default();
-                        let target_step = instr.to.resolve_step_index(active.step);
-                        match target_step {
-                            None => format!("{}end_workflow output:{}", condition, instr.output),
-                            Some(step) if step > total_steps => {
-                                format!("{}end_workflow output:{}", condition, instr.output)
-                            }
-                            Some(step) => {
-                                format!(
-                                    "{}navigate_output step:{} output:{}",
-                                    condition, step, instr.output
-                                )
-                            }
+    if let Ok(active_lock) = active_workflow.read()
+        && let Some(active) = active_lock.as_ref()
+    {
+        let registry = get_workflow_registry();
+        let workflow = registry
+            .get(&active.id)
+            .expect("active workflow id must exist in workflow registry");
+        let total_steps = workflow.steps.len();
+        if let Some(step) = workflow.steps.get(active.step - 1) {
+            let mut goto_lines: Vec<String> = step
+                .goto_instructions
+                .iter()
+                .map(|instr| {
+                    let condition = instr
+                        .condition
+                        .as_ref()
+                        .map(|x| format!("{} → ", x))
+                        .unwrap_or_default();
+                    let target_step = instr.to.resolve_step_index(active.step);
+                    match target_step {
+                        None => format!("{}end_workflow output:{}", condition, instr.output),
+                        Some(step) if step > total_steps => {
+                            format!("{}end_workflow output:{}", condition, instr.output)
                         }
-                    })
-                    .collect();
-
-                // Only add default ending if at last step and no goto already ends workflow
-                if active.step == total_steps {
-                    let has_ending_goto = step.goto_instructions.iter().any(|instr| {
-                        let target_step = instr.to.resolve_step_index(active.step);
-                        match target_step {
-                            None => true,
-                            Some(s) => s > total_steps,
+                        Some(step) => {
+                            format!(
+                                "{}navigate_output step:{} output:{}",
+                                condition, step, instr.output
+                            )
                         }
-                    });
-                    if !has_ending_goto {
-                        goto_lines.push("end_workflow output:nothing".to_string());
                     }
+                })
+                .collect();
+
+            // Only add default ending if at last step and no goto already ends workflow
+            if active.step == total_steps {
+                let has_ending_goto = step.goto_instructions.iter().any(|instr| {
+                    let target_step = instr.to.resolve_step_index(active.step);
+                    match target_step {
+                        None => true,
+                        Some(s) => s > total_steps,
+                    }
+                });
+                if !has_ending_goto {
+                    goto_lines.push("end_workflow output:nothing".to_string());
                 }
+            }
 
-                let goto_instruction = goto_lines.join("\n");
+            let goto_instruction = goto_lines.join("\n");
 
-                return format!(
-                    "<context>\n\
+            return format!(
+                "<context>\n\
                     Currently in {} step of {} workflow. In a workflow, user prompt first, workflow instruction second and chat history is just reference\n\
                     When processing this input, prioritize: User message > <context>\n\
                     Follow through the process of the workflow step by step. Following is instruction of current step:\n\
@@ -100,13 +101,12 @@ fn build_workflow_prompt(
                     </navigation>\n\
                     </context>\n\
                     {}",
-                    step.title,
-                    workflow.title,
-                    step.instruction.resolve().unwrap_or_default(),
-                    goto_instruction,
-                    base_prompt
-                );
-            }
+                step.title,
+                workflow.title,
+                step.instruction.resolve().unwrap_or_default(),
+                goto_instruction,
+                base_prompt
+            );
         }
     }
     base_prompt
@@ -475,17 +475,17 @@ impl ChatSession {
                             return;
                         }
                         let trimmed = title.trim();
-                        if !trimmed.is_empty() {
-                            if let Ok(mut t) = title_arc.write() {
-                                *t = Some(
-                                    trimmed
-                                        .lines()
-                                        .collect::<Vec<_>>()
-                                        .first()
-                                        .map(|x| x.to_string())
-                                        .unwrap_or("Untitled".to_string()),
-                                );
-                            }
+                        if !trimmed.is_empty()
+                            && let Ok(mut t) = title_arc.write()
+                        {
+                            *t = Some(
+                                trimmed
+                                    .lines()
+                                    .collect::<Vec<_>>()
+                                    .first()
+                                    .map(|x| x.to_string())
+                                    .unwrap_or("Untitled".to_string()),
+                            );
                         }
                     }
                     Err(e) => {
@@ -527,7 +527,7 @@ impl ChatSession {
         let agent_clone = self.active_agent.clone();
         let chat_id = self.id.clone();
         let title_clone = Arc::clone(&self.title);
-        let session_datetime = self.session_datetime.clone();
+        let session_datetime = self.session_datetime;
         let cancel_token = Arc::clone(&self.cancel_token);
         let active_workflow_clone = Arc::clone(&self.active_workflow);
 
@@ -537,7 +537,7 @@ impl ChatSession {
                 let mut prompt = build_workflow_prompt(&active_workflow_clone, prompt);
                 // Clean up trailing tool calls without results
                 if let Ok(mut indexer) = log_indexer_clone.write() {
-                    let mut logs_vec: Vec<_> = indexer.logs.iter().cloned().collect();
+                    let mut logs_vec: Vec<_> = indexer.logs.to_vec();
                     indexer.logs.clear();
 
                     // Find where trailing tools start (last non-tool or tool with result)
@@ -550,14 +550,14 @@ impl ChatSession {
                     // Keep only tools with results in the trailing section
                     let trailing_tools: Vec<_> = logs_vec[trailing_start..]
                         .iter()
-                        .cloned()
-                        .filter(|log| {
+                        .filter(|&log| {
                             if let TenonLogData::Tool(tool_log) = log.data() {
                                 tool_log.tool_result.is_some()
                             } else {
                                 true
                             }
                         })
+                        .cloned()
                         .collect();
 
                     logs_vec.truncate(trailing_start);
@@ -580,12 +580,12 @@ impl ChatSession {
                 };
 
                 // Add user message if provided
-                if let Some(ref msg) = user_message {
-                    if let Ok(mut indexer) = log_indexer_clone.write() {
-                        indexer.logs.push(Arc::new(TenonLog::new(TenonLogData::User(
-                            TenonUserMessage::Text(TenonUserTextMessage(msg.clone())),
-                        ))));
-                    }
+                if let Some(ref msg) = user_message
+                    && let Ok(mut indexer) = log_indexer_clone.write()
+                {
+                    indexer.logs.push(Arc::new(TenonLog::new(TenonLogData::User(
+                        TenonUserMessage::Text(TenonUserTextMessage(msg.clone())),
+                    ))));
                 }
 
                 // Build RAG context (inside thread to avoid blocking main)
@@ -632,75 +632,74 @@ impl ChatSession {
                                 tool_result,
                                 internal_call_id,
                             }) => {
-                                if let Ok(mut indexer) = log_indexer_clone.write() {
-                                    if let Some(log) = indexer.logs.iter_mut().find_map(|x| {
-                                        if let TenonLogData::Tool(tool) = x.data() {
-                                            if tool.tool_call.internal_call_id == internal_call_id {
-                                                return Some(x);
-                                            }
+                                if let Ok(mut indexer) = log_indexer_clone.write()
+                                    && let Some(log) = indexer.logs.iter_mut().find_map(|x| {
+                                        if let TenonLogData::Tool(tool) = x.data()
+                                            && tool.tool_call.internal_call_id == internal_call_id
+                                        {
+                                            return Some(x);
                                         }
                                         None
-                                    }) {
-                                        let log = Arc::make_mut(log);
-                                        let tool_result = tool_result.content.first();
-                                        let result = match tool_result {
-                                            ToolResultContent::Text(text) => {
-                                                if text.text.starts_with("Toolset error: ") {
-                                                    Err(TenonToolError(text.text))
-                                                } else {
-                                                    Ok(TenonToolResult::Text(text))
-                                                }
+                                    })
+                                {
+                                    let log = Arc::make_mut(log);
+                                    let tool_result = tool_result.content.first();
+                                    let result = match tool_result {
+                                        ToolResultContent::Text(text) => {
+                                            if text.text.starts_with("Toolset error: ") {
+                                                Err(TenonToolError(text.text))
+                                            } else {
+                                                Ok(TenonToolResult::Text(text))
                                             }
-                                            ToolResultContent::Image(img) => {
-                                                Ok(TenonToolResult::Image(img))
+                                        }
+                                        ToolResultContent::Image(img) => {
+                                            Ok(TenonToolResult::Image(img))
+                                        }
+                                    };
+
+                                    log.set_tool_result(Some(result.clone()));
+
+                                    // Handle workflow tool results
+                                    if let TenonLogData::Tool(tool_log) = log.data() {
+                                        match tool_log.tool_call.name.as_str() {
+                                            "start_workflow" if result.is_ok() => {
+                                                // Continue to first workflow step
+                                                should_continue = true;
+                                                next_prompt = "[continue]".to_string();
+                                                break;
                                             }
-                                        };
-
-                                        log.set_tool_result(Some(result.clone()));
-
-                                        // Handle workflow tool results
-                                        if let TenonLogData::Tool(tool_log) = log.data() {
-                                            match tool_log.tool_call.name.as_str() {
-                                                "start_workflow" if result.is_ok() => {
-                                                    // Continue to first workflow step
+                                            "navigate_workflow" if result.is_ok() => {
+                                                // Extract step_output for continuation
+                                                if let Some(args_obj) =
+                                                    tool_log.tool_call.args.as_object()
+                                                    && let Some(serde_json::Value::String(
+                                                        step_output,
+                                                    )) = args_obj.get("step_output")
+                                                {
                                                     should_continue = true;
-                                                    next_prompt = "[continue]".to_string();
+                                                    next_prompt = format!(
+                                                        "The previous step output: {}",
+                                                        step_output
+                                                    );
                                                     break;
                                                 }
-                                                "navigate_workflow" if result.is_ok() => {
-                                                    // Extract step_output for continuation
-                                                    if let Some(args_obj) =
-                                                        tool_log.tool_call.args.as_object()
-                                                        && let Some(serde_json::Value::String(
-                                                            step_output,
-                                                        )) = args_obj.get("step_output")
-                                                    {
-                                                        should_continue = true;
-                                                        next_prompt = format!(
-                                                            "The previous step output: {}",
-                                                            step_output
-                                                        );
-                                                        break;
-                                                    }
-                                                }
-                                                "end_workflow" if result.is_ok() => {
-                                                    // Extract output for continuation
-                                                    if let Some(args_obj) =
-                                                        tool_log.tool_call.args.as_object()
-                                                        && let Some(serde_json::Value::String(
-                                                            output,
-                                                        )) = args_obj.get("output")
-                                                    {
-                                                        should_continue = true;
-                                                        next_prompt = format!(
-                                                            "Workflow ended with output: {}",
-                                                            output
-                                                        );
-                                                        break;
-                                                    }
-                                                }
-                                                _ => {}
                                             }
+                                            "end_workflow" if result.is_ok() => {
+                                                // Extract output for continuation
+                                                if let Some(args_obj) =
+                                                    tool_log.tool_call.args.as_object()
+                                                    && let Some(serde_json::Value::String(output)) =
+                                                        args_obj.get("output")
+                                                {
+                                                    should_continue = true;
+                                                    next_prompt = format!(
+                                                        "Workflow ended with output: {}",
+                                                        output
+                                                    );
+                                                    break;
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
                                 }
@@ -752,7 +751,7 @@ impl ChatSession {
                                         TenonToolLog {
                                             tool_call: TenonToolCall {
                                                 id: tool_call.id,
-                                                internal_call_id: internal_call_id,
+                                                internal_call_id,
                                                 name: tool_call.function.name,
                                                 args: tool_call.function.arguments,
                                             },
@@ -762,20 +761,22 @@ impl ChatSession {
                                 }
                             }
                             Ok(StreamItem::Final { token_usage }) => {
-                                if let Some(usage) = token_usage {
-                                    if let Ok(mut usage_lock) = usage_clone.write() {
-                                        *usage_lock = Some(usage);
-                                    }
+                                if let Some(usage) = token_usage
+                                    && let Ok(mut usage_lock) = usage_clone.write()
+                                {
+                                    *usage_lock = Some(usage);
                                 }
                                 let history_dir = get_application_config().history.directory;
                                 let title_val = title_clone.read().ok().and_then(|t| t.clone());
                                 if let Ok(indexer) = log_indexer_clone.read() {
                                     save_to_history(
-                                        &chat_id,
-                                        title_val.as_deref(),
-                                        &agent_clone.name,
-                                        &agent_clone.inner.model.display_name(),
-                                        session_datetime,
+                                        history::SessionMetadata {
+                                            id: &chat_id,
+                                            title: title_val.as_deref(),
+                                            agent_name: &agent_clone.name,
+                                            model_display: &agent_clone.inner.model.display_name(),
+                                            session_datetime,
+                                        },
                                         &indexer,
                                         &usage_clone,
                                         &history_dir,
@@ -784,7 +785,7 @@ impl ChatSession {
                             }
                             Ok(StreamItem::Other) => {}
                             Err(e) => {
-                                let _ = GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                                GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
                                     format!(
                                         "error occurred while streaming response from LLM: {}",
                                         e

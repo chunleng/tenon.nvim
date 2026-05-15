@@ -47,18 +47,18 @@ impl Tool for FetchWebpage {
         let html = reqwest::get(&args.url)
             .await
             .map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Fetch failed: '{}' → {}", args.url, e),
-                )))
+                ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
+                    "Fetch failed: '{}' → {}",
+                    args.url, e
+                ))))
             })?
             .text()
             .await
             .map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Read body failed: {}", e),
-                )))
+                ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
+                    "Read body failed: {}",
+                    e
+                ))))
             })?;
 
         let markdown = html_to_markdown_rs::convert(
@@ -74,10 +74,10 @@ impl Tool for FetchWebpage {
             }),
         )
         .map_err(|e| {
-            ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("HTML→markdown failed: {}", e),
-            )))
+            ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
+                "HTML→markdown failed: {}",
+                e
+            ))))
         })?;
 
         match args.prompt {
@@ -121,10 +121,10 @@ async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, Tool
     let user_message = format!("{}\n\nWebpage content:\n\n{}", prompt, markdown);
 
     let response = agent.chat(user_message).await.map_err(|e| {
-        ToolError::ToolCallError(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Agent fail to run prompt: {}", e),
-        )))
+        ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
+            "Agent fail to run prompt: {}",
+            e
+        ))))
     })?;
 
     Ok(response)

@@ -34,7 +34,7 @@ impl Instruction {
     pub fn resolve(&self) -> Result<String> {
         match self {
             Instruction::Text(text) => Ok(text.clone()),
-            Instruction::File { file } => std::fs::read_to_string(&file).map_err(|e| {
+            Instruction::File { file } => std::fs::read_to_string(file).map_err(|e| {
                 anyhow!(
                     "Failed to read instruction file '{}': {}",
                     file.display(),

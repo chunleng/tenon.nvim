@@ -158,15 +158,14 @@ mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
         let result = GLOBAL_EXECUTION_HANDLER
             .execute_on_main_thread_async(&lua_code)
             .map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to execute Lua code: {}", e),
-                )))
+                ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
+                    "Failed to execute Lua code: {}",
+                    e
+                ))))
             })?;
 
         if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(ToolError::ToolCallError(Box::new(std::io::Error::other(
                 format!("MCP tool {}:{} failed: {}", server_name, tool_name, error),
             ))));
         }

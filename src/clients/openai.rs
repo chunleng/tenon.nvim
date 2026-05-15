@@ -46,7 +46,6 @@ pub fn get_openai_agent(
             "reasoning_effort": "high"
         }));
     }
-    let agent = agent.tools(tools).build();
 
-    agent
+    agent.tools(tools).build()
 }

@@ -42,12 +42,11 @@ struct RunOutput {
 /// Check a command string for shell metacharacters.
 /// Returns the first metacharacter found, or None if clean.
 fn find_shell_metacharacter(command: &str) -> Option<&'static str> {
-    for &mc in SHELL_METACHARACTERS {
-        if command.contains(mc) {
-            return Some(mc);
-        }
-    }
-    None
+    SHELL_METACHARACTERS
+        .iter()
+        .find(|&&mc| command.contains(mc))
+        .copied()
+        .map(|v| v as _)
 }
 
 /// Check if command starts with env var prefix (VAR=value).
@@ -185,10 +184,10 @@ Output:
     let user_message = format!("Command: {}", command);
 
     let response = agent.chat(user_message).await.map_err(|e| {
-        ToolError::ToolCallError(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("LLM safety check failed: {}", e),
-        )))
+        ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
+            "LLM safety check failed: {}",
+            e
+        ))))
     })?;
 
     // Parse JSON response
@@ -281,10 +280,10 @@ fn apply_output_filters(
     }
 
     // If we reversed for tail, reverse back
-    if let Some(dir) = direction {
-        if dir != "head" {
-            lines.reverse();
-        }
+    if let Some(dir) = direction
+        && dir != "head"
+    {
+        lines.reverse();
     }
 
     lines.join("\n")

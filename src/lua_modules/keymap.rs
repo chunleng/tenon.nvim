@@ -28,10 +28,10 @@ pub fn create_lua_keymap_module() -> Dictionary {
 fn send_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
-            if let Ok(mut win) = get_chat_window().lock() {
-                if let Err(e) = win.send() {
-                    notify(format!("{}", e), LogLevel::Error);
-                }
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.send()
+            {
+                notify(format!("{}", e), LogLevel::Error);
             }
         }
     })
@@ -40,10 +40,10 @@ fn send_fn() -> Function<(), ()> {
 fn next_chat_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
-            if let Ok(mut win) = get_chat_window().lock() {
-                if let Err(e) = win.load_next_chat() {
-                    notify(format!("{}", e), LogLevel::Error);
-                }
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.load_next_chat()
+            {
+                notify(format!("{}", e), LogLevel::Error);
             }
         }
     })
@@ -52,10 +52,10 @@ fn next_chat_fn() -> Function<(), ()> {
 fn prev_chat_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
-            if let Ok(mut win) = get_chat_window().lock() {
-                if let Err(e) = win.load_prev_chat() {
-                    notify(format!("{}", e), LogLevel::Error);
-                }
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.load_prev_chat()
+            {
+                notify(format!("{}", e), LogLevel::Error);
             }
         }
     })
@@ -64,10 +64,10 @@ fn prev_chat_fn() -> Function<(), ()> {
 fn new_chat_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
-            if let Ok(mut win) = get_chat_window().lock() {
-                if let Err(e) = win.new_chat() {
-                    notify(format!("{}", e), LogLevel::Error);
-                }
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.new_chat()
+            {
+                notify(format!("{}", e), LogLevel::Error);
             }
         }
     })
@@ -76,10 +76,10 @@ fn new_chat_fn() -> Function<(), ()> {
 fn dismiss_chat_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
-            if let Ok(mut win) = get_chat_window().lock() {
-                if let Err(e) = win.dismiss_chat() {
-                    notify(format!("{}", e), LogLevel::Error);
-                }
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.dismiss_chat()
+            {
+                notify(format!("{}", e), LogLevel::Error);
             }
         }
     })
@@ -88,10 +88,10 @@ fn dismiss_chat_fn() -> Function<(), ()> {
 fn stop_streaming_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
-            if let Ok(mut win) = get_chat_window().lock() {
-                if let Err(e) = win.stop_streaming() {
-                    notify(format!("{}", e), LogLevel::Error);
-                }
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.stop_streaming()
+            {
+                notify(format!("{}", e), LogLevel::Error);
             }
         }
     })
@@ -100,10 +100,10 @@ fn stop_streaming_fn() -> Function<(), ()> {
 fn toggle_focus_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
-            if let Ok(mut win) = get_chat_window().lock() {
-                if let Err(e) = win.toggle_focus() {
-                    notify(format!("{}", e), LogLevel::Error);
-                }
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.toggle_focus()
+            {
+                notify(format!("{}", e), LogLevel::Error);
             }
         }
     })
@@ -132,13 +132,12 @@ fn select_tools_fn() -> Function<(), ()> {
                 if let Err(e) = pick_multi("Select Tools", &options, &current_refs, |selected| {
                     if let Some(tools) = selected {
                         let win_arc = get_chat_window();
-                        if let Ok(win) = win_arc.lock() {
-                            if let Ok(loaded) = win.loaded_chat_session.read() {
-                                if let Ok(mut session) = loaded.write() {
-                                    session.active_agent.inner.tool_names = tools;
-                                    win.force_render();
-                                }
-                            }
+                        if let Ok(win) = win_arc.lock()
+                            && let Ok(loaded) = win.loaded_chat_session.read()
+                            && let Ok(mut session) = loaded.write()
+                        {
+                            session.active_agent.inner.tool_names = tools;
+                            win.force_render();
                         }
                     }
                 }) {
@@ -171,25 +170,23 @@ fn select_agent_fn() -> Function<(), ()> {
                 "Select Agent",
                 &options,
                 current_agent_name.as_deref(),
-                |selected| match selected {
-                    Some(name) => {
+                |selected| {
+                    if let Some(name) = selected {
                         let config = get_application_config();
                         if let Some(agent) = config.agents.get(&name) {
                             let win_arc = get_chat_window();
-                            if let Ok(win) = win_arc.lock() {
-                                if let Ok(loaded) = win.loaded_chat_session.read() {
-                                    if let Ok(mut session) = loaded.write() {
-                                        session.active_agent = ActiveAgent {
-                                            name: name.clone(),
-                                            inner: agent.clone(),
-                                        };
-                                        win.force_render();
-                                    }
-                                }
+                            if let Ok(win) = win_arc.lock()
+                                && let Ok(loaded) = win.loaded_chat_session.read()
+                                && let Ok(mut session) = loaded.write()
+                            {
+                                session.active_agent = ActiveAgent {
+                                    name: name.clone(),
+                                    inner: agent.clone(),
+                                };
+                                win.force_render();
                             }
                         }
                     }
-                    None => {}
                 },
             ) {
                 GLOBAL_EXECUTION_HANDLER
@@ -219,8 +216,8 @@ fn select_model_fn() -> Function<(), ()> {
                 "Select Model",
                 &options,
                 current_model_display.as_deref(),
-                |selected| match selected {
-                    Some(display_name) => {
+                |selected| {
+                    if let Some(display_name) = selected {
                         let config = get_application_config();
                         if let Some(model) = config
                             .models
@@ -229,17 +226,15 @@ fn select_model_fn() -> Function<(), ()> {
                             .cloned()
                         {
                             let win_arc = get_chat_window();
-                            if let Ok(win) = win_arc.lock() {
-                                if let Ok(loaded) = win.loaded_chat_session.read() {
-                                    if let Ok(mut session) = loaded.write() {
-                                        session.active_agent.inner.model = model;
-                                        win.force_render();
-                                    }
-                                }
+                            if let Ok(win) = win_arc.lock()
+                                && let Ok(loaded) = win.loaded_chat_session.read()
+                                && let Ok(mut session) = loaded.write()
+                            {
+                                session.active_agent.inner.model = model;
+                                win.force_render();
                             }
                         }
                     }
-                    None => {}
                 },
             ) {
                 GLOBAL_EXECUTION_HANDLER
@@ -283,48 +278,41 @@ fn select_history_fn() -> Function<(), ()> {
                 if let Err(e) = pick("Select History", &options_refs, None, move |selected| {
                     if let Some(selection) = selected {
                         let idx = options_clone.iter().position(|s| *s == selection);
-                        if let Some(idx) = idx {
-                            if let Some(history) = histories.into_iter().nth(idx) {
-                                // Serialize history to JSON so we can pass it through execute_on_main_thread
-                                if let Ok(history_json) = serde_json::to_string(&history) {
-                                    if let Err(e) = GLOBAL_EXECUTION_HANDLER
-                                        .execute_rust_on_main_thread(move || {
-                                            match serde_json::from_str::<
-                                                crate::chat::history::ChatHistory,
-                                            >(
-                                                &history_json
-                                            ) {
-                                                Ok(history) => {
-                                                    let win_arc = get_chat_window();
-                                                    if let Ok(mut win) = win_arc.lock() {
-                                                        if let Err(e) = win
-                                                            .load_or_create_chat_from_history(
-                                                                history,
-                                                            )
-                                                        {
-                                                            notify(
-                                                                format!("{}", e),
-                                                                LogLevel::Error,
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    notify(
-                                                        format!("failed to parse history: {}", e),
-                                                        LogLevel::Error,
-                                                    );
+                        if let Some(idx) = idx
+                            && let Some(history) = histories.into_iter().nth(idx)
+                        {
+                            // Serialize history to JSON so we can pass it through execute_on_main_thread
+                            if let Ok(history_json) = serde_json::to_string(&history)
+                                && let Err(e) = GLOBAL_EXECUTION_HANDLER
+                                    .execute_rust_on_main_thread(move || {
+                                        match serde_json::from_str::<
+                                            crate::chat::history::ChatHistory,
+                                        >(
+                                            &history_json
+                                        ) {
+                                            Ok(history) => {
+                                                let win_arc = get_chat_window();
+                                                if let Ok(mut win) = win_arc.lock()
+                                                    && let Err(e) = win
+                                                        .load_or_create_chat_from_history(history)
+                                                {
+                                                    notify(format!("{}", e), LogLevel::Error);
                                                 }
                                             }
-                                            Ok(())
-                                        })
-                                    {
-                                        GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
-                                            format!("failed to load history: {}", e),
-                                            LogLevel::Error,
-                                        );
-                                    }
-                                }
+                                            Err(e) => {
+                                                notify(
+                                                    format!("failed to parse history: {}", e),
+                                                    LogLevel::Error,
+                                                );
+                                            }
+                                        }
+                                        Ok(())
+                                    })
+                            {
+                                GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                                    format!("failed to load history: {}", e),
+                                    LogLevel::Error,
+                                );
                             }
                         }
                     }

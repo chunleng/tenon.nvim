@@ -181,8 +181,8 @@ impl TenonLog {
             TenonLogData::Assistant(msg) => Some(
                 msg.content
                     .iter()
-                    .filter_map(|c| match c {
-                        TenonAssistantMessageContent::Text(t) => Some(t.clone()),
+                    .map(|c| match c {
+                        TenonAssistantMessageContent::Text(t) => t.clone(),
                     })
                     .collect::<Vec<_>>()
                     .join("\n"),
@@ -279,14 +279,13 @@ impl TenonLogData {
             },
             TenonLogData::Assistant(msg) => {
                 // Reasoning is not counted because it's not used for sending request
-                let content_tokens = msg
-                    .content
+
+                msg.content
                     .iter()
                     .map(|c| match c {
                         TenonAssistantMessageContent::Text(text) => estimate_tokens(text),
                     })
-                    .sum::<usize>();
-                content_tokens
+                    .sum::<usize>()
             }
             TenonLogData::Tool(log) => {
                 let call_tokens = estimate_tokens(&log.tool_call.name)
@@ -312,7 +311,7 @@ impl From<TenonLog> for Vec<Message> {
             TenonLogData::User(user_message) => vec![user_message.into()],
             TenonLogData::Assistant(assistant_message) => {
                 match Option::<Message>::from(assistant_message) {
-                    Some(x) => vec![x.into()],
+                    Some(x) => vec![x],
                     None => vec![],
                 }
             }

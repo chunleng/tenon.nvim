@@ -166,22 +166,22 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
         }
 
         if let Some(tools) = value.tools {
-            if let Some(fetch_webpage) = tools.fetch_webpage {
-                if let Some(model) = fetch_webpage.model {
-                    let provider_config: &ProviderConfig = conf
-                        .connectors
-                        .get(&model.connector)
-                        .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                            msg: format!(
-                                "unknown connector for fetch_webpage model: {}",
-                                model.connector
-                            ),
-                        }))?;
-                    conf.tools.fetch_webpage.model = Some(SupportedModels {
-                        config: provider_config.to_owned(),
-                        model_name: model.name,
-                    });
-                }
+            if let Some(fetch_webpage) = tools.fetch_webpage
+                && let Some(model) = fetch_webpage.model
+            {
+                let provider_config: &ProviderConfig = conf
+                    .connectors
+                    .get(&model.connector)
+                    .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                        msg: format!(
+                            "unknown connector for fetch_webpage model: {}",
+                            model.connector
+                        ),
+                    }))?;
+                conf.tools.fetch_webpage.model = Some(SupportedModels {
+                    config: provider_config.to_owned(),
+                    model_name: model.name,
+                });
             }
             if let Some(run) = tools.run {
                 conf.tools.run.whitelist = run.whitelist;
