@@ -520,15 +520,13 @@ impl ChatSession {
         // Apply context truncation if needed
         self.log_indexer.apply_context_truncation();
 
-        let logs_clone = self.log_indexer.logs();
+        let log_indexer_clone = self.log_indexer.clone();
         let usage_clone = Arc::clone(&self.usage);
         let agent_clone = self.active_agent.clone();
         let chat_id = self.id.clone();
         let title_clone = Arc::clone(&self.title);
         let session_datetime = self.session_datetime.clone();
-        let resume_from = self.log_indexer.resume_from();
         let cancel_token = Arc::clone(&self.cancel_token);
-        let rag_context = self.log_indexer.rag_context.clone();
         let active_workflow_clone = Arc::clone(&self.active_workflow);
 
         self.active_thread = Some(std::thread::spawn(move || {
@@ -536,7 +534,7 @@ impl ChatSession {
             rt.block_on(async {
                 let mut prompt = build_workflow_prompt(&active_workflow_clone, prompt);
                 // Clean up trailing tool calls without results
-                if let Ok(mut logs) = logs_clone.write() {
+                if let Ok(mut logs) = log_indexer_clone.logs().write() {
                     let mut logs_vec: Vec<_> = logs.iter().cloned().collect();
                     logs.clear();
 
@@ -569,20 +567,15 @@ impl ChatSession {
                 }
 
                 // Build chat_history
-                let resume_idx = resume_from.load(Ordering::SeqCst);
-                let mut chat_history: Vec<Message> = if let Ok(logs) = logs_clone.read() {
-                    logs.iter()
-                        .skip(resume_idx)
-                        .cloned()
-                        .flat_map(|x| Vec::<Message>::from(x))
-                        .collect()
-                } else {
-                    vec![]
-                };
+                let mut chat_history: Vec<Message> = log_indexer_clone
+                    .active_log()
+                    .into_iter()
+                    .flat_map(|x| Vec::<Message>::from(x))
+                    .collect();
 
                 // Add user message if provided
                 if let Some(ref msg) = user_message {
-                    if let Ok(mut logs) = logs_clone.write() {
+                    if let Ok(mut logs) = log_indexer_clone.logs().write() {
                         logs.push(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
                             TenonUserTextMessage(msg.clone()),
                         ))));
@@ -590,9 +583,12 @@ impl ChatSession {
                 }
 
                 // Build RAG context (inside thread to avoid blocking main)
-                let rag_context_str = user_message
-                    .as_ref()
-                    .and_then(|msg| rag_context.build_context(msg));
+                let inactive_logs = log_indexer_clone.inactive_log();
+                let rag_context_str = user_message.as_ref().and_then(|msg| {
+                    log_indexer_clone
+                        .rag_context
+                        .build_context(&inactive_logs, msg)
+                });
 
                 // Inject RAG context if available
                 if let Some(ctx) = rag_context_str {
@@ -610,8 +606,10 @@ impl ChatSession {
                 loop {
                     let mut should_continue = false;
                     let mut next_prompt = String::new();
-                    let agent = agent_clone
-                        .build_chat_adapter(active_workflow_clone.clone(), logs_clone.clone());
+                    let agent = agent_clone.build_chat_adapter(
+                        active_workflow_clone.clone(),
+                        log_indexer_clone.logs().clone(),
+                    );
 
                     let mut stream = agent
                         .stream_chat(prompt.clone(), chat_history.clone())
@@ -626,7 +624,7 @@ impl ChatSession {
                                 tool_result,
                                 internal_call_id,
                             }) => {
-                                if let Ok(mut logs) = logs_clone.write() {
+                                if let Ok(mut logs) = log_indexer_clone.logs().write() {
                                     if let Some(log) = logs.iter_mut().find_map(|x| {
                                         if let TenonLogData::Tool(tool) = x.data() {
                                             if tool.tool_call.internal_call_id == internal_call_id {
@@ -699,7 +697,7 @@ impl ChatSession {
                                 }
                             }
                             Ok(StreamItem::ReasoningDelta { reasoning }) => {
-                                if let Ok(mut logs) = logs_clone.write() {
+                                if let Ok(mut logs) = log_indexer_clone.logs().write() {
                                     let mut updated = false;
                                     if let Some(log) = logs.last_mut() {
                                         updated = log.append_reasoning(&reasoning);
@@ -716,7 +714,7 @@ impl ChatSession {
                                 }
                             }
                             Ok(StreamItem::Text { text }) => {
-                                if let Ok(mut logs) = logs_clone.write() {
+                                if let Ok(mut logs) = log_indexer_clone.logs().write() {
                                     let mut updated = false;
                                     if let Some(log) = logs.last_mut() {
                                         updated = log.append_text(&text);
@@ -738,7 +736,7 @@ impl ChatSession {
                                 tool_call,
                                 internal_call_id,
                             }) => {
-                                if let Ok(mut logs) = logs_clone.write() {
+                                if let Ok(mut logs) = log_indexer_clone.logs().write() {
                                     logs.push(TenonLog::new(TenonLogData::Tool(TenonToolLog {
                                         tool_call: TenonToolCall {
                                             id: tool_call.id,
@@ -764,7 +762,7 @@ impl ChatSession {
                                     &agent_clone.name,
                                     &agent_clone.inner.model.display_name(),
                                     session_datetime,
-                                    &logs_clone,
+                                    &log_indexer_clone.logs(),
                                     &usage_clone,
                                     &history_dir,
                                 );
@@ -788,8 +786,8 @@ impl ChatSession {
 
                     prompt = build_workflow_prompt(&active_workflow_clone, next_prompt);
 
-                    let resume_idx = resume_from.load(Ordering::SeqCst);
-                    chat_history = if let Ok(logs) = logs_clone.read() {
+                    let resume_idx = log_indexer_clone.resume_from().load(Ordering::SeqCst);
+                    chat_history = if let Ok(logs) = log_indexer_clone.logs().read() {
                         logs.iter()
                             .skip(resume_idx)
                             .cloned()

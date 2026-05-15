@@ -9,6 +9,7 @@ use super::log::{TenonLog, TenonLogData};
 
 /// Manages chat logs with context truncation and RAG support.
 /// Encapsulates log storage, resume position tracking, and RAG context management.
+#[derive(Clone)]
 pub struct ChatLogIndexer {
     pub logs: Arc<RwLock<Vec<TenonLog>>>,
     pub resume_from: Arc<AtomicUsize>,
@@ -40,6 +41,31 @@ impl ChatLogIndexer {
     /// Returns a clone of the logs Arc for external use.
     pub fn logs(&self) -> Arc<RwLock<Vec<TenonLog>>> {
         Arc::clone(&self.logs)
+    }
+
+    /// Returns active logs that will be sent to LLM as chat context.
+    /// Active logs are from resume_from index to the end of logs.
+    pub fn active_log(&self) -> Vec<TenonLog> {
+        let resume_idx = self.resume_from.load(Ordering::SeqCst);
+        if let Ok(logs) = self.logs.read() {
+            logs.iter().skip(resume_idx).cloned().collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Returns inactive logs that will go through RAG filter.
+    /// These are logs that have been truncated from active context (index 0 to resume_from).
+    pub fn inactive_log(&self) -> Vec<TenonLog> {
+        let resume_idx = self.resume_from.load(Ordering::SeqCst);
+        if resume_idx == 0 {
+            return Vec::new();
+        }
+        if let Ok(logs) = self.logs.read() {
+            logs.iter().take(resume_idx).cloned().collect()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Returns the current resume_from index.
@@ -161,20 +187,8 @@ impl ChatLogIndexer {
                 return;
             }
 
-            // Collect new logs for rag_logs
-            let new_logs: Vec<_> = logs
-                .iter()
-                .skip(current_resume)
-                .take(new_resume - current_resume)
-                .cloned()
-                .collect();
-
-            // Copy truncated logs to rag_context (keep in self.logs for display)
-            self.rag_context.add_logs(new_logs);
-
-            // Note: Embeddings cache is NOT invalidated - RagContext::get_or_generate_embeddings
-            // will incrementally generate embeddings for new logs off-thread
-
+            // Update resume_from - logs remain in self.logs for display and RAG access
+            // Embeddings cache in rag_context will be regenerated when needed
             self.resume_from.store(new_resume, Ordering::SeqCst);
         }
     }

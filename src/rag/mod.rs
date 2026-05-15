@@ -6,34 +6,22 @@ use std::sync::{Arc, RwLock};
 
 use crate::chat::log::TenonLog;
 
-/// RAG context holder - encapsulates logs and embeddings for retrieval-augmented generation.
+/// RAG context holder - encapsulates embeddings for retrieval-augmented generation.
 #[derive(Clone)]
 pub struct RagContext {
-    logs: Arc<RwLock<Vec<TenonLog>>>,
     embeddings: Arc<RwLock<Option<Vec<Vec<f32>>>>>,
 }
 
 impl RagContext {
     pub fn new() -> Self {
         Self {
-            logs: Arc::new(RwLock::new(Vec::new())),
             embeddings: Arc::new(RwLock::new(None)),
-        }
-    }
-
-    /// Add logs to the RAG context (called during truncation)
-    pub fn add_logs(&self, new_logs: Vec<TenonLog>) {
-        if let Ok(mut logs) = self.logs.write() {
-            for log in new_logs {
-                logs.push(log);
-            }
         }
     }
 
     /// Gets cached embeddings or generates new ones for the given logs.
     /// Incrementally generates embeddings only for logs that don't have them cached.
-    fn get_or_generate_embeddings(&self) -> Option<Vec<Vec<f32>>> {
-        let logs = self.logs.read().ok()?;
+    fn get_or_generate_embeddings(&self, logs: &[TenonLog]) -> Option<Vec<Vec<f32>>> {
         let cached_len = self
             .embeddings
             .read()
@@ -99,13 +87,12 @@ impl RagContext {
 
     /// Build RAG context string for a query message.
     /// Returns None if no relevant context is found.
-    pub fn build_context(&self, message: &str) -> Option<String> {
-        let logs = self.logs.read().ok()?;
+    pub fn build_context(&self, logs: &[TenonLog], message: &str) -> Option<String> {
         if logs.is_empty() {
             return None;
         }
 
-        let embeddings = self.get_or_generate_embeddings()?;
+        let embeddings = self.get_or_generate_embeddings(logs)?;
         let msg_embedding = match generate_embedding(message) {
             Ok(emb) => emb,
             Err(_) => {
