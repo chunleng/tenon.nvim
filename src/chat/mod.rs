@@ -214,7 +214,6 @@ impl TenonAgent {
 
     pub fn build_chat_adapter(
         &self,
-        session_datetime: DateTime<Local>,
         workflow_context: Arc<RwLock<Option<ActiveWorkflow>>>,
         logs: Arc<RwLock<Vec<TenonLog>>>,
     ) -> ChatAgent {
@@ -252,12 +251,6 @@ impl TenonAgent {
                 workflow_info.join("")
             ));
         }
-
-        system_prompt = format!(
-            "{} Session started: {}",
-            system_prompt,
-            session_datetime.format("%a %b %d, %Y %H:%M %Z").to_string()
-        );
 
         let mut combined = vec![Directive {
             condition: None,
@@ -735,11 +728,8 @@ impl ChatSession {
                 loop {
                     let mut should_continue = false;
                     let mut next_prompt = String::new();
-                    let agent = agent_clone.build_chat_adapter(
-                        session_datetime,
-                        active_workflow_clone.clone(),
-                        logs_clone.clone(),
-                    );
+                    let agent = agent_clone
+                        .build_chat_adapter(active_workflow_clone.clone(), logs_clone.clone());
 
                     let mut stream = agent
                         .stream_chat(prompt.clone(), chat_history.clone())
