@@ -198,7 +198,7 @@ impl TenonAgent {
     pub fn build_chat_adapter(
         &self,
         workflow_context: Arc<RwLock<Option<ActiveWorkflow>>>,
-        logs: Arc<RwLock<Vec<Arc<TenonLog>>>>,
+        log_indexer: Arc<RwLock<ChatLogIndexer>>,
     ) -> ChatAgent {
         // NOTE: Update token estimation when this prompt changes
         let mut system_prompt = "Running on Tenon. Output markdown. Be brief, No filler or hedging or unnecessary words. Reduce emoji use. \
@@ -256,7 +256,7 @@ impl TenonAgent {
                 tools.push(Box::new(StartWorkflow {
                     workflow_ids: self.workflows.iter().map(|w| w.id.clone()).collect(),
                     active_workflow: workflow_context.clone(),
-                    logs: logs.clone(),
+                    log_indexer: log_indexer.clone(),
                 }));
             }
         }
@@ -274,11 +274,11 @@ impl TenonAgent {
             use crate::tools::navigate_workflow::NavigateWorkflow;
             tools.push(Box::new(NavigateWorkflow {
                 active_workflow: workflow_context.clone(),
-                logs: logs.clone(),
+                log_indexer: log_indexer.clone(),
             }));
             tools.push(Box::new(EndWorkflow {
                 active_workflow: workflow_context,
-                logs,
+                log_indexer,
             }));
         }
 
@@ -289,7 +289,7 @@ impl TenonAgent {
 pub struct ChatSession {
     pub id: String,
     pub title: Arc<RwLock<Option<String>>>,
-    pub log_indexer: ChatLogIndexer,
+    pub log_indexer: Arc<RwLock<ChatLogIndexer>>,
     pub usage: Arc<RwLock<Option<Usage>>>,
     pub active_agent: ActiveAgent,
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
@@ -310,7 +310,7 @@ impl ChatSession {
         Ok(Self {
             id: generate_chat_id(),
             title: Arc::new(RwLock::new(None)),
-            log_indexer: ChatLogIndexer::new(),
+            log_indexer: Arc::new(RwLock::new(ChatLogIndexer::new())),
             usage: Arc::new(RwLock::new(None)),
             active_agent: ActiveAgent {
                 name: agent_name.to_string(),
@@ -378,14 +378,14 @@ impl ChatSession {
             wf
         };
 
-        let log_indexer = ChatLogIndexer::from_logs(logs);
+        let mut log_indexer = ChatLogIndexer::from_logs(logs);
         log_indexer.recount_all_tokens();
         log_indexer.apply_context_truncation();
 
         let session = Self {
             id: history.id,
             title: Arc::new(RwLock::new(history.title)),
-            log_indexer,
+            log_indexer: Arc::new(RwLock::new(log_indexer)),
             usage: Arc::new(RwLock::new(history.usage)),
             active_agent: ActiveAgent {
                 name: agent_name,
@@ -518,7 +518,9 @@ impl ChatSession {
         }
 
         // Apply context truncation if needed
-        self.log_indexer.apply_context_truncation();
+        if let Ok(mut indexer) = self.log_indexer.write() {
+            indexer.apply_context_truncation();
+        }
 
         let log_indexer_clone = self.log_indexer.clone();
         let usage_clone = Arc::clone(&self.usage);
@@ -534,9 +536,9 @@ impl ChatSession {
             rt.block_on(async {
                 let mut prompt = build_workflow_prompt(&active_workflow_clone, prompt);
                 // Clean up trailing tool calls without results
-                if let Ok(mut logs) = log_indexer_clone.logs().write() {
-                    let mut logs_vec: Vec<_> = logs.iter().cloned().collect();
-                    logs.clear();
+                if let Ok(mut indexer) = log_indexer_clone.write() {
+                    let mut logs_vec: Vec<_> = indexer.logs.iter().cloned().collect();
+                    indexer.logs.clear();
 
                     // Find where trailing tools start (last non-tool or tool with result)
                     let trailing_start = logs_vec
@@ -562,36 +564,42 @@ impl ChatSession {
                     logs_vec.extend(trailing_tools);
 
                     for log in logs_vec {
-                        logs.push(log);
+                        indexer.logs.push(log);
                     }
                 }
 
                 // Build chat_history
-                let mut chat_history: Vec<Message> = log_indexer_clone
-                    .active_log()
-                    .into_iter()
-                    .flat_map(|x| Vec::<Message>::from((*x).clone()))
-                    .collect();
+                let mut chat_history: Vec<Message> = if let Ok(indexer) = log_indexer_clone.read() {
+                    indexer
+                        .active_log()
+                        .into_iter()
+                        .flat_map(|x| Vec::<Message>::from((*x).clone()))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
 
                 // Add user message if provided
                 if let Some(ref msg) = user_message {
-                    if let Ok(mut logs) = log_indexer_clone.logs().write() {
-                        logs.push(Arc::new(TenonLog::new(TenonLogData::User(
+                    if let Ok(mut indexer) = log_indexer_clone.write() {
+                        indexer.logs.push(Arc::new(TenonLog::new(TenonLogData::User(
                             TenonUserMessage::Text(TenonUserTextMessage(msg.clone())),
                         ))));
                     }
                 }
 
                 // Build RAG context (inside thread to avoid blocking main)
-                let inactive_logs = log_indexer_clone.inactive_log();
-                let rag_context_str = user_message.as_ref().and_then(|msg| {
-                    log_indexer_clone
-                        .rag_context
-                        .build_context(&inactive_logs, msg)
-                });
+                let rag_context = if let Ok(indexer) = log_indexer_clone.read() {
+                    let inactive_logs = indexer.inactive_log();
+                    user_message
+                        .as_ref()
+                        .and_then(|msg| indexer.rag_context.build_context(&inactive_logs, msg))
+                } else {
+                    None
+                };
 
                 // Inject RAG context if available
-                if let Some(ctx) = rag_context_str {
+                if let Some(ctx) = rag_context {
                     chat_history.insert(
                         0,
                         Message::User {
@@ -608,7 +616,7 @@ impl ChatSession {
                     let mut next_prompt = String::new();
                     let agent = agent_clone.build_chat_adapter(
                         active_workflow_clone.clone(),
-                        log_indexer_clone.logs().clone(),
+                        log_indexer_clone.clone(),
                     );
 
                     let mut stream = agent
@@ -624,8 +632,8 @@ impl ChatSession {
                                 tool_result,
                                 internal_call_id,
                             }) => {
-                                if let Ok(mut logs) = log_indexer_clone.logs().write() {
-                                    if let Some(log) = logs.iter_mut().find_map(|x| {
+                                if let Ok(mut indexer) = log_indexer_clone.write() {
+                                    if let Some(log) = indexer.logs.iter_mut().find_map(|x| {
                                         if let TenonLogData::Tool(tool) = x.data() {
                                             if tool.tool_call.internal_call_id == internal_call_id {
                                                 return Some(x);
@@ -698,15 +706,15 @@ impl ChatSession {
                                 }
                             }
                             Ok(StreamItem::ReasoningDelta { reasoning }) => {
-                                if let Ok(mut logs) = log_indexer_clone.logs().write() {
+                                if let Ok(mut indexer) = log_indexer_clone.write() {
                                     let mut updated = false;
-                                    if let Some(log) = logs.last_mut() {
+                                    if let Some(log) = indexer.logs.last_mut() {
                                         let log = Arc::make_mut(log);
                                         updated = log.append_reasoning(&reasoning);
                                     }
 
                                     if !updated {
-                                        logs.push(Arc::new(TenonLog::new(
+                                        indexer.logs.push(Arc::new(TenonLog::new(
                                             TenonLogData::Assistant(TenonAssistantMessage {
                                                 reasoning: Some(reasoning),
                                                 content: vec![],
@@ -716,15 +724,15 @@ impl ChatSession {
                                 }
                             }
                             Ok(StreamItem::Text { text }) => {
-                                if let Ok(mut logs) = log_indexer_clone.logs().write() {
+                                if let Ok(mut indexer) = log_indexer_clone.write() {
                                     let mut updated = false;
-                                    if let Some(log) = logs.last_mut() {
+                                    if let Some(log) = indexer.logs.last_mut() {
                                         let log = Arc::make_mut(log);
                                         updated = log.append_text(&text);
                                     }
 
                                     if !updated {
-                                        logs.push(Arc::new(TenonLog::new(
+                                        indexer.logs.push(Arc::new(TenonLog::new(
                                             TenonLogData::Assistant(TenonAssistantMessage {
                                                 reasoning: None,
                                                 content: vec![TenonAssistantMessageContent::Text(
@@ -739,8 +747,8 @@ impl ChatSession {
                                 tool_call,
                                 internal_call_id,
                             }) => {
-                                if let Ok(mut logs) = log_indexer_clone.logs().write() {
-                                    logs.push(Arc::new(TenonLog::new(TenonLogData::Tool(
+                                if let Ok(mut indexer) = log_indexer_clone.write() {
+                                    indexer.logs.push(Arc::new(TenonLog::new(TenonLogData::Tool(
                                         TenonToolLog {
                                             tool_call: TenonToolCall {
                                                 id: tool_call.id,
@@ -761,16 +769,18 @@ impl ChatSession {
                                 }
                                 let history_dir = get_application_config().history.directory;
                                 let title_val = title_clone.read().ok().and_then(|t| t.clone());
-                                save_to_history(
-                                    &chat_id,
-                                    title_val.as_deref(),
-                                    &agent_clone.name,
-                                    &agent_clone.inner.model.display_name(),
-                                    session_datetime,
-                                    &log_indexer_clone.logs(),
-                                    &usage_clone,
-                                    &history_dir,
-                                );
+                                if let Ok(indexer) = log_indexer_clone.read() {
+                                    save_to_history(
+                                        &chat_id,
+                                        title_val.as_deref(),
+                                        &agent_clone.name,
+                                        &agent_clone.inner.model.display_name(),
+                                        session_datetime,
+                                        &indexer,
+                                        &usage_clone,
+                                        &history_dir,
+                                    );
+                                }
                             }
                             Ok(StreamItem::Other) => {}
                             Err(e) => {
@@ -791,11 +801,10 @@ impl ChatSession {
 
                     prompt = build_workflow_prompt(&active_workflow_clone, next_prompt);
 
-                    let resume_idx = log_indexer_clone.resume_from().load(Ordering::SeqCst);
-                    chat_history = if let Ok(logs) = log_indexer_clone.logs().read() {
-                        logs.iter()
-                            .skip(resume_idx)
-                            .cloned()
+                    chat_history = if let Ok(indexer) = log_indexer_clone.read() {
+                        indexer
+                            .active_log()
+                            .into_iter()
                             .flat_map(|x| Vec::<Message>::from((*x).clone()))
                             .collect()
                     } else {

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
 use super::log::TenonLog;
+use super::log_indexer::ChatLogIndexer;
 
 fn session_datetime_now() -> DateTime<Local> {
     Local::now()
@@ -30,15 +31,11 @@ pub fn save_to_history(
     agent_name: &str,
     model_display: &str,
     session_datetime: DateTime<Local>,
-    logs: &Arc<RwLock<Vec<Arc<TenonLog>>>>,
+    log_indexer: &ChatLogIndexer,
     usage: &Arc<RwLock<Option<Usage>>>,
     history_directory: &str,
 ) {
-    let logs_vec = logs
-        .read()
-        .ok()
-        .map(|l| l.iter().map(|arc| (**arc).clone()).collect())
-        .unwrap_or_default();
+    let logs_vec: Vec<TenonLog> = log_indexer.logs.iter().map(|arc| (**arc).clone()).collect();
     let usage_val = usage.read().ok().and_then(|u| *u);
 
     let history = ChatHistory {

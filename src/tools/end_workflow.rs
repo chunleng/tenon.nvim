@@ -1,4 +1,4 @@
-use crate::chat::{ActiveWorkflow, TenonLog, TenonLogData, TenonWorkflowLog};
+use crate::chat::{ActiveWorkflow, ChatLogIndexer, TenonLog, TenonLogData, TenonWorkflowLog};
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
@@ -20,7 +20,7 @@ pub struct EndWorkflowArgs {
 #[derive(Clone)]
 pub struct EndWorkflow {
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub logs: Arc<RwLock<Vec<Arc<TenonLog>>>>,
+    pub log_indexer: Arc<RwLock<ChatLogIndexer>>,
 }
 
 impl Tool for EndWorkflow {
@@ -57,15 +57,19 @@ impl Tool for EndWorkflow {
             match active_workflow_guard.take() {
                 Some(active_wf) => {
                     // Add end workflow log
-                    let mut logs_guard =
-                        self.logs.write().map_err(|e| lock_err(e, "write logs"))?;
-                    logs_guard.push(Arc::new(TenonLog::new(TenonLogData::Workflow(
-                        TenonWorkflowLog {
-                            id: active_wf.id.clone(),
-                            content: "Workflow ended".to_string(),
-                            step: None,
-                        },
-                    ))));
+                    let mut indexer = self
+                        .log_indexer
+                        .write()
+                        .map_err(|e| lock_err(e, "write log_indexer"))?;
+                    indexer
+                        .logs
+                        .push(Arc::new(TenonLog::new(TenonLogData::Workflow(
+                            TenonWorkflowLog {
+                                id: active_wf.id.clone(),
+                                content: "Workflow ended".to_string(),
+                                step: None,
+                            },
+                        ))));
                 }
                 None => {
                     return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(

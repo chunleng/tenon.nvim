@@ -101,17 +101,17 @@ impl ChatDisplay {
             let tool_removed_clone = tool_removed.clone();
             let token_count_clone = self.token_count.clone();
             move || {
-                let (logs, usage_clone) = {
+                let (log_indexer, usage_clone) = {
                     if let Ok(chat) = attached_chat.read()
                         && let Ok(chat_session) = chat.chat_session.read()
                     {
-                        (chat_session.log_indexer.logs(), chat_session.usage.clone())
+                        (chat_session.log_indexer.clone(), chat_session.usage.clone())
                     } else {
                         return;
                     }
                 };
-                if let Ok(logs) = logs.read() {
-                    let log_count = logs.len();
+                if let Ok(indexer) = log_indexer.read() {
+                    let log_count = indexer.logs.len();
 
                     let (start_idx, frozen_line_count) = {
                         let state = render_state_clone.read().ok();
@@ -125,7 +125,8 @@ impl ChatDisplay {
                         (clamped_start, if log_count == 0 { 0 } else { frozen })
                     };
 
-                    let logs_vec: Vec<_> = logs
+                    let logs_vec: Vec<_> = indexer
+                        .logs
                         .iter()
                         .skip(start_idx)
                         .enumerate()
@@ -428,10 +429,12 @@ impl ChatDisplay {
                                     .chat_session
                                     .read()
                                     .unwrap_or_else(|x| x.into_inner());
-                                token_count.store(
-                                    chat_session.log_indexer.active_context_token_count(),
-                                    Ordering::Relaxed,
-                                );
+                                if let Ok(indexer) = chat_session.log_indexer.read() {
+                                    token_count.store(
+                                        indexer.active_context_token_count(),
+                                        Ordering::Relaxed,
+                                    );
+                                }
                                 (
                                     chat_session.active_agent.name.clone(),
                                     chat_session.active_agent.tool_names.clone(),

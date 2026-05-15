@@ -1,4 +1,4 @@
-use crate::chat::{ActiveWorkflow, TenonLog, TenonLogData};
+use crate::chat::{ActiveWorkflow, ChatLogIndexer, TenonLog, TenonLogData};
 use crate::get_workflow_registry;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
@@ -22,7 +22,7 @@ pub struct NavigateWorkflowArgs {
 #[derive(Clone)]
 pub struct NavigateWorkflow {
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub logs: Arc<RwLock<Vec<Arc<TenonLog>>>>,
+    pub log_indexer: Arc<RwLock<ChatLogIndexer>>,
 }
 
 impl Tool for NavigateWorkflow {
@@ -118,11 +118,16 @@ impl Tool for NavigateWorkflow {
 
         // Add workflow log for the target step
         {
-            let mut logs_guard = self.logs.write().map_err(|e| lock_err(e, "write logs"))?;
+            let mut indexer = self
+                .log_indexer
+                .write()
+                .map_err(|e| lock_err(e, "write log_indexer"))?;
             if let Ok(workflow_log) = workflow.generate_log(target_step) {
-                logs_guard.push(Arc::new(TenonLog::new(TenonLogData::Workflow(
-                    workflow_log,
-                ))));
+                indexer
+                    .logs
+                    .push(Arc::new(TenonLog::new(TenonLogData::Workflow(
+                        workflow_log,
+                    ))));
             }
         }
 
