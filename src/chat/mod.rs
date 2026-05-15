@@ -533,7 +533,6 @@ impl ChatSession {
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let mut prompt = build_workflow_prompt(&active_workflow_clone, prompt);
                 // Clean up trailing tool calls without results
                 if let Ok(mut indexer) = log_indexer_clone.write() {
                     let mut logs_vec: Vec<_> = indexer.logs.to_vec();
@@ -591,14 +590,15 @@ impl ChatSession {
                     }
                 }
 
+                let mut next_prompt = prompt;
                 loop {
                     let mut should_continue = false;
-                    let mut next_prompt = String::new();
                     let agent = agent_clone.build_chat_adapter(
                         active_workflow_clone.clone(),
                         log_indexer_clone.clone(),
                     );
 
+                    let prompt = build_workflow_prompt(&active_workflow_clone, next_prompt.clone());
                     let mut stream = agent
                         .stream_chat(prompt.clone(), chat_history.clone())
                         .await;
@@ -779,8 +779,6 @@ impl ChatSession {
                     if !should_continue || cancel_token.load(Ordering::SeqCst) {
                         break;
                     }
-
-                    prompt = build_workflow_prompt(&active_workflow_clone, next_prompt);
 
                     chat_history = if let Ok(indexer) = log_indexer_clone.read() {
                         indexer.active_messages()
