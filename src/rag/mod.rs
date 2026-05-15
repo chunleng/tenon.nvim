@@ -10,7 +10,7 @@ use crate::chat::log::TenonLog;
 #[derive(Clone)]
 pub struct RagContext {
     logs: Arc<RwLock<Vec<TenonLog>>>,
-    embeddings: Arc<RwLock<Option<Vec<Vec<f64>>>>>,
+    embeddings: Arc<RwLock<Option<Vec<Vec<f32>>>>>,
 }
 
 impl RagContext {
@@ -32,7 +32,7 @@ impl RagContext {
 
     /// Gets cached embeddings or generates new ones for the given logs.
     /// Incrementally generates embeddings only for logs that don't have them cached.
-    fn get_or_generate_embeddings(&self) -> Option<Vec<Vec<f64>>> {
+    fn get_or_generate_embeddings(&self) -> Option<Vec<Vec<f32>>> {
         let logs = self.logs.read().ok()?;
         let cached_len = self
             .embeddings
@@ -55,7 +55,7 @@ impl RagContext {
                 .filter_map(|log| log.to_embeddable_text())
                 .collect();
 
-            let new_embeddings: Vec<Vec<f64>> = new_texts
+            let new_embeddings: Vec<Vec<f32>> = new_texts
                 .iter()
                 .filter_map(|text| generate_embedding(text).ok())
                 .collect();
@@ -81,7 +81,7 @@ impl RagContext {
             .filter_map(|log| log.to_embeddable_text())
             .collect();
 
-        let embeddings: Vec<Vec<f64>> = texts
+        let embeddings: Vec<Vec<f32>> = texts
             .iter()
             .filter_map(|text| generate_embedding(text).ok())
             .collect();
@@ -134,7 +134,7 @@ impl RagContext {
     }
 
     /// Get a clone of the embeddings Arc for external use
-    pub fn embeddings(&self) -> Arc<RwLock<Option<Vec<Vec<f64>>>>> {
+    pub fn embeddings(&self) -> Arc<RwLock<Option<Vec<Vec<f32>>>>> {
         Arc::clone(&self.embeddings)
     }
 }
