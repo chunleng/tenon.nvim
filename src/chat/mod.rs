@@ -569,11 +569,7 @@ impl ChatSession {
 
                 // Build chat_history
                 let mut chat_history: Vec<Message> = if let Ok(indexer) = log_indexer_clone.read() {
-                    indexer
-                        .active_log()
-                        .into_iter()
-                        .flat_map(|x| Vec::<Message>::from((*x).clone()))
-                        .collect()
+                    indexer.active_messages()
                 } else {
                     Vec::new()
                 };
@@ -787,11 +783,7 @@ impl ChatSession {
                     prompt = build_workflow_prompt(&active_workflow_clone, next_prompt);
 
                     chat_history = if let Ok(indexer) = log_indexer_clone.read() {
-                        indexer
-                            .active_log()
-                            .into_iter()
-                            .flat_map(|x| Vec::<Message>::from((*x).clone()))
-                            .collect()
+                        indexer.active_messages()
                     } else {
                         vec![]
                     };

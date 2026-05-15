@@ -36,10 +36,15 @@ impl ChatLogIndexer {
 
     // --- Log access ---
 
-    /// Returns active logs that will be sent to LLM as chat context.
+    /// Returns active messages that will be sent to LLM as chat context.
     /// Active logs are from resume_from index to the end of logs.
-    pub fn active_log(&self) -> Vec<Arc<TenonLog>> {
-        self.logs.iter().skip(self.resume_from).cloned().collect()
+    /// Each TenonLog is converted to Vec<Message> (some logs produce multiple messages).
+    pub fn active_messages(&self) -> Vec<Message> {
+        self.logs
+            .iter()
+            .skip(self.resume_from)
+            .flat_map(|log| Vec::<Message>::from(TenonLog::clone(log)))
+            .collect()
     }
 
     /// Returns inactive logs that will go through RAG filter.
@@ -272,19 +277,19 @@ mod tests {
     }
 
     #[test]
-    fn test_active_log_returns_all_when_resume_is_zero() {
+    fn test_active_messages_returns_all_when_resume_is_zero() {
         let logs = vec![
             create_user_log("First"),
             create_user_log("Second"),
             create_user_log("Third"),
         ];
         let indexer = super::ChatLogIndexer::from_logs(logs);
-        let active = indexer.active_log();
+        let active = indexer.active_messages();
         assert_eq!(active.len(), 3);
     }
 
     #[test]
-    fn test_active_log_returns_subset_after_truncation() {
+    fn test_active_messages_returns_subset_after_truncation() {
         let logs = vec![
             create_user_log("First"),
             create_user_log("Second"),
@@ -293,7 +298,7 @@ mod tests {
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
         // Simulate truncation by setting resume_from
         indexer.resume_from = 1;
-        let active = indexer.active_log();
+        let active = indexer.active_messages();
         assert_eq!(active.len(), 2);
     }
 
