@@ -127,16 +127,6 @@ impl RagContext {
             )
         })
     }
-
-    /// Get a clone of the logs Arc for external use
-    pub fn logs(&self) -> Arc<RwLock<Vec<TenonLog>>> {
-        Arc::clone(&self.logs)
-    }
-
-    /// Get a clone of the embeddings Arc for external use
-    pub fn embeddings(&self) -> Arc<RwLock<Option<Vec<Vec<f32>>>>> {
-        Arc::clone(&self.embeddings)
-    }
 }
 
 impl Default for RagContext {
