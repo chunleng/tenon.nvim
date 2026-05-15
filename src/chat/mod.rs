@@ -19,7 +19,7 @@ use std::{
     sync::{Arc, LazyLock, Mutex, RwLock},
 };
 
-const MAX_CONTEXT_TOKENS: usize = 20_000;
+const MAX_ACTIVE_CONTEXT_TOKENS: usize = 10_000;
 
 pub mod history;
 pub mod log;
@@ -143,22 +143,6 @@ fn generate_chat_id() -> String {
     let datetime = now.format("%Y-%m-%dT%H:%M:%S");
     let hash = format!("{:08x}", now.timestamp_subsec_nanos());
     format!("{}_{}", datetime, hash)
-}
-
-pub struct ChatSession {
-    pub id: String,
-    pub title: Arc<RwLock<Option<String>>>,
-    pub logs: Arc<RwLock<Vec<TenonLog>>>,
-    pub rag_context: RagContext,
-    pub resume_from: Arc<AtomicUsize>,
-    pub usage: Arc<RwLock<Option<Usage>>>,
-    pub active_agent: ActiveAgent,
-    pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub session_datetime: DateTime<Local>,
-    cancel_token: Arc<AtomicBool>,
-    active_thread: Option<std::thread::JoinHandle<()>>,
-    cancel_title_token: Arc<AtomicBool>,
-    title_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 #[derive(Debug, Clone)]
@@ -301,12 +285,22 @@ impl TenonAgent {
 
         get_agent(self.model.clone(), combined, tools)
     }
+}
 
-    pub fn token_count(&self) -> usize {
-        // TODO: make tool estimate count with actual definition
-        // NOTE: Update this when system prompt changes. Last estimate: ~150 tokens.
-        self.tool_names.len() * 150 + 150
-    }
+pub struct ChatSession {
+    pub id: String,
+    pub title: Arc<RwLock<Option<String>>>,
+    pub logs: Arc<RwLock<Vec<TenonLog>>>,
+    pub rag_context: RagContext,
+    pub resume_from: Arc<AtomicUsize>,
+    pub usage: Arc<RwLock<Option<Usage>>>,
+    pub active_agent: ActiveAgent,
+    pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
+    pub session_datetime: DateTime<Local>,
+    cancel_token: Arc<AtomicBool>,
+    active_thread: Option<std::thread::JoinHandle<()>>,
+    cancel_title_token: Arc<AtomicBool>,
+    title_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl ChatSession {
@@ -538,7 +532,6 @@ impl ChatSession {
     fn apply_context_truncation(&self) {
         if let Ok(logs) = self.logs.read() {
             let current_resume = self.resume_from.load(Ordering::SeqCst);
-            let agent_tokens = self.active_agent.token_count();
 
             // Find the last user message - this is the boundary we cannot cross
             let last_user_idx = logs
@@ -550,13 +543,13 @@ impl ChatSession {
             let min_resume = last_user_idx.min(logs.len().saturating_sub(1));
 
             // Calculate tokens from current resume_from
-            let mut total_tokens: usize = agent_tokens;
+            let mut total_tokens: usize = 0;
             for log in logs.iter().skip(current_resume) {
                 total_tokens += log.token_count();
             }
 
             // If under threshold, no truncation needed
-            if total_tokens <= MAX_CONTEXT_TOKENS {
+            if total_tokens <= MAX_ACTIVE_CONTEXT_TOKENS {
                 return;
             }
 
@@ -569,7 +562,7 @@ impl ChatSession {
                 total_tokens -= log_tokens;
                 new_resume += 1;
 
-                if total_tokens <= MAX_CONTEXT_TOKENS {
+                if total_tokens <= MAX_ACTIVE_CONTEXT_TOKENS {
                     break;
                 }
             }
@@ -607,15 +600,15 @@ impl ChatSession {
         }
     }
 
-    /// Returns the total token count from logs starting at resume_from.
-    pub fn total_token_count(&self) -> usize {
+    /// Returns the total token count of chat logs (excluding system prompt) from logs starting at
+    /// resume_from.
+    pub fn active_context_token_count(&self) -> usize {
         let resume_idx = self.resume_from.load(Ordering::SeqCst);
         if let Ok(logs) = self.logs.read() {
             logs.iter()
                 .skip(resume_idx)
                 .map(|log| log.token_count())
                 .sum::<usize>()
-                + self.active_agent.token_count()
         } else {
             0
         }

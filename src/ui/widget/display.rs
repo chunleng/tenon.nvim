@@ -428,8 +428,10 @@ impl ChatDisplay {
                                     .chat_session
                                     .read()
                                     .unwrap_or_else(|x| x.into_inner());
-                                token_count
-                                    .store(chat_session.total_token_count(), Ordering::Relaxed);
+                                token_count.store(
+                                    chat_session.active_context_token_count(),
+                                    Ordering::Relaxed,
+                                );
                                 (
                                     chat_session.active_agent.name.clone(),
                                     chat_session.active_agent.tool_names.clone(),
