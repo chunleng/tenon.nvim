@@ -105,7 +105,7 @@ impl ChatDisplay {
                     if let Ok(chat) = attached_chat.read()
                         && let Ok(chat_session) = chat.chat_session.read()
                     {
-                        (chat_session.logs.clone(), chat_session.usage.clone())
+                        (chat_session.log_indexer.logs(), chat_session.usage.clone())
                     } else {
                         return;
                     }
@@ -429,7 +429,7 @@ impl ChatDisplay {
                                     .read()
                                     .unwrap_or_else(|x| x.into_inner());
                                 token_count.store(
-                                    chat_session.active_context_token_count(),
+                                    chat_session.log_indexer.active_context_token_count(),
                                     Ordering::Relaxed,
                                 );
                                 (

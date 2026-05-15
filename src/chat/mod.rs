@@ -3,7 +3,6 @@ use crate::{
     config::user::WorkflowConfig,
     directive::{Directive, DirectiveSource},
     get_application_config, get_workflow_registry,
-    rag::RagContext,
     tools::resolve_tools,
     utils::GLOBAL_EXECUTION_HANDLER,
 };
@@ -15,14 +14,13 @@ use rig::{
     message::{Message, ToolResultContent, UserContent},
 };
 use std::{
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, LazyLock, Mutex, RwLock},
 };
 
-const MAX_ACTIVE_CONTEXT_TOKENS: usize = 10_000;
-
 pub mod history;
 pub mod log;
+pub mod log_indexer;
 pub mod workflow;
 
 pub use log::{
@@ -30,6 +28,7 @@ pub use log::{
     TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage, TenonUserTextMessage,
     TenonWorkflowLog,
 };
+pub use log_indexer::ChatLogIndexer;
 
 use history::save_to_history;
 
@@ -290,9 +289,7 @@ impl TenonAgent {
 pub struct ChatSession {
     pub id: String,
     pub title: Arc<RwLock<Option<String>>>,
-    pub logs: Arc<RwLock<Vec<TenonLog>>>,
-    pub rag_context: RagContext,
-    pub resume_from: Arc<AtomicUsize>,
+    pub log_indexer: ChatLogIndexer,
     pub usage: Arc<RwLock<Option<Usage>>>,
     pub active_agent: ActiveAgent,
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
@@ -313,9 +310,7 @@ impl ChatSession {
         Ok(Self {
             id: generate_chat_id(),
             title: Arc::new(RwLock::new(None)),
-            logs: Arc::new(RwLock::new(Vec::new())),
-            rag_context: RagContext::new(),
-            resume_from: Arc::new(AtomicUsize::new(0)),
+            log_indexer: ChatLogIndexer::new(),
             usage: Arc::new(RwLock::new(None)),
             active_agent: ActiveAgent {
                 name: agent_name.to_string(),
@@ -383,12 +378,14 @@ impl ChatSession {
             wf
         };
 
+        let log_indexer = ChatLogIndexer::from_logs(logs);
+        log_indexer.recount_all_tokens();
+        log_indexer.apply_context_truncation();
+
         let session = Self {
             id: history.id,
             title: Arc::new(RwLock::new(history.title)),
-            logs: Arc::new(RwLock::new(logs)),
-            rag_context: RagContext::new(),
-            resume_from: Arc::new(AtomicUsize::new(0)),
+            log_indexer,
             usage: Arc::new(RwLock::new(history.usage)),
             active_agent: ActiveAgent {
                 name: agent_name,
@@ -401,9 +398,6 @@ impl ChatSession {
             cancel_title_token: Arc::new(AtomicBool::new(false)),
             title_thread: None,
         };
-
-        // Apply truncation on restore
-        session.apply_context_truncation();
 
         Ok(session)
     }
@@ -510,110 +504,6 @@ impl ChatSession {
         }
     }
 
-    /// Returns true if the log entry is a user message.
-    fn is_user_log(log: &TenonLog) -> bool {
-        matches!(log.data(), TenonLogData::User(_))
-    }
-
-    /// Finds the next user message index starting from `start_idx`.
-    /// Returns None if no user message is found.
-    fn find_next_user_index(logs: &[TenonLog], start_idx: usize) -> Option<usize> {
-        logs.iter()
-            .enumerate()
-            .skip(start_idx)
-            .find(|(_, log)| Self::is_user_log(log))
-            .map(|(i, _)| i)
-    }
-
-    /// Applies context truncation if token count exceeds MAX_CONTEXT_TOKENS.
-    /// Copies truncated logs to rag_logs and updates resume_from.
-    /// Logs remain in self.logs for display purposes.
-    /// The last user/assistant exchange is always preserved.
-    fn apply_context_truncation(&self) {
-        if let Ok(logs) = self.logs.read() {
-            let current_resume = self.resume_from.load(Ordering::SeqCst);
-
-            // Find the last user message - this is the boundary we cannot cross
-            let last_user_idx = logs
-                .iter()
-                .rposition(|log| Self::is_user_log(log))
-                .unwrap_or(0);
-
-            // Minimum boundary: we must keep the last exchange
-            let min_resume = last_user_idx.min(logs.len().saturating_sub(1));
-
-            // Calculate tokens from current resume_from
-            let mut total_tokens: usize = 0;
-            for log in logs.iter().skip(current_resume) {
-                total_tokens += log.token_count();
-            }
-
-            // If under threshold, no truncation needed
-            if total_tokens <= MAX_ACTIVE_CONTEXT_TOKENS {
-                return;
-            }
-
-            // Need to truncate - find new resume_from
-            let mut new_resume = current_resume;
-
-            // Move resume_from forward until we're under threshold
-            for log in logs.iter().skip(current_resume) {
-                let log_tokens = log.token_count();
-                total_tokens -= log_tokens;
-                new_resume += 1;
-
-                if total_tokens <= MAX_ACTIVE_CONTEXT_TOKENS {
-                    break;
-                }
-            }
-
-            // Adjust to next user message if we landed on non-user
-            if new_resume < logs.len() && !Self::is_user_log(&logs[new_resume]) {
-                if let Some(user_idx) = Self::find_next_user_index(&logs, new_resume) {
-                    new_resume = user_idx;
-                }
-            }
-
-            // Never truncate past the last exchange
-            new_resume = new_resume.min(min_resume);
-
-            // Only update if we're actually moving forward
-            if new_resume <= current_resume {
-                return;
-            }
-
-            // Collect new logs for rag_logs
-            let new_logs: Vec<_> = logs
-                .iter()
-                .skip(current_resume)
-                .take(new_resume - current_resume)
-                .cloned()
-                .collect();
-
-            // Copy truncated logs to rag_context (keep in self.logs for display)
-            self.rag_context.add_logs(new_logs);
-
-            // Note: Embeddings cache is NOT invalidated - RagContext::get_or_generate_embeddings
-            // will incrementally generate embeddings for new logs off-thread
-
-            self.resume_from.store(new_resume, Ordering::SeqCst);
-        }
-    }
-
-    /// Returns the total token count of chat logs (excluding system prompt) from logs starting at
-    /// resume_from.
-    pub fn active_context_token_count(&self) -> usize {
-        let resume_idx = self.resume_from.load(Ordering::SeqCst);
-        if let Ok(logs) = self.logs.read() {
-            logs.iter()
-                .skip(resume_idx)
-                .map(|log| log.token_count())
-                .sum::<usize>()
-        } else {
-            0
-        }
-    }
-
     /// Internal method to send a chat request.
     /// If user_message is Some, it will be added to logs before sending.
     /// RAG context is computed inside the spawned thread to avoid blocking.
@@ -628,17 +518,17 @@ impl ChatSession {
         }
 
         // Apply context truncation if needed
-        self.apply_context_truncation();
+        self.log_indexer.apply_context_truncation();
 
-        let logs_clone = Arc::clone(&self.logs);
+        let logs_clone = self.log_indexer.logs();
         let usage_clone = Arc::clone(&self.usage);
         let agent_clone = self.active_agent.clone();
         let chat_id = self.id.clone();
         let title_clone = Arc::clone(&self.title);
         let session_datetime = self.session_datetime.clone();
-        let resume_from = Arc::clone(&self.resume_from);
+        let resume_from = self.log_indexer.resume_from();
         let cancel_token = Arc::clone(&self.cancel_token);
-        let rag_context = self.rag_context.clone();
+        let rag_context = self.log_indexer.rag_context.clone();
         let active_workflow_clone = Arc::clone(&self.active_workflow);
 
         self.active_thread = Some(std::thread::spawn(move || {
