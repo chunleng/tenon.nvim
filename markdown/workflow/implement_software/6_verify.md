@@ -3,10 +3,12 @@ Verify affected tests pass
 
 ## Process
 Run build:
+- Skip if build already run in previous step
 - Use project's build command (check AGENTS.md)
 - If build fails → return to Implement step
 
 Run affected tests:
+- Skip if tests already run in previous step
 - Run test from Prepare Test step, tests in same module, or tests calling modified functions
 - Run targeted tests only, don't run full test suite
 - If test fails → return to Implement step
