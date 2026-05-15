@@ -20,7 +20,7 @@ pub struct EndWorkflowArgs {
 #[derive(Clone)]
 pub struct EndWorkflow {
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub logs: Arc<RwLock<Vec<TenonLog>>>,
+    pub logs: Arc<RwLock<Vec<Arc<TenonLog>>>>,
 }
 
 impl Tool for EndWorkflow {
@@ -59,11 +59,13 @@ impl Tool for EndWorkflow {
                     // Add end workflow log
                     let mut logs_guard =
                         self.logs.write().map_err(|e| lock_err(e, "write logs"))?;
-                    logs_guard.push(TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog {
-                        id: active_wf.id.clone(),
-                        content: "Workflow ended".to_string(),
-                        step: None,
-                    })));
+                    logs_guard.push(Arc::new(TenonLog::new(TenonLogData::Workflow(
+                        TenonWorkflowLog {
+                            id: active_wf.id.clone(),
+                            content: "Workflow ended".to_string(),
+                            step: None,
+                        },
+                    ))));
                 }
                 None => {
                     return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(

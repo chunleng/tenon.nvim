@@ -21,7 +21,7 @@ impl RagContext {
 
     /// Gets cached embeddings or generates new ones for the given logs.
     /// Incrementally generates embeddings only for logs that don't have them cached.
-    fn get_or_generate_embeddings(&self, logs: &[TenonLog]) -> Option<Vec<Vec<f32>>> {
+    fn get_or_generate_embeddings(&self, logs: &[Arc<TenonLog>]) -> Option<Vec<Vec<f32>>> {
         let cached_len = self
             .embeddings
             .read()
@@ -87,7 +87,7 @@ impl RagContext {
 
     /// Build RAG context string for a query message.
     /// Returns None if no relevant context is found.
-    pub fn build_context(&self, logs: &[TenonLog], message: &str) -> Option<String> {
+    pub fn build_context(&self, logs: &[Arc<TenonLog>], message: &str) -> Option<String> {
         if logs.is_empty() {
             return None;
         }

@@ -11,7 +11,7 @@ use super::log::{TenonLog, TenonLogData};
 /// Encapsulates log storage, resume position tracking, and RAG context management.
 #[derive(Clone)]
 pub struct ChatLogIndexer {
-    pub logs: Arc<RwLock<Vec<TenonLog>>>,
+    pub logs: Arc<RwLock<Vec<Arc<TenonLog>>>>,
     pub resume_from: Arc<AtomicUsize>,
     pub rag_context: RagContext,
 }
@@ -30,7 +30,7 @@ impl ChatLogIndexer {
     /// Creates a ChatLogIndexer from existing logs (for history restoration).
     pub fn from_logs(logs: Vec<TenonLog>) -> Self {
         Self {
-            logs: Arc::new(RwLock::new(logs)),
+            logs: Arc::new(RwLock::new(logs.into_iter().map(Arc::new).collect())),
             resume_from: Arc::new(AtomicUsize::new(0)),
             rag_context: RagContext::new(),
         }
@@ -39,13 +39,13 @@ impl ChatLogIndexer {
     // --- Log access ---
 
     /// Returns a clone of the logs Arc for external use.
-    pub fn logs(&self) -> Arc<RwLock<Vec<TenonLog>>> {
+    pub fn logs(&self) -> Arc<RwLock<Vec<Arc<TenonLog>>>> {
         Arc::clone(&self.logs)
     }
 
     /// Returns active logs that will be sent to LLM as chat context.
     /// Active logs are from resume_from index to the end of logs.
-    pub fn active_log(&self) -> Vec<TenonLog> {
+    pub fn active_log(&self) -> Vec<Arc<TenonLog>> {
         let resume_idx = self.resume_from.load(Ordering::SeqCst);
         if let Ok(logs) = self.logs.read() {
             logs.iter().skip(resume_idx).cloned().collect()
@@ -56,7 +56,7 @@ impl ChatLogIndexer {
 
     /// Returns inactive logs that will go through RAG filter.
     /// These are logs that have been truncated from active context (index 0 to resume_from).
-    pub fn inactive_log(&self) -> Vec<TenonLog> {
+    pub fn inactive_log(&self) -> Vec<Arc<TenonLog>> {
         let resume_idx = self.resume_from.load(Ordering::SeqCst);
         if resume_idx == 0 {
             return Vec::new();
@@ -123,7 +123,10 @@ impl ChatLogIndexer {
     pub fn recount_all_tokens(&self) {
         if let Ok(mut logs) = self.logs.write() {
             for log in logs.iter_mut() {
-                log.recount_tokens();
+                // Use Arc::make_mut to get mutable access if we have the only reference
+                // This clones the inner TenonLog if there are other references
+                let log_ref = Arc::make_mut(log);
+                log_ref.recount_tokens();
             }
         }
     }
@@ -225,7 +228,7 @@ mod tests {
     fn test_push_adds_log() {
         let indexer = super::ChatLogIndexer::new();
         if let Ok(mut logs) = indexer.logs.write() {
-            logs.push(create_user_log("Test message"));
+            logs.push(std::sync::Arc::new(create_user_log("Test message")));
         }
         assert_eq!(indexer.logs().read().unwrap().len(), 1);
     }
@@ -277,5 +280,57 @@ mod tests {
         let initial_count = indexer.active_context_token_count();
         indexer.recount_all_tokens();
         assert_eq!(indexer.active_context_token_count(), initial_count);
+    }
+
+    #[test]
+    fn test_active_log_returns_all_when_resume_is_zero() {
+        let logs = vec![
+            create_user_log("First"),
+            create_user_log("Second"),
+            create_user_log("Third"),
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+        let active = indexer.active_log();
+        assert_eq!(active.len(), 3);
+    }
+
+    #[test]
+    fn test_active_log_returns_subset_after_truncation() {
+        let logs = vec![
+            create_user_log("First"),
+            create_user_log("Second"),
+            create_user_log("Third"),
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+        // Simulate truncation by setting resume_from
+        indexer.resume_from().store(1, Ordering::SeqCst);
+        let active = indexer.active_log();
+        assert_eq!(active.len(), 2);
+    }
+
+    #[test]
+    fn test_inactive_log_returns_empty_when_resume_is_zero() {
+        let logs = vec![
+            create_user_log("First"),
+            create_user_log("Second"),
+            create_user_log("Third"),
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+        let inactive = indexer.inactive_log();
+        assert_eq!(inactive.len(), 0);
+    }
+
+    #[test]
+    fn test_inactive_log_returns_truncated_logs() {
+        let logs = vec![
+            create_user_log("First"),
+            create_user_log("Second"),
+            create_user_log("Third"),
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+        // Simulate truncation by setting resume_from
+        indexer.resume_from().store(1, Ordering::SeqCst);
+        let inactive = indexer.inactive_log();
+        assert_eq!(inactive.len(), 1);
     }
 }

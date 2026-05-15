@@ -22,7 +22,7 @@ pub struct StartWorkflowArgs {
 pub struct StartWorkflow {
     pub workflow_ids: Vec<String>,
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub logs: Arc<RwLock<Vec<TenonLog>>>,
+    pub logs: Arc<RwLock<Vec<Arc<TenonLog>>>>,
 }
 
 impl Tool for StartWorkflow {
@@ -90,7 +90,9 @@ impl Tool for StartWorkflow {
         {
             let mut logs_guard = self.logs.write().map_err(|e| lock_err(e, "write logs"))?;
             if let Ok(workflow_log) = workflow.generate_log(1) {
-                logs_guard.push(TenonLog::new(TenonLogData::Workflow(workflow_log)));
+                logs_guard.push(Arc::new(TenonLog::new(TenonLogData::Workflow(
+                    workflow_log,
+                ))));
             }
         }
 

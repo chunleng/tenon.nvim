@@ -22,7 +22,7 @@ pub struct NavigateWorkflowArgs {
 #[derive(Clone)]
 pub struct NavigateWorkflow {
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub logs: Arc<RwLock<Vec<TenonLog>>>,
+    pub logs: Arc<RwLock<Vec<Arc<TenonLog>>>>,
 }
 
 impl Tool for NavigateWorkflow {
@@ -120,7 +120,9 @@ impl Tool for NavigateWorkflow {
         {
             let mut logs_guard = self.logs.write().map_err(|e| lock_err(e, "write logs"))?;
             if let Ok(workflow_log) = workflow.generate_log(target_step) {
-                logs_guard.push(TenonLog::new(TenonLogData::Workflow(workflow_log)));
+                logs_guard.push(Arc::new(TenonLog::new(TenonLogData::Workflow(
+                    workflow_log,
+                ))));
             }
         }
 

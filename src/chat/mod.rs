@@ -198,7 +198,7 @@ impl TenonAgent {
     pub fn build_chat_adapter(
         &self,
         workflow_context: Arc<RwLock<Option<ActiveWorkflow>>>,
-        logs: Arc<RwLock<Vec<TenonLog>>>,
+        logs: Arc<RwLock<Vec<Arc<TenonLog>>>>,
     ) -> ChatAgent {
         // NOTE: Update token estimation when this prompt changes
         let mut system_prompt = "Running on Tenon. Output markdown. Be brief, No filler or hedging or unnecessary words. Reduce emoji use. \
@@ -570,14 +570,14 @@ impl ChatSession {
                 let mut chat_history: Vec<Message> = log_indexer_clone
                     .active_log()
                     .into_iter()
-                    .flat_map(|x| Vec::<Message>::from(x))
+                    .flat_map(|x| Vec::<Message>::from((*x).clone()))
                     .collect();
 
                 // Add user message if provided
                 if let Some(ref msg) = user_message {
                     if let Ok(mut logs) = log_indexer_clone.logs().write() {
-                        logs.push(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                            TenonUserTextMessage(msg.clone()),
+                        logs.push(Arc::new(TenonLog::new(TenonLogData::User(
+                            TenonUserMessage::Text(TenonUserTextMessage(msg.clone())),
                         ))));
                     }
                 }
@@ -633,6 +633,7 @@ impl ChatSession {
                                         }
                                         None
                                     }) {
+                                        let log = Arc::make_mut(log);
                                         let tool_result = tool_result.content.first();
                                         let result = match tool_result {
                                             ToolResultContent::Text(text) => {
@@ -700,15 +701,16 @@ impl ChatSession {
                                 if let Ok(mut logs) = log_indexer_clone.logs().write() {
                                     let mut updated = false;
                                     if let Some(log) = logs.last_mut() {
+                                        let log = Arc::make_mut(log);
                                         updated = log.append_reasoning(&reasoning);
                                     }
 
                                     if !updated {
-                                        logs.push(TenonLog::new(TenonLogData::Assistant(
-                                            TenonAssistantMessage {
+                                        logs.push(Arc::new(TenonLog::new(
+                                            TenonLogData::Assistant(TenonAssistantMessage {
                                                 reasoning: Some(reasoning),
                                                 content: vec![],
-                                            },
+                                            }),
                                         )));
                                     }
                                 }
@@ -717,17 +719,18 @@ impl ChatSession {
                                 if let Ok(mut logs) = log_indexer_clone.logs().write() {
                                     let mut updated = false;
                                     if let Some(log) = logs.last_mut() {
+                                        let log = Arc::make_mut(log);
                                         updated = log.append_text(&text);
                                     }
 
                                     if !updated {
-                                        logs.push(TenonLog::new(TenonLogData::Assistant(
-                                            TenonAssistantMessage {
+                                        logs.push(Arc::new(TenonLog::new(
+                                            TenonLogData::Assistant(TenonAssistantMessage {
                                                 reasoning: None,
                                                 content: vec![TenonAssistantMessageContent::Text(
                                                     text,
                                                 )],
-                                            },
+                                            }),
                                         )));
                                     }
                                 }
@@ -737,15 +740,17 @@ impl ChatSession {
                                 internal_call_id,
                             }) => {
                                 if let Ok(mut logs) = log_indexer_clone.logs().write() {
-                                    logs.push(TenonLog::new(TenonLogData::Tool(TenonToolLog {
-                                        tool_call: TenonToolCall {
-                                            id: tool_call.id,
-                                            internal_call_id: internal_call_id,
-                                            name: tool_call.function.name,
-                                            args: tool_call.function.arguments,
+                                    logs.push(Arc::new(TenonLog::new(TenonLogData::Tool(
+                                        TenonToolLog {
+                                            tool_call: TenonToolCall {
+                                                id: tool_call.id,
+                                                internal_call_id: internal_call_id,
+                                                name: tool_call.function.name,
+                                                args: tool_call.function.arguments,
+                                            },
+                                            tool_result: None,
                                         },
-                                        tool_result: None,
-                                    })));
+                                    ))));
                                 }
                             }
                             Ok(StreamItem::Final { token_usage }) => {
@@ -791,7 +796,7 @@ impl ChatSession {
                         logs.iter()
                             .skip(resume_idx)
                             .cloned()
-                            .flat_map(|x| Vec::<Message>::from(x))
+                            .flat_map(|x| Vec::<Message>::from((*x).clone()))
                             .collect()
                     } else {
                         vec![]

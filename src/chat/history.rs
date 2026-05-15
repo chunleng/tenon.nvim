@@ -3,7 +3,7 @@ use rig::completion::Usage;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
-use super::TenonLog;
+use super::log::TenonLog;
 
 fn session_datetime_now() -> DateTime<Local> {
     Local::now()
@@ -30,14 +30,14 @@ pub fn save_to_history(
     agent_name: &str,
     model_display: &str,
     session_datetime: DateTime<Local>,
-    logs: &Arc<RwLock<Vec<TenonLog>>>,
+    logs: &Arc<RwLock<Vec<Arc<TenonLog>>>>,
     usage: &Arc<RwLock<Option<Usage>>>,
     history_directory: &str,
 ) {
     let logs_vec = logs
         .read()
         .ok()
-        .map(|l| l.iter().cloned().collect())
+        .map(|l| l.iter().map(|arc| (**arc).clone()).collect())
         .unwrap_or_default();
     let usage_val = usage.read().ok().and_then(|u| *u);
 
