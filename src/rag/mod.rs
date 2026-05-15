@@ -54,7 +54,13 @@ impl RagContext {
                 .iter()
                 .filter_map(|log| log.to_embeddable_text())
                 .collect();
-            let new_embeddings = generate_embeddings(&new_texts)?;
+
+            let new_embeddings = match generate_embeddings(&new_texts) {
+                Ok(embeddings) => embeddings,
+                Err(_) => {
+                    return None;
+                }
+            };
 
             // Append to existing cache
             if let Ok(mut lock) = self.embeddings.write() {
@@ -72,7 +78,13 @@ impl RagContext {
             .iter()
             .filter_map(|log| log.to_embeddable_text())
             .collect();
-        let embeddings = generate_embeddings(&texts)?;
+
+        let embeddings = match generate_embeddings(&texts) {
+            Ok(embeddings) => embeddings,
+            Err(_) => {
+                return None;
+            }
+        };
 
         if let Ok(mut lock) = self.embeddings.write() {
             *lock = Some(embeddings.clone());
@@ -90,9 +102,12 @@ impl RagContext {
         }
 
         let embeddings = self.get_or_generate_embeddings()?;
-        let msg_embedding = generate_embeddings(&[message.to_string()])?
-            .into_iter()
-            .next()?;
+        let msg_embedding = match generate_embeddings(&[message.to_string()]) {
+            Ok(mut embs) => embs.pop()?,
+            Err(_) => {
+                return None;
+            }
+        };
 
         let top_indices = find_top_k_similar(&msg_embedding, &embeddings, 3);
         let context_parts: Vec<_> = top_indices
