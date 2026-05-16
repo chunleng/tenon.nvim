@@ -93,11 +93,10 @@ impl Tool for StartWorkflow {
                 .write()
                 .map_err(|e| lock_err(e, "write log_indexer"))?;
             if let Ok(workflow_log) = workflow.generate_log(1) {
-                indexer
-                    .logs
-                    .push(Arc::new(TenonLog::new(TenonLogData::Workflow(
-                        workflow_log,
-                    ))));
+                indexer.logs.push(crate::chat::log_indexer::IndexedLog {
+                    log: Arc::new(TenonLog::new(TenonLogData::Workflow(workflow_log))),
+                    active: true,
+                });
             }
         }
 

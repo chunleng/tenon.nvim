@@ -61,15 +61,14 @@ impl Tool for EndWorkflow {
                         .log_indexer
                         .write()
                         .map_err(|e| lock_err(e, "write log_indexer"))?;
-                    indexer
-                        .logs
-                        .push(Arc::new(TenonLog::new(TenonLogData::Workflow(
-                            TenonWorkflowLog {
-                                id: active_wf.id.clone(),
-                                content: "Workflow ended".to_string(),
-                                step: None,
-                            },
-                        ))));
+                    indexer.logs.push(crate::chat::log_indexer::IndexedLog {
+                        log: Arc::new(TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog {
+                            id: active_wf.id.clone(),
+                            content: "Workflow ended".to_string(),
+                            step: None,
+                        }))),
+                        active: true,
+                    });
                 }
                 None => {
                     return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(

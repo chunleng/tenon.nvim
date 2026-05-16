@@ -5,11 +5,17 @@ use rig::{OneOrMany, completion::Message, message::UserContent};
 
 use super::log::{TenonLog, TenonLogData};
 
+/// Wrapper around TenonLog for indexing purposes.
+#[derive(Clone)]
+pub struct IndexedLog {
+    pub log: Arc<TenonLog>,
+    pub active: bool,
+}
+
 /// Manages chat logs with context truncation and RAG support.
 /// Encapsulates log storage, resume position tracking, and RAG context management.
 pub struct ChatLogIndexer {
-    pub logs: Vec<Arc<TenonLog>>,
-    pub resume_from: usize,
+    pub logs: Vec<IndexedLog>,
     pub rag_context: RagContext,
 }
 
@@ -24,16 +30,21 @@ impl ChatLogIndexer {
     pub fn new() -> Self {
         Self {
             logs: Vec::new(),
-            resume_from: 0,
             rag_context: RagContext::new(),
         }
     }
 
     /// Creates a ChatLogIndexer from existing logs (for history restoration).
+    /// All logs are initialized as active by default.
     pub fn from_logs(logs: Vec<TenonLog>) -> Self {
         let mut s = Self {
-            logs: logs.into_iter().map(Arc::new).collect(),
-            resume_from: 0,
+            logs: logs
+                .into_iter()
+                .map(|log| IndexedLog {
+                    log: Arc::new(log),
+                    active: true,
+                })
+                .collect(),
             rag_context: RagContext::new(),
         };
 
@@ -44,13 +55,13 @@ impl ChatLogIndexer {
     // --- Log access ---
 
     /// Returns active messages that will be sent to LLM as chat context.
-    /// Active logs are from resume_from index to the end of logs.
+    /// Active logs are those with active=true.
     /// Each TenonLog is converted to Vec<Message> (some logs produce multiple messages).
     pub fn active_messages(&self) -> Vec<Message> {
         self.logs
             .iter()
-            .skip(self.resume_from)
-            .flat_map(|log| Vec::<Message>::from(TenonLog::clone(log)))
+            .filter(|indexed| indexed.active)
+            .flat_map(|indexed| Vec::<Message>::from(TenonLog::clone(&indexed.log)))
             .collect()
     }
 
@@ -67,12 +78,13 @@ impl ChatLogIndexer {
     }
 
     /// Returns inactive logs that will go through RAG filter.
-    /// These are logs that have been truncated from active context (index 0 to resume_from).
+    /// These are logs that have been excluded from active context (active=false).
     pub fn inactive_log(&self) -> Vec<Arc<TenonLog>> {
-        if self.resume_from == 0 {
-            return Vec::new();
-        }
-        self.logs.iter().take(self.resume_from).cloned().collect()
+        self.logs
+            .iter()
+            .filter(|indexed| !indexed.active)
+            .map(|indexed| indexed.log.clone())
+            .collect()
     }
 
     // --- Query ---
@@ -89,31 +101,33 @@ impl ChatLogIndexer {
             .iter()
             .enumerate()
             .skip(start_idx)
-            .find(|(_, log)| Self::is_user_log(log))
+            .find(|(_, indexed)| Self::is_user_log(&indexed.log))
             .map(|(i, _)| i)
     }
 
     /// Finds the last user message index in the logs.
     /// Returns None if no user message is found.
     pub fn find_last_user_index(&self) -> Option<usize> {
-        self.logs.iter().rposition(|log| Self::is_user_log(log))
+        self.logs
+            .iter()
+            .rposition(|indexed| Self::is_user_log(&indexed.log))
     }
 
     // --- Token management ---
 
-    /// Returns the total token count of chat logs from resume_from.
+    /// Returns the total token count of active chat logs.
     pub fn active_context_token_count(&self) -> usize {
         self.logs
             .iter()
-            .skip(self.resume_from)
-            .map(|log| log.token_count())
+            .filter(|indexed| indexed.active)
+            .map(|indexed| indexed.log.token_count())
             .sum()
     }
 
     // --- Context management ---
 
     /// Applies context truncation if token count exceeds max_active_context_tokens.
-    /// Updates resume_from to skip older messages, keeping them in self.logs for display and RAG access.
+    /// Marks logs as inactive to remove them from active context, keeping them for display and RAG access.
     /// The last user/assistant exchange is always preserved.
     pub fn apply_context_truncation(&mut self) {
         // Early return if under threshold
@@ -121,20 +135,35 @@ impl ChatLogIndexer {
             return;
         }
 
-        // Find new resume index by removing logs until under threshold
+        // Find the last user message - this is the boundary we cannot cross
+        let last_user_idx = self.find_last_user_index();
+
+        // Collect indices of logs to truncate
+        let mut indices_to_truncate = Vec::new();
         let mut total_tokens = self.active_context_token_count();
 
-        // Find the last user message - this is the boundary we cannot cross
-        let last_user_idx = self.find_last_user_index().unwrap_or(0);
-        let min_resume = last_user_idx.min(self.logs.len().saturating_sub(1));
-
-        for log in &self.logs[self.resume_from..min_resume] {
-            total_tokens -= log.token_count();
-            self.resume_from += 1;
-
-            if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
-                break;
+        for (idx, indexed) in self.logs.iter().enumerate() {
+            // Stop if we've reached the last user message
+            if let Some(last_idx) = last_user_idx {
+                if idx >= last_idx {
+                    break;
+                }
             }
+
+            // Only process active logs
+            if indexed.active {
+                total_tokens -= indexed.log.token_count();
+                indices_to_truncate.push(idx);
+
+                if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
+                    break;
+                }
+            }
+        }
+
+        // Apply truncation
+        for idx in indices_to_truncate {
+            self.logs[idx].active = false;
         }
     }
 
@@ -188,7 +217,6 @@ mod tests {
     fn test_log_indexer_new_creates_empty() {
         let indexer = super::ChatLogIndexer::new();
         assert_eq!(indexer.logs.len(), 0);
-        assert_eq!(indexer.resume_from, 0);
     }
 
     #[test]
@@ -196,15 +224,17 @@ mod tests {
         let logs = vec![create_user_log("Hello"), create_user_log("World")];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         assert_eq!(indexer.logs.len(), 2);
-        assert_eq!(indexer.resume_from, 0);
+        // All logs should start as active
+        assert!(indexer.logs.iter().all(|l| l.active));
     }
 
     #[test]
     fn test_push_adds_log() {
         let mut indexer = super::ChatLogIndexer::new();
-        indexer
-            .logs
-            .push(std::sync::Arc::new(create_user_log("Test message")));
+        indexer.logs.push(super::IndexedLog {
+            log: std::sync::Arc::new(create_user_log("Test message")),
+            active: true,
+        });
         assert_eq!(indexer.logs.len(), 1);
     }
 
@@ -249,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn test_active_messages_returns_all_when_resume_is_zero() {
+    fn test_active_messages_returns_all_when_no_truncation() {
         let logs = vec![
             create_user_log("First"),
             create_user_log("Second"),
@@ -268,14 +298,14 @@ mod tests {
             create_user_log("Third"),
         ];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        // Simulate truncation by setting resume_from
-        indexer.resume_from = 1;
+        // Simulate inactivity by setting active=false on first log
+        indexer.logs[0].active = false;
         let active = indexer.active_messages();
         assert_eq!(active.len(), 2);
     }
 
     #[test]
-    fn test_inactive_log_returns_empty_when_resume_is_zero() {
+    fn test_inactive_log_returns_empty_when_no_truncation() {
         let logs = vec![
             create_user_log("First"),
             create_user_log("Second"),
@@ -287,15 +317,15 @@ mod tests {
     }
 
     #[test]
-    fn test_inactive_log_returns_truncated_logs() {
+    fn test_inactive_log_returns_inactive_logs() {
         let logs = vec![
             create_user_log("First"),
             create_user_log("Second"),
             create_user_log("Third"),
         ];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        // Simulate truncation by setting resume_from
-        indexer.resume_from = 1;
+        // Simulate inactivity by setting active=false on first log
+        indexer.logs[0].active = false;
         let inactive = indexer.inactive_log();
         assert_eq!(inactive.len(), 1);
     }
@@ -319,8 +349,8 @@ mod tests {
     fn test_get_relevant_context_returns_empty_when_rag_context_empty() {
         let logs = vec![create_user_log("First"), create_user_log("Second")];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        // Set resume_from to create inactive logs
-        indexer.resume_from = 1;
+        // Set active flag to false to create inactive logs
+        indexer.logs[0].active = false;
 
         // RAG context should return None for empty/irrelevant context
         let result = indexer.get_relevant_context("test message");
@@ -346,8 +376,8 @@ mod tests {
 
         indexer.apply_context_truncation();
 
-        // Should not truncate - resume_from should remain 0
-        assert_eq!(indexer.resume_from, 0);
+        // Should not mark as inactive - all logs should have active=true
+        assert!(indexer.logs.iter().all(|l| l.active));
     }
 
     #[test]
@@ -363,8 +393,10 @@ mod tests {
 
         indexer.apply_context_truncation();
 
-        // First two logs exceed 10 tokens, truncation should result in resume_from = 2
-        assert_eq!(indexer.resume_from, 2);
+        // First two logs exceed 10 tokens, should be marked as inactive
+        assert!(!indexer.logs[0].active);
+        assert!(!indexer.logs[1].active);
+        assert!(indexer.logs[2].active);
     }
 
     #[test]
@@ -381,9 +413,12 @@ mod tests {
 
         indexer.apply_context_truncation();
 
-        // Last user log (index 3) must be preserved
+        // Last user log (index 3) must be preserved (active=true)
         // With threshold 10 tokens, each log exceeds threshold, only last log fits
-        assert_eq!(indexer.resume_from, 3);
+        assert!(!indexer.logs[0].active);
+        assert!(!indexer.logs[1].active);
+        assert!(!indexer.logs[2].active);
+        assert!(indexer.logs[3].active);
     }
 
     #[test]
@@ -402,12 +437,18 @@ mod tests {
 
         indexer.apply_context_truncation();
 
-        assert_eq!(indexer.resume_from, 4);
+        // First four logs should be inactive, last two (user + assistant) preserved
+        assert!(!indexer.logs[0].active);
+        assert!(!indexer.logs[1].active);
+        assert!(!indexer.logs[2].active);
+        assert!(!indexer.logs[3].active);
+        assert!(indexer.logs[4].active);
+        assert!(indexer.logs[5].active);
     }
 
     #[test]
-    fn test_apply_context_truncation_no_change_when_already_truncated() {
-        // If resume_from is already set and logs are under threshold, should not change
+    fn test_apply_context_truncation_no_change_when_already_inactive() {
+        // If logs are already inactive and under threshold, should not change
         let logs = vec![
             create_user_log(TEN_TOKENS),
             create_user_log(ONE_TOKEN),
@@ -415,23 +456,21 @@ mod tests {
         ];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
 
-        // Pre-set resume_from to simulate prior truncation
-        indexer.resume_from = 1;
+        // Pre-mark first log as inactive to simulate prior truncation
+        indexer.logs[0].active = false;
 
         // Apply truncation - should not change anything since under threshold
         indexer.apply_context_truncation();
 
-        assert_eq!(
-            indexer.resume_from, 1,
-            "resume_from should remain unchanged when under threshold"
-        );
+        assert!(!indexer.logs[0].active, "first log should remain inactive");
+        assert!(indexer.logs[1].active, "second log should remain active");
+        assert!(indexer.logs[2].active, "third log should remain active");
     }
 
     #[test]
     fn test_apply_context_truncation_empty_logs() {
         let mut indexer = super::ChatLogIndexer::new();
         indexer.apply_context_truncation();
-        assert_eq!(indexer.resume_from, 0);
         assert_eq!(indexer.logs.len(), 0);
     }
 
@@ -447,6 +486,9 @@ mod tests {
         let result = indexer.retrieve_chatlog_with_context("");
         // After truncation, only last message (ONE_TOKEN) is active
         assert_eq!(result.len(), 1);
-        assert_eq!(indexer.resume_from, 2);
+        // First two logs should be inactive
+        assert!(!indexer.logs[0].active);
+        assert!(!indexer.logs[1].active);
+        assert!(indexer.logs[2].active);
     }
 }

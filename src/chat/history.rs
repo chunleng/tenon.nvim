@@ -40,7 +40,11 @@ pub fn save_to_history(
     usage: &Arc<RwLock<Option<Usage>>>,
     history_directory: &str,
 ) {
-    let logs_vec: Vec<TenonLog> = log_indexer.logs.iter().map(|arc| (**arc).clone()).collect();
+    let logs_vec: Vec<TenonLog> = log_indexer
+        .logs
+        .iter()
+        .map(|indexed| (*indexed.log).clone())
+        .collect();
     let usage_val = usage.read().ok().and_then(|u| *u);
 
     let history = ChatHistory {

@@ -130,7 +130,10 @@ impl ChatDisplay {
                         .iter()
                         .skip(start_idx)
                         .enumerate()
-                        .map(|(i, x)| x.as_chat_lines_with_sign(i == log_count - start_idx - 1))
+                        .map(|(i, x)| {
+                            x.log
+                                .as_chat_lines_with_sign(i == log_count - start_idx - 1)
+                        })
                         .collect();
 
                     // Collect entries to render (from start_idx onwards)
