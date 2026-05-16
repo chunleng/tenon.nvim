@@ -2,7 +2,7 @@
 Ensure test exists that verifies the incremental change
 
 ## Process
-Determine change type from Understand step
+Determine change type from Plan step
 
 ### Refactor changes (behavior preserved)
 

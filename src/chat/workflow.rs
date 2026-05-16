@@ -261,17 +261,6 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     instruction: Instruction::File {
                         file: workflow_path("implement_software/4_implement.md"),
                     },
-                    goto_instructions: vec![WorkflowGotoInstruction {
-                        to: GotoStep::Next,
-                        condition: None,
-                        output: "code changes made".to_string(),
-                    }],
-                },
-                WorkflowStep {
-                    title: "Verify".to_string(),
-                    instruction: Instruction::File {
-                        file: workflow_path("implement_software/5_verify.md"),
-                    },
                     goto_instructions: vec![
                         WorkflowGotoInstruction {
                             to: GotoStep::Step(4),
@@ -288,7 +277,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Goal Check".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/6_goal_check.md"),
+                        file: workflow_path("implement_software/5_goal_check.md"),
                     },
                     goto_instructions: vec![
                         WorkflowGotoInstruction {
@@ -306,7 +295,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Cleanup".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/7_cleanup.md"),
+                        file: workflow_path("implement_software/6_cleanup.md"),
                     },
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
@@ -317,7 +306,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Finalize".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/8_finalize.md"),
+                        file: workflow_path("implement_software/7_finalize.md"),
                     },
                     goto_instructions: vec![
                         WorkflowGotoInstruction {

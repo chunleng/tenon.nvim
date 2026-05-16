@@ -1,5 +1,5 @@
 ## Purpose
-Execute the planned incremental change
+Execute the planned incremental change and verify it works
 
 ## Process
 Write only code needed for test to pass:
@@ -16,18 +16,26 @@ Implementation guidelines:
 - Don't refactor unrelated code
 - No abstractions unless required by test
 
+Verify after implementation:
+- Build the project
+- Run affected tests (test from Prepare Test step, tests in same module, or tests calling modified functions)
+- If verification fails → fix issues and retry
+
 ## Output
 ```json
 {
-  "files_changed": ["path/to/file1", "path/to/file2"],
-  "changes_made": "description of changes"
+  "build_status": "pass|fail",
+  "tests_run": ["test_name_1"],
+  "test_status": "pass|fail",
+  "failed_tests": ["test_name: failure reason"]
 }
 ```
 
 ## Example
 ```json
 {
-  "files_changed": ["src/auth/validation.rs"],
-  "changes_made": "Added empty string check at start of validate_password function"
+  "build_status": "pass",
+  "tests_run": ["test_empty_password_validation"],
+  "test_status": "pass"
 }
 ```
