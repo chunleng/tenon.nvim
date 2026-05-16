@@ -9,6 +9,7 @@ Check input source:
 - Previous workflow output: use as requirements
 
 **If requirements unclear → ask user for clarification before proceeding**
+**If user provides multiple options → ask user which one to proceed with**
 
 Define acceptance criteria:
 - What must be true when implementation complete
