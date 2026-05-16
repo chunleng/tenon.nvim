@@ -492,16 +492,16 @@ impl ChatSession {
     }
 
     /// Internal method to send a chat request.
-    /// If user_message is Some, it will be added to logs before sending.
+    /// If save_prompt is true, it will be added to logs before sending.
     /// RAG context is computed inside the spawned thread to avoid blocking.
-    fn send_chat_request(&mut self, prompt: String, user_message: Option<String>) {
+    fn send_chat_request(&mut self, prompt: String, save_prompt: bool) {
         // Cancel previous thread
         self.cancel_token.store(true, Ordering::SeqCst);
         self.cancel_token = Arc::new(AtomicBool::new(false));
 
         // Generate title if this is a new user message
-        if let Some(msg) = &user_message {
-            self.generate_title(msg.clone());
+        if save_prompt {
+            self.generate_title(prompt.clone());
         }
 
         self.prune_incomplete_messages();
@@ -526,11 +526,9 @@ impl ChatSession {
                 };
 
                 // Add user message if provided
-                if let Some(ref msg) = user_message
-                    && let Ok(mut indexer) = log_indexer_clone.write()
-                {
+                if save_prompt && let Ok(mut indexer) = log_indexer_clone.write() {
                     indexer.logs.push(Arc::new(TenonLog::new(TenonLogData::User(
-                        TenonUserMessage::Text(TenonUserTextMessage(msg.clone())),
+                        TenonUserMessage::Text(TenonUserTextMessage(prompt.clone())),
                     ))));
                 }
 
@@ -737,11 +735,11 @@ impl ChatSession {
     /// Continue the chat without adding a new user message.
     /// Useful for prompting the LLM to continue from where it left off.
     pub fn continue_chat(&mut self) {
-        self.send_chat_request("[continue]".to_string(), None);
+        self.send_chat_request("[continue]".to_string(), false);
     }
 
     pub fn send_message(&mut self, message: String) {
-        self.send_chat_request(message.clone(), Some(message));
+        self.send_chat_request(message.clone(), true);
     }
 
     /// Prunes trailing incomplete messages (e.g., tool calls without results)
