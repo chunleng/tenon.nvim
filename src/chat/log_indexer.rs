@@ -26,6 +26,12 @@ impl ChatLogIndexer {
     #[cfg(test)]
     const MAX_ACTIVE_CONTEXT_TOKENS: usize = 10;
 
+    #[cfg(not(test))]
+    const HARD_LIMIT_ACTIVE_CONTEXT_TOKENS: usize = 50_000;
+
+    #[cfg(test)]
+    const HARD_LIMIT_ACTIVE_CONTEXT_TOKENS: usize = 20;
+
     /// Creates a new empty ChatLogIndexer.
     pub fn new() -> Self {
         Self {
@@ -97,6 +103,11 @@ impl ChatLogIndexer {
     /// Returns true if the log entry is a workflow log.
     fn is_workflow_log(log: &TenonLog) -> bool {
         matches!(log.data(), TenonLogData::Workflow(_))
+    }
+
+    /// Returns true if the log entry is a tool log.
+    fn is_tool_log(log: &TenonLog) -> bool {
+        matches!(log.data(), TenonLogData::Tool(_))
     }
 
     /// Returns true if the workflow log indicates workflow start/navigate (step: Some).
@@ -193,6 +204,41 @@ impl ChatLogIndexer {
         for idx in indices_to_truncate {
             self.logs[idx].active = false;
         }
+
+        // Hard limit enforcement: purge beyond boundary if necessary
+        // Only process logs within the preserved boundary (from boundary_idx onwards)
+        // First pass: deactivate tool logs (oldest to newest)
+        // Second pass: deactivate any active log (oldest to newest)
+        if self.active_context_token_count() > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
+            let mut remaining_to_remove =
+                self.active_context_token_count() - Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS;
+
+            // Phase 1: Make tool logs inactive (oldest to newest within boundary)
+            for indexed in self.logs[boundary_idx..].iter_mut() {
+                if indexed.active && Self::is_tool_log(&indexed.log) {
+                    remaining_to_remove =
+                        remaining_to_remove.saturating_sub(indexed.log.token_count());
+                    indexed.active = false;
+                    if remaining_to_remove == 0 {
+                        break;
+                    }
+                }
+            }
+
+            // Phase 2: Make any active log inactive (oldest to newest within boundary)
+            if remaining_to_remove > 0 {
+                for indexed in self.logs[boundary_idx..].iter_mut() {
+                    if indexed.active {
+                        remaining_to_remove =
+                            remaining_to_remove.saturating_sub(indexed.log.token_count());
+                        indexed.active = false;
+                        if remaining_to_remove == 0 {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Builds a history message from RAG context using inactive logs.
@@ -252,6 +298,25 @@ mod tests {
             },
             step,
         )))
+    }
+
+    fn create_tool_log(name: &str, result: bool) -> TenonLog {
+        use crate::chat::TenonToolCall;
+        TenonLog::new(TenonLogData::Tool(crate::chat::log::TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                name: name.into(),
+                args: serde_json::json!({}),
+            },
+            tool_result: if result {
+                Some(Ok(crate::chat::log::TenonToolResult::Text(
+                    rig::agent::Text { text: "ok".into() },
+                )))
+            } else {
+                None
+            },
+        }))
     }
 
     #[test]
@@ -638,5 +703,59 @@ mod tests {
         assert!(indexer.logs[2].active);
         assert!(indexer.logs[3].active);
         assert!(indexer.logs[4].active);
+    }
+
+    // --- Hard limit tests ---
+
+    #[test]
+    fn test_apply_context_truncation_hard_limit_purges_tools_first() {
+        // Setup: Soft limit preserves last 2 checkpoints, hard limit triggers after
+        // Soft limit = 10, Hard limit = 20
+        // After soft limit, preserved section should exceed hard limit
+        // Tool logs should be purged first by hard limit
+        let logs = vec![
+            create_user_log(TEN_TOKENS),    // 0 - purged by soft limit
+            create_user_log(TEN_TOKENS),    // 1 - purged by soft limit
+            create_user_log(TEN_TOKENS),    // 2 - second checkpoint (preserved by soft limit)
+            create_tool_log("tool1", true), // 3 - tool log, purged by hard limit phase 1
+            create_user_log(TEN_TOKENS),    // 4 - first checkpoint (preserved)
+        ];
+        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+        indexer.apply_context_truncation();
+
+        // After soft limit: indices 2, 3, 4 preserved
+        // Tool at index 3 has token count > 0, so total > 20
+        // Hard limit phase 1: purge tools
+        assert!(!indexer.logs[0].active, "purged by soft limit");
+        assert!(!indexer.logs[1].active, "purged by soft limit");
+        assert!(indexer.logs[2].active, "preserved by soft limit");
+        assert!(!indexer.logs[3].active, "tool purged by hard limit phase 1");
+        assert!(indexer.logs[4].active, "last user preserved");
+    }
+
+    #[test]
+    fn test_apply_context_truncation_hard_limit_purges_beyond_boundary() {
+        // Soft limit = 10, Hard limit = 20
+        // After soft limit, preserved section exceeds hard limit
+        // No tools, so phase 2 purges oldest active logs
+        let logs = vec![
+            create_user_log(TEN_TOKENS), // 0 - purged by soft limit
+            create_user_log(TEN_TOKENS), // 1 - purged by soft limit
+            create_user_log(TEN_TOKENS), // 2 - second checkpoint (preserved by soft limit, purged by hard limit)
+            create_user_log(TEN_TOKENS), // 3 - first checkpoint (preserved)
+            create_user_log(TEN_TOKENS), // 4 - last user (preserved)
+        ];
+        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+        indexer.apply_context_truncation();
+
+        // After soft limit: indices 2, 3, 4 = 30 tokens (> 20)
+        // Phase 1: no tools
+        // Phase 2: purge index 2 (10 tokens), remaining = 20, stop
+        // Result: indices 3, 4 active = 20 tokens
+        assert!(!indexer.logs[0].active, "purged by soft limit");
+        assert!(!indexer.logs[1].active, "purged by soft limit");
+        assert!(!indexer.logs[2].active, "purged by hard limit");
+        assert!(indexer.logs[3].active, "preserved");
+        assert!(indexer.logs[4].active, "preserved");
     }
 }
