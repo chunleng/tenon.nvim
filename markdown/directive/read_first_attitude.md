@@ -1,4 +1,4 @@
-Never edit without reading. Read entire file first.
+Read entire file before editing. Skip re-read if already read in this conversation.
 
 Two checks before editing:
 1. Understand target unit + what depends on it
