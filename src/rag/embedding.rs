@@ -2,9 +2,20 @@ use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use lance_linalg::distance::cosine::cosine_distance_batch;
 
+#[cfg(test)]
+const MAX_TEXT_CHARS: usize = 50;
+#[cfg(not(test))]
+const MAX_TEXT_CHARS: usize = 50_000;
+
 /// Generates an embedding for a single text using FastEmbed.
 /// Returns the embedding vector.
 pub fn generate_embedding(text: &str) -> Result<Vec<f32>> {
+    // TODO: Replace this character-count guard with a proper token count once
+    // a tokenizer is available.
+    if text.len() > MAX_TEXT_CHARS {
+        return Ok(vec![]);
+    }
+
     // Use ~/.fastembed_cache for model storage
     let cache_dir = std::env::var("HOME")
         .map(|home| std::path::PathBuf::from(home).join(".fastembed_cache"))
@@ -88,5 +99,21 @@ mod tests {
         assert_eq!(top_indices.len(), 2);
         assert_eq!(top_indices[0], 0); // Most similar
         assert_eq!(top_indices[1], 2); // Second most similar
+    }
+
+    #[test]
+    fn test_generate_embedding_too_long() {
+        let text = "a".repeat(MAX_TEXT_CHARS + 1);
+        let result = generate_embedding(&text);
+        assert!(
+            result.is_ok(),
+            "generate_embedding failed: {:?}",
+            result.err()
+        );
+        let embedding = result.unwrap();
+        assert!(
+            embedding.is_empty(),
+            "Input > 50 chars should return empty vec"
+        );
     }
 }
