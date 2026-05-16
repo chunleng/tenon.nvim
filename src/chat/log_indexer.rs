@@ -94,17 +94,6 @@ impl ChatLogIndexer {
         matches!(log.data(), TenonLogData::User(_))
     }
 
-    /// Finds the next user message index starting from `start_idx`.
-    /// Returns None if no user message is found.
-    pub fn find_next_user_index(&self, start_idx: usize) -> Option<usize> {
-        self.logs
-            .iter()
-            .enumerate()
-            .skip(start_idx)
-            .find(|(_, indexed)| Self::is_user_log(&indexed.log))
-            .map(|(i, _)| i)
-    }
-
     /// Finds the last user message index in the logs.
     /// Returns None if no user message is found.
     pub fn find_last_user_index(&self) -> Option<usize> {
@@ -236,19 +225,6 @@ mod tests {
             active: true,
         });
         assert_eq!(indexer.logs.len(), 1);
-    }
-
-    #[test]
-    fn test_find_next_user_index() {
-        let logs = vec![
-            create_user_log("First"),
-            create_user_log("Second"),
-            create_user_log("Third"),
-        ];
-        let indexer = super::ChatLogIndexer::from_logs(logs);
-        assert_eq!(indexer.find_next_user_index(0), Some(0));
-        assert_eq!(indexer.find_next_user_index(1), Some(1));
-        assert_eq!(indexer.find_next_user_index(3), None);
     }
 
     #[test]
