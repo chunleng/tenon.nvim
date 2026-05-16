@@ -235,29 +235,9 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     }],
                 },
                 WorkflowStep {
-                    title: "Verify Baseline".to_string(),
-                    instruction: Instruction::File {
-                        file: workflow_path("implement_software/2_verify_baseline.md"),
-                    },
-                    goto_instructions: vec![
-                        WorkflowGotoInstruction {
-                            to: GotoStep::EndWorkflow,
-                            condition: Some("baseline broken".to_string()),
-                            output:
-                                "baseline verification failed: cannot proceed from broken state"
-                                    .to_string(),
-                        },
-                        WorkflowGotoInstruction {
-                            to: GotoStep::Next,
-                            condition: None,
-                            output: "baseline verified: all tests pass".to_string(),
-                        },
-                    ],
-                },
-                WorkflowStep {
                     title: "Plan".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/3_plan.md"),
+                        file: workflow_path("implement_software/2_plan.md"),
                     },
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
@@ -268,7 +248,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Prepare Test".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/4_prepare_test.md"),
+                        file: workflow_path("implement_software/3_prepare_test.md"),
                     },
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
@@ -279,7 +259,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Implement".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/5_implement.md"),
+                        file: workflow_path("implement_software/4_implement.md"),
                     },
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
@@ -290,11 +270,11 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Verify".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/6_verify.md"),
+                        file: workflow_path("implement_software/5_verify.md"),
                     },
                     goto_instructions: vec![
                         WorkflowGotoInstruction {
-                            to: GotoStep::Step(5),
+                            to: GotoStep::Step(4),
                             condition: Some("verification failed".to_string()),
                             output: "failure details".to_string(),
                         },
@@ -308,11 +288,11 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Goal Check".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/7_goal_check.md"),
+                        file: workflow_path("implement_software/6_goal_check.md"),
                     },
                     goto_instructions: vec![
                         WorkflowGotoInstruction {
-                            to: GotoStep::Step(3),
+                            to: GotoStep::Step(2),
                             condition: Some("goal not reached".to_string()),
                             output: "remaining gap".to_string(),
                         },
@@ -326,7 +306,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Cleanup".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/8_cleanup.md"),
+                        file: workflow_path("implement_software/7_cleanup.md"),
                     },
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
@@ -337,11 +317,11 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Finalize".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/9_finalize.md"),
+                        file: workflow_path("implement_software/8_finalize.md"),
                     },
                     goto_instructions: vec![
                         WorkflowGotoInstruction {
-                            to: GotoStep::Step(3),
+                            to: GotoStep::Step(2),
                             condition: Some("tests fail".to_string()),
                             output: "failed tests list".to_string(),
                         },
