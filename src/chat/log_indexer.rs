@@ -54,6 +54,18 @@ impl ChatLogIndexer {
             .collect()
     }
 
+    /// Builds the chat history for an LLM request:
+    /// applies context truncation, collects active messages, and prepends RAG context.
+    pub fn retrieve_chatlog_with_context(&mut self, user_message: &str) -> Vec<Message> {
+        self.apply_context_truncation();
+        let mut chat_history = self.active_messages();
+        let history_messages = self.get_relevant_context(user_message);
+        for msg in history_messages.into_iter().rev() {
+            chat_history.insert(0, msg);
+        }
+        chat_history
+    }
+
     /// Returns inactive logs that will go through RAG filter.
     /// These are logs that have been truncated from active context (index 0 to resume_from).
     pub fn inactive_log(&self) -> Vec<Arc<TenonLog>> {
@@ -129,19 +141,19 @@ impl ChatLogIndexer {
     /// Builds a history message from RAG context using inactive logs.
     /// Returns empty Vec if no user message provided, no inactive logs, or no relevant context found.
     /// Returns a Vec with one Message::User with <chat-history> wrapped context when found.
-    pub fn get_relevant_context(&self, user_message: Option<&String>) -> Vec<Message> {
+    pub fn get_relevant_context(&self, user_message: &str) -> Vec<Message> {
+        if user_message.is_empty() {
+            return Vec::new();
+        }
         // TODO we might want to produce 3 history log instead of one in the future
-        user_message
-            .and_then(|msg| {
-                let inactive_logs = self.inactive_log();
-                self.rag_context
-                    .build_context(&inactive_logs, msg)
-                    .map(|ctx| Message::User {
-                        content: OneOrMany::one(UserContent::text(format!(
-                            "<chat-history>{}</chat-history>",
-                            ctx.trim()
-                        ))),
-                    })
+        let inactive_logs = self.inactive_log();
+        self.rag_context
+            .build_context(&inactive_logs, user_message)
+            .map(|ctx| Message::User {
+                content: OneOrMany::one(UserContent::text(format!(
+                    "<chat-history>{}</chat-history>",
+                    ctx.trim()
+                ))),
             })
             .into_iter()
             .collect()
@@ -291,7 +303,7 @@ mod tests {
     #[test]
     fn test_get_relevant_context_returns_empty_when_user_message_is_none() {
         let indexer = super::ChatLogIndexer::new();
-        let result = indexer.get_relevant_context(None);
+        let result = indexer.get_relevant_context("");
         assert!(result.is_empty());
     }
 
@@ -299,7 +311,7 @@ mod tests {
     fn test_get_relevant_context_returns_empty_when_no_inactive_logs() {
         let logs = vec![create_user_log("Hello")];
         let indexer = super::ChatLogIndexer::from_logs(logs);
-        let result = indexer.get_relevant_context(Some(&"test message".to_string()));
+        let result = indexer.get_relevant_context("test message");
         assert!(result.is_empty());
     }
 
@@ -311,7 +323,7 @@ mod tests {
         indexer.resume_from = 1;
 
         // RAG context should return None for empty/irrelevant context
-        let result = indexer.get_relevant_context(Some(&"test message".to_string()));
+        let result = indexer.get_relevant_context("test message");
         // This might return empty vec or vec with message depending on RAG implementation
         // For now, we test that the method exists and doesn't panic
         let _ = result;
@@ -421,5 +433,20 @@ mod tests {
         indexer.apply_context_truncation();
         assert_eq!(indexer.resume_from, 0);
         assert_eq!(indexer.logs.len(), 0);
+    }
+
+    #[test]
+    fn test_retrieve_chatlog_with_context_applies_truncation() {
+        // Create logs that exceed threshold
+        let logs = vec![
+            create_user_log(TEN_TOKENS),
+            create_user_log(TEN_TOKENS),
+            create_user_log(ONE_TOKEN),
+        ];
+        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+        let result = indexer.retrieve_chatlog_with_context("");
+        // After truncation, only last message (ONE_TOKEN) is active
+        assert_eq!(result.len(), 1);
+        assert_eq!(indexer.resume_from, 2);
     }
 }

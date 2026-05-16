@@ -8,10 +8,7 @@ use crate::{
 };
 use chrono::{DateTime, Local};
 use nvim_oxi::{Result as OxiResult, api::types::LogLevel};
-use rig::{
-    completion::Usage,
-    message::{Message, ToolResultContent},
-};
+use rig::{completion::Usage, message::ToolResultContent};
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, LazyLock, Mutex, RwLock},
@@ -507,10 +504,6 @@ impl ChatSession {
             self.generate_title(msg.clone());
         }
 
-        if let Ok(mut indexer) = self.log_indexer.write() {
-            indexer.apply_context_truncation();
-        }
-
         self.prune_incomplete_messages();
 
         let log_indexer_clone = self.log_indexer.clone();
@@ -526,9 +519,8 @@ impl ChatSession {
             let rt = tokio::runtime::Runtime::new().unwrap();
 
             rt.block_on(async {
-                // Build chat_history
-                let mut chat_history: Vec<Message> = if let Ok(indexer) = log_indexer_clone.read() {
-                    indexer.active_messages()
+                let mut chat_history = if let Ok(mut indexer) = log_indexer_clone.write() {
+                    indexer.retrieve_chatlog_with_context(&prompt)
                 } else {
                     Vec::new()
                 };
@@ -540,14 +532,6 @@ impl ChatSession {
                     indexer.logs.push(Arc::new(TenonLog::new(TenonLogData::User(
                         TenonUserMessage::Text(TenonUserTextMessage(msg.clone())),
                     ))));
-                }
-
-                // Inject history messages from RAG context if available
-                if let Ok(indexer) = log_indexer_clone.read() {
-                    let history_messages = indexer.get_relevant_context(user_message.as_ref());
-                    for msg in history_messages.into_iter().rev() {
-                        chat_history.insert(0, msg);
-                    }
                 }
 
                 let mut next_prompt = prompt;
