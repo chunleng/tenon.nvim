@@ -533,29 +533,31 @@ impl ChatSession {
             let rt = tokio::runtime::Runtime::new().unwrap();
 
             rt.block_on(async {
-                let mut chat_history = if let Ok(mut indexer) = log_indexer_clone.write() {
-                    indexer.retrieve_chatlog_with_context(&prompt)
-                } else {
-                    Vec::new()
-                };
-
-                // Add user message if provided
-                if save_prompt && let Ok(mut indexer) = log_indexer_clone.write() {
-                    indexer.logs.push(crate::chat::log_indexer::IndexedLog {
-                        log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                            TenonUserTextMessage(prompt.clone()),
-                        )))),
-                        active: true,
-                    });
-                }
-
                 let mut next_prompt = prompt;
+                let mut save_next_prompt = save_prompt;
                 loop {
                     let mut should_continue = false;
                     let agent = agent_clone.build_chat_adapter(
                         active_workflow_clone.clone(),
                         log_indexer_clone.clone(),
                     );
+
+                    // Add user message if provided
+                    if save_next_prompt && let Ok(mut indexer) = log_indexer_clone.write() {
+                        indexer.logs.push(crate::chat::log_indexer::IndexedLog {
+                            log: Arc::new(TenonLog::new(TenonLogData::User(
+                                TenonUserMessage::Text(TenonUserTextMessage(next_prompt.clone())),
+                            ))),
+                            active: true,
+                        });
+                        save_next_prompt = false;
+                    }
+
+                    let chat_history = if let Ok(mut indexer) = log_indexer_clone.write() {
+                        indexer.retrieve_chatlog_with_context(&next_prompt)
+                    } else {
+                        Vec::new()
+                    };
 
                     let prompt = build_workflow_prompt(&active_workflow_clone, next_prompt.clone());
                     let mut stream = agent
@@ -747,12 +749,6 @@ impl ChatSession {
                     if !should_continue || cancel_token.load(Ordering::SeqCst) {
                         break;
                     }
-
-                    chat_history = if let Ok(indexer) = log_indexer_clone.read() {
-                        indexer.active_messages()
-                    } else {
-                        vec![]
-                    };
                 }
             });
         }));
