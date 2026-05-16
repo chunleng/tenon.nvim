@@ -511,6 +511,8 @@ impl ChatSession {
             indexer.apply_context_truncation();
         }
 
+        self.prune_incomplete_messages();
+
         let log_indexer_clone = self.log_indexer.clone();
         let usage_clone = Arc::clone(&self.usage);
         let agent_clone = self.active_agent.clone();
@@ -522,40 +524,8 @@ impl ChatSession {
 
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
+
             rt.block_on(async {
-                // Clean up trailing tool calls without results
-                if let Ok(mut indexer) = log_indexer_clone.write() {
-                    let mut logs_vec: Vec<_> = indexer.logs.to_vec();
-                    indexer.logs.clear();
-
-                    // Find where trailing tools start (last non-tool or tool with result)
-                    let trailing_start = logs_vec
-                        .iter()
-                        .rposition(|log| !matches!(log.data(), TenonLogData::Tool(_)))
-                        .map(|i| i + 1)
-                        .unwrap_or(0);
-
-                    // Keep only tools with results in the trailing section
-                    let trailing_tools: Vec<_> = logs_vec[trailing_start..]
-                        .iter()
-                        .filter(|&log| {
-                            if let TenonLogData::Tool(tool_log) = log.data() {
-                                tool_log.tool_result.is_some()
-                            } else {
-                                true
-                            }
-                        })
-                        .cloned()
-                        .collect();
-
-                    logs_vec.truncate(trailing_start);
-                    logs_vec.extend(trailing_tools);
-
-                    for log in logs_vec {
-                        indexer.logs.push(log);
-                    }
-                }
-
                 // Build chat_history
                 let mut chat_history: Vec<Message> = if let Ok(indexer) = log_indexer_clone.read() {
                     indexer.active_messages()
@@ -788,5 +758,106 @@ impl ChatSession {
 
     pub fn send_message(&mut self, message: String) {
         self.send_chat_request(message.clone(), Some(message));
+    }
+
+    /// Prunes trailing incomplete messages (e.g., tool calls without results)
+    /// from the session logs to prevent sending broken history to the LLM.
+    pub fn prune_incomplete_messages(&self) {
+        let Ok(mut indexer) = self.log_indexer.write() else {
+            return;
+        };
+
+        let logs = &indexer.logs;
+        let last_non_tool_index = logs
+            .iter()
+            .enumerate()
+            .rfind(|(_, log)| !matches!(log.data(), TenonLogData::Tool(_)));
+
+        if let Some((index, _)) = last_non_tool_index {
+            let mut new_logs = Vec::with_capacity(logs.len());
+            new_logs.extend_from_slice(&logs[..=index]);
+
+            for log in &logs[index + 1..] {
+                if let TenonLogData::Tool(tool_log) = log.data()
+                    && tool_log.tool_result.is_some()
+                {
+                    new_logs.push(log.clone());
+                }
+            }
+            indexer.logs = new_logs;
+        } else {
+            // If all messages are tools, we only keep the ones with results
+            indexer.logs = logs
+                .iter()
+                .filter(|log| {
+                    if let TenonLogData::Tool(tool_log) = log.data() {
+                        tool_log.tool_result.is_some()
+                    } else {
+                        true
+                    }
+                })
+                .cloned()
+                .collect();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::log::{
+        TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonUserMessage, TenonUserTextMessage,
+    };
+    use serde_json::json;
+    use std::sync::Arc;
+
+    fn create_user_log(text: &str) -> Arc<TenonLog> {
+        Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+            TenonUserTextMessage(text.to_string()),
+        ))))
+    }
+
+    fn create_tool_log(name: &str, result: bool) -> Arc<TenonLog> {
+        let tool_call = TenonToolCall {
+            id: "1".into(),
+            internal_call_id: "1".into(),
+            name: name.into(),
+            args: json!({}),
+        };
+        let tool_result = if result {
+            Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                text: "ok".into(),
+            })))
+        } else {
+            None
+        };
+        Arc::new(TenonLog::new(TenonLogData::Tool(TenonToolLog {
+            tool_call,
+            tool_result,
+        })))
+    }
+
+    #[test]
+    fn test_prune_incomplete_messages() {
+        let session = ChatSession::new();
+        {
+            let mut indexer = session.log_indexer.write().unwrap();
+            indexer.logs = vec![
+                create_user_log("Hello"),
+                create_tool_log("tool1", false), // Incomplete
+                create_tool_log("tool2", true),  // Complete
+                create_tool_log("tool3", false), // Incomplete
+            ];
+        }
+
+        session.prune_incomplete_messages();
+
+        let indexer = session.log_indexer.read().unwrap();
+        assert_eq!(indexer.logs.len(), 2);
+        assert!(matches!(indexer.logs[0].data(), TenonLogData::User(_)));
+        assert!(matches!(indexer.logs[1].data(), TenonLogData::Tool(_)));
+        if let TenonLogData::Tool(tl) = &indexer.logs[1].data() {
+            assert!(tl.tool_result.is_some());
+        }
     }
 }
