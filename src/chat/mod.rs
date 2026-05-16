@@ -507,7 +507,6 @@ impl ChatSession {
             self.generate_title(msg.clone());
         }
 
-        // Apply context truncation if needed
         if let Ok(mut indexer) = self.log_indexer.write() {
             indexer.apply_context_truncation();
         }

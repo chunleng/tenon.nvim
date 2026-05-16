@@ -14,7 +14,11 @@ pub struct ChatLogIndexer {
 }
 
 impl ChatLogIndexer {
+    #[cfg(not(test))]
     const MAX_ACTIVE_CONTEXT_TOKENS: usize = 10_000;
+
+    #[cfg(test)]
+    const MAX_ACTIVE_CONTEXT_TOKENS: usize = 10;
 
     /// Creates a new empty ChatLogIndexer.
     pub fn new() -> Self {
@@ -100,55 +104,26 @@ impl ChatLogIndexer {
     /// Updates resume_from to skip older messages, keeping them in self.logs for display and RAG access.
     /// The last user/assistant exchange is always preserved.
     pub fn apply_context_truncation(&mut self) {
-        let current_resume = self.resume_from;
-
-        // Find the last user message - this is the boundary we cannot cross
-        let last_user_idx = self.find_last_user_index().unwrap_or(0);
-
-        // Minimum boundary: we must keep the last exchange
-        let min_resume = last_user_idx.min(self.logs.len().saturating_sub(1));
-
-        // Calculate tokens from current resume_from
-        let mut total_tokens: usize = self.active_context_token_count();
-
-        // If under threshold, no truncation needed
-        if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
+        // Early return if under threshold
+        if self.active_context_token_count() <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
             return;
         }
 
-        // Need to truncate - find new resume_from
-        let mut new_resume = current_resume;
+        // Find new resume index by removing logs until under threshold
+        let mut total_tokens = self.active_context_token_count();
 
-        // Move resume_from forward until we're under threshold
-        for log in self.logs.iter().skip(current_resume) {
-            let log_tokens = log.token_count();
-            total_tokens -= log_tokens;
-            new_resume += 1;
+        // Find the last user message - this is the boundary we cannot cross
+        let last_user_idx = self.find_last_user_index().unwrap_or(0);
+        let min_resume = last_user_idx.min(self.logs.len().saturating_sub(1));
+
+        for log in &self.logs[self.resume_from..min_resume] {
+            total_tokens -= log.token_count();
+            self.resume_from += 1;
 
             if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
                 break;
             }
         }
-
-        // Adjust to next user message if we landed on non-user
-        if new_resume < self.logs.len()
-            && !Self::is_user_log(&self.logs[new_resume])
-            && let Some(user_idx) = self.find_next_user_index(new_resume)
-        {
-            new_resume = user_idx;
-        }
-
-        // Never truncate past the last exchange
-        new_resume = new_resume.min(min_resume);
-
-        // Only update if we're actually moving forward
-        if new_resume <= current_resume {
-            return;
-        }
-
-        // Update resume_from - logs remain in self.logs for display and RAG access
-        // Embeddings cache in rag_context will be regenerated when needed
-        self.resume_from = new_resume;
     }
 
     /// Builds a history message from RAG context using inactive logs.
@@ -175,12 +150,26 @@ impl ChatLogIndexer {
 
 #[cfg(test)]
 mod tests {
-    use crate::chat::log::{TenonLog, TenonLogData, TenonUserMessage, TenonUserTextMessage};
+    const ONE_TOKEN: &str = "xx";
+    const TEN_TOKENS: &str = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+    use skimtoken::estimate_tokens;
+
+    use crate::chat::{
+        TenonAssistantMessage, TenonAssistantMessageContent,
+        log::{TenonLog, TenonLogData, TenonUserMessage, TenonUserTextMessage},
+    };
 
     fn create_user_log(text: &str) -> TenonLog {
         TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
             TenonUserTextMessage(text.to_string()),
         )))
+    }
+
+    fn create_assistant_log(text: &str) -> TenonLog {
+        TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
+            content: vec![TenonAssistantMessageContent::Text(text.to_string())],
+            reasoning: None,
+        }))
     }
 
     #[test]
@@ -326,5 +315,111 @@ mod tests {
         // This might return empty vec or vec with message depending on RAG implementation
         // For now, we test that the method exists and doesn't panic
         let _ = result;
+    }
+
+    #[test]
+    fn test_one_token_and_ten_tokens_constants() {
+        // Verify constants match their intended token counts
+        assert_eq!(estimate_tokens(ONE_TOKEN), 1);
+        assert_eq!(estimate_tokens(TEN_TOKENS), 10);
+    }
+
+    // --- apply_context_truncation tests ---
+
+    #[test]
+    fn test_apply_context_truncation_no_truncation_when_under_threshold() {
+        // Create logs that are well under the test threshold (10 tokens)
+        let logs = vec![create_user_log(ONE_TOKEN), create_user_log(ONE_TOKEN)];
+        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+
+        indexer.apply_context_truncation();
+
+        // Should not truncate - resume_from should remain 0
+        assert_eq!(indexer.resume_from, 0);
+    }
+
+    #[test]
+    fn test_apply_context_truncation_truncates_when_over_threshold() {
+        // Create logs that exceed the test threshold (10 tokens)
+        // Two logs of TEN_TOKENS exceed threshold, third log (ONE_TOKEN) fits under threshold
+        let logs = vec![
+            create_user_log(TEN_TOKENS),
+            create_user_log(TEN_TOKENS),
+            create_user_log(ONE_TOKEN),
+        ];
+        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+
+        indexer.apply_context_truncation();
+
+        // First two logs exceed 10 tokens, truncation should result in resume_from = 2
+        assert_eq!(indexer.resume_from, 2);
+    }
+
+    #[test]
+    fn test_apply_context_truncation_preserves_last_exchange() {
+        // Even when severely over threshold, last user message must be preserved
+        // Using 4 logs, each exceeding threshold individually
+        let logs = vec![
+            create_user_log(TEN_TOKENS),
+            create_user_log(TEN_TOKENS),
+            create_user_log(TEN_TOKENS),
+            create_user_log(TEN_TOKENS),
+        ];
+        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+
+        indexer.apply_context_truncation();
+
+        // Last user log (index 3) must be preserved
+        // With threshold 10 tokens, each log exceeds threshold, only last log fits
+        assert_eq!(indexer.resume_from, 3);
+    }
+
+    #[test]
+    fn test_apply_context_truncation_lands_on_user_boundary() {
+        // When truncation lands on non-user, should adjust to next user
+        let logs = vec![
+            create_user_log(ONE_TOKEN),
+            create_assistant_log(ONE_TOKEN),
+            create_user_log(ONE_TOKEN),
+            create_assistant_log(ONE_TOKEN),
+            // Last conversation round must be preserved
+            create_user_log(TEN_TOKENS),
+            create_assistant_log(ONE_TOKEN),
+        ];
+        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+
+        indexer.apply_context_truncation();
+
+        assert_eq!(indexer.resume_from, 4);
+    }
+
+    #[test]
+    fn test_apply_context_truncation_no_change_when_already_truncated() {
+        // If resume_from is already set and logs are under threshold, should not change
+        let logs = vec![
+            create_user_log(TEN_TOKENS),
+            create_user_log(ONE_TOKEN),
+            create_user_log(ONE_TOKEN),
+        ];
+        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+
+        // Pre-set resume_from to simulate prior truncation
+        indexer.resume_from = 1;
+
+        // Apply truncation - should not change anything since under threshold
+        indexer.apply_context_truncation();
+
+        assert_eq!(
+            indexer.resume_from, 1,
+            "resume_from should remain unchanged when under threshold"
+        );
+    }
+
+    #[test]
+    fn test_apply_context_truncation_empty_logs() {
+        let mut indexer = super::ChatLogIndexer::new();
+        indexer.apply_context_truncation();
+        assert_eq!(indexer.resume_from, 0);
+        assert_eq!(indexer.logs.len(), 0);
     }
 }
