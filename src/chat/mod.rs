@@ -85,13 +85,12 @@ fn build_workflow_prompt(
 
             return format!(
                 "<context>\n\
-                    Currently in {} step of {} workflow. In a workflow, user prompt first, workflow instruction second and chat history is just reference\n\
-                    When processing this input, prioritize: User message > <context>\n\
-                    Follow through the process of the workflow step by step. Following is instruction of current step:\n\
+                    Currently in {} step of {} workflow. Priority: user prompt > workflow instruction > chat history\n\
+                    Current step instruction:\n\
                     <instruction>\n\
                     {}\n\
                     </instruction>\n\
-                    After all process instruction has been completed, call navigate_workflow tool with the appropriate step number and your step_output.\n\
+                    After completing instruction → call navigate_workflow with step number + step_output. If asking user question → stop, do not navigate.\n\
                     <navigation>\n\
                     {}\n\
                     </navigation>\n\
@@ -223,8 +222,7 @@ impl TenonAgent {
                 .collect();
 
             system_prompt.push_str(&format!(
-                " <workflow />=structures that help you solve problems, call `start_workflow <id>` to start them. if workflow matches condition, always prioritize workflow over manually figuring out a process\n\
-                In workflow + question for user → ask directly. Never via navigate/end_workflow.\n\
+                " <workflow />=multi-step process. Start: `start_workflow <id>`. Condition match → prioritize workflow over unguided steps.\n\
                 {}",
                 workflow_info.join("")
             ));
