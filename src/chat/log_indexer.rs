@@ -94,12 +94,46 @@ impl ChatLogIndexer {
         matches!(log.data(), TenonLogData::User(_))
     }
 
-    /// Finds the last user message index in the logs.
-    /// Returns None if no user message is found.
-    pub fn find_last_user_index(&self) -> Option<usize> {
-        self.logs
+    /// Returns true if the log entry is a workflow log.
+    fn is_workflow_log(log: &TenonLog) -> bool {
+        matches!(log.data(), TenonLogData::Workflow(_))
+    }
+
+    /// Returns true if the workflow log indicates workflow start/navigate (step: Some).
+    fn is_active_workflow(log: &TenonLog) -> bool {
+        match log.data() {
+            TenonLogData::Workflow(wf) => wf.step.is_some(),
+            _ => false,
+        }
+    }
+
+    /// Determines if a log at the given index is "in workflow" relative to a slice.
+    pub fn is_log_in_workflow_in_slice(log_idx: usize, logs: &[IndexedLog]) -> bool {
+        logs[..log_idx]
             .iter()
-            .rposition(|indexed| Self::is_user_log(&indexed.log))
+            .rev()
+            .find(|indexed| Self::is_workflow_log(&indexed.log))
+            .map(|indexed| Self::is_active_workflow(&indexed.log))
+            .unwrap_or(false)
+    }
+
+    /// Finds the last checkpoint index in a slice of logs.
+    /// Returns the index relative to the slice.
+    pub fn find_last_checkpoint_in(logs: &[IndexedLog]) -> Option<usize> {
+        if logs.is_empty() {
+            return None;
+        }
+
+        let last_idx = logs.len().saturating_sub(1);
+        if Self::is_log_in_workflow_in_slice(last_idx, logs) {
+            // In workflow: checkpoint is the last workflow tool
+            logs.iter()
+                .rposition(|indexed| Self::is_active_workflow(&indexed.log))
+        } else {
+            // Not in workflow: checkpoint is the last user message
+            logs.iter()
+                .rposition(|indexed| Self::is_user_log(&indexed.log))
+        }
     }
 
     // --- Token management ---
@@ -116,27 +150,32 @@ impl ChatLogIndexer {
     // --- Context management ---
 
     /// Applies context truncation if token count exceeds max_active_context_tokens.
-    /// Marks logs as inactive to remove them from active context, keeping them for display and RAG access.
-    /// The last user/assistant exchange is always preserved.
+    /// Marks logs as inactive (removed from active context but kept for display/RAG).
+    /// Preserves last two checkpoints: workflow tools when in workflow, user messages otherwise.
     pub fn apply_context_truncation(&mut self) {
         // Early return if under threshold
         if self.active_context_token_count() <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
             return;
         }
 
-        // Find the last user message - this is the boundary we cannot cross
-        let last_user_idx = self.find_last_user_index();
+        // Find the last checkpoint, then find the checkpoint before it
+        let mut boundary_idx = Self::find_last_checkpoint_in(&self.logs);
+        if let Some(first) = boundary_idx
+            && first > 0
+            && let Some(second) = Self::find_last_checkpoint_in(&self.logs[..first])
+        {
+            boundary_idx = Some(second);
+        }
+        let boundary_idx = boundary_idx.unwrap_or(self.logs.len());
 
         // Collect indices of logs to truncate
         let mut indices_to_truncate = Vec::new();
         let mut total_tokens = self.active_context_token_count();
 
         for (idx, indexed) in self.logs.iter().enumerate() {
-            // Stop if we've reached the last user message
-            if let Some(last_idx) = last_user_idx {
-                if idx >= last_idx {
-                    break;
-                }
+            // Stop if we've reached the preserve boundary
+            if idx >= boundary_idx {
+                break;
             }
 
             // Only process active logs
@@ -202,6 +241,19 @@ mod tests {
         }))
     }
 
+    fn create_workflow_log(id: &str, step: Option<usize>) -> TenonLog {
+        use crate::chat::TenonWorkflowLog;
+        TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog::new(
+            id,
+            if step.is_some() {
+                "workflow step"
+            } else {
+                "Workflow ended"
+            },
+            step,
+        )))
+    }
+
     #[test]
     fn test_log_indexer_new_creates_empty() {
         let indexer = super::ChatLogIndexer::new();
@@ -225,17 +277,6 @@ mod tests {
             active: true,
         });
         assert_eq!(indexer.logs.len(), 1);
-    }
-
-    #[test]
-    fn test_find_last_user_index() {
-        let logs = vec![
-            create_user_log("First"),
-            create_user_log("Second"),
-            create_user_log("Third"),
-        ];
-        let indexer = super::ChatLogIndexer::from_logs(logs);
-        assert_eq!(indexer.find_last_user_index(), Some(2));
     }
 
     #[test]
@@ -359,65 +400,72 @@ mod tests {
     #[test]
     fn test_apply_context_truncation_truncates_when_over_threshold() {
         // Create logs that exceed the test threshold (10 tokens)
-        // Two logs of TEN_TOKENS exceed threshold, third log (ONE_TOKEN) fits under threshold
+        // New behavior: preserve last two checkpoints
+        // First checkpoint: index 2 (last user)
+        // Second checkpoint: index 1 (previous user)
+        // Should preserve from index 1 onwards
         let logs = vec![
-            create_user_log(TEN_TOKENS),
-            create_user_log(TEN_TOKENS),
-            create_user_log(ONE_TOKEN),
+            create_user_log(TEN_TOKENS), // 0 - should be truncated
+            create_user_log(TEN_TOKENS), // 1 - second checkpoint, preserved
+            create_user_log(ONE_TOKEN),  // 2 - first checkpoint, preserved
         ];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
 
         indexer.apply_context_truncation();
 
-        // First two logs exceed 10 tokens, should be marked as inactive
+        // First log should be truncated, last two preserved
         assert!(!indexer.logs[0].active);
-        assert!(!indexer.logs[1].active);
+        assert!(indexer.logs[1].active);
         assert!(indexer.logs[2].active);
     }
 
     #[test]
     fn test_apply_context_truncation_preserves_last_exchange() {
-        // Even when severely over threshold, last user message must be preserved
+        // Even when severely over threshold, last two checkpoints must be preserved
         // Using 4 logs, each exceeding threshold individually
+        // First checkpoint: index 3 (last user)
+        // Second checkpoint: index 2 (previous user)
+        // Should preserve from index 2 onwards
         let logs = vec![
-            create_user_log(TEN_TOKENS),
-            create_user_log(TEN_TOKENS),
-            create_user_log(TEN_TOKENS),
-            create_user_log(TEN_TOKENS),
+            create_user_log(TEN_TOKENS), // 0 - truncated
+            create_user_log(TEN_TOKENS), // 1 - truncated
+            create_user_log(TEN_TOKENS), // 2 - second checkpoint, preserved
+            create_user_log(TEN_TOKENS), // 3 - first checkpoint, preserved
         ];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
 
         indexer.apply_context_truncation();
 
-        // Last user log (index 3) must be preserved (active=true)
-        // With threshold 10 tokens, each log exceeds threshold, only last log fits
+        // Should preserve from index 2 (second checkpoint)
         assert!(!indexer.logs[0].active);
         assert!(!indexer.logs[1].active);
-        assert!(!indexer.logs[2].active);
+        assert!(indexer.logs[2].active);
         assert!(indexer.logs[3].active);
     }
 
     #[test]
     fn test_apply_context_truncation_lands_on_user_boundary() {
-        // When truncation lands on non-user, should adjust to next user
+        // When truncation lands on non-user, should adjust to preserve from second checkpoint
+        // First checkpoint: index 4 (last user)
+        // Second checkpoint: index 2 (previous user)
+        // Should preserve from index 2 onwards
         let logs = vec![
-            create_user_log(ONE_TOKEN),
-            create_assistant_log(ONE_TOKEN),
-            create_user_log(ONE_TOKEN),
-            create_assistant_log(ONE_TOKEN),
-            // Last conversation round must be preserved
-            create_user_log(TEN_TOKENS),
-            create_assistant_log(ONE_TOKEN),
+            create_user_log(ONE_TOKEN),      // 0 - truncated
+            create_assistant_log(ONE_TOKEN), // 1 - truncated
+            create_user_log(ONE_TOKEN),      // 2 - second checkpoint, preserved
+            create_assistant_log(ONE_TOKEN), // 3 - preserved (part of interaction with user at 2)
+            create_user_log(TEN_TOKENS),     // 4 - first checkpoint, preserved
+            create_assistant_log(ONE_TOKEN), // 5 - preserved
         ];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
 
         indexer.apply_context_truncation();
 
-        // First four logs should be inactive, last two (user + assistant) preserved
+        // First two logs truncated, last four preserved (second checkpoint onwards)
         assert!(!indexer.logs[0].active);
         assert!(!indexer.logs[1].active);
-        assert!(!indexer.logs[2].active);
-        assert!(!indexer.logs[3].active);
+        assert!(indexer.logs[2].active);
+        assert!(indexer.logs[3].active);
         assert!(indexer.logs[4].active);
         assert!(indexer.logs[5].active);
     }
@@ -453,18 +501,142 @@ mod tests {
     #[test]
     fn test_retrieve_chatlog_with_context_applies_truncation() {
         // Create logs that exceed threshold
+        // First checkpoint: index 2 (last user)
+        // Second checkpoint: index 1 (previous user)
+        // Should preserve from index 1
         let logs = vec![
-            create_user_log(TEN_TOKENS),
-            create_user_log(TEN_TOKENS),
-            create_user_log(ONE_TOKEN),
+            create_user_log(TEN_TOKENS), // 0 - truncated
+            create_user_log(TEN_TOKENS), // 1 - second checkpoint, preserved
+            create_user_log(ONE_TOKEN),  // 2 - first checkpoint, preserved
         ];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
         let result = indexer.retrieve_chatlog_with_context("");
-        // After truncation, only last message (ONE_TOKEN) is active
-        assert_eq!(result.len(), 1);
-        // First two logs should be inactive
+        // After truncation, two messages should be active (indices 1 and 2)
+        assert_eq!(result.len(), 2);
+        // First log should be inactive
+        assert!(!indexer.logs[0].active);
+        assert!(indexer.logs[1].active);
+        assert!(indexer.logs[2].active);
+    }
+
+    // --- Workflow-aware checkpoint tests ---
+
+    #[test]
+    fn test_is_log_in_workflow() {
+        // Single setup covering all conditions
+        let logs = vec![
+            create_user_log("First"),           // 0: no workflow before
+            create_workflow_log("wf", Some(1)), // 1: workflow start
+            create_user_log("Second"),          // 2: in workflow
+            create_workflow_log("wf", None),    // 3: workflow end
+            create_user_log("Third"),           // 4: after workflow ended
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+        assert!(!super::ChatLogIndexer::is_log_in_workflow_in_slice(
+            0,
+            &indexer.logs
+        )); // before workflow
+        assert!(super::ChatLogIndexer::is_log_in_workflow_in_slice(
+            2,
+            &indexer.logs
+        )); // in workflow
+        assert!(!super::ChatLogIndexer::is_log_in_workflow_in_slice(
+            4,
+            &indexer.logs
+        )); // after workflow ended
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_in_workflow_uses_workflow_tool() {
+        // In workflow: checkpoint is the last workflow tool
+        let logs = vec![
+            create_user_log("First"),
+            create_workflow_log("test_workflow", Some(1)), // start
+            create_user_log("Second"),
+            create_workflow_log("test_workflow", Some(2)), // navigate to step 2
+            create_user_log("Third"),
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+        // Last checkpoint should be index 3 (navigate_workflow to step 2)
+        assert_eq!(
+            super::ChatLogIndexer::find_last_checkpoint_in(&indexer.logs),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_not_in_workflow_uses_user_message() {
+        // Not in workflow: checkpoint is the last user message
+        let logs = vec![
+            create_user_log("First"),
+            create_assistant_log("Response"),
+            create_user_log("Second"),
+            create_assistant_log("Response 2"),
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+        // Last checkpoint should be index 2 (last user message)
+        assert_eq!(
+            super::ChatLogIndexer::find_last_checkpoint_in(&indexer.logs),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_after_workflow_ends() {
+        // After workflow ends: checkpoint is last user message
+        let logs = vec![
+            create_workflow_log("test_workflow", Some(1)),
+            create_user_log("User in workflow"),
+            create_workflow_log("test_workflow", None), // end
+            create_user_log("After workflow"),
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+        // Last checkpoint should be index 3 (user message after workflow ended)
+        assert_eq!(
+            super::ChatLogIndexer::find_last_checkpoint_in(&indexer.logs),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn test_apply_context_truncation_in_workflow_preserves_workflow_steps() {
+        // In workflow: preserve from last workflow step
+        let logs = vec![
+            create_user_log(TEN_TOKENS),        // 0
+            create_workflow_log("wf", Some(1)), // 1 - will be second checkpoint
+            create_user_log(TEN_TOKENS),        // 2
+            create_workflow_log("wf", Some(2)), // 3 - last checkpoint (in workflow)
+            create_user_log(ONE_TOKEN),         // 4
+        ];
+        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+        indexer.apply_context_truncation();
+
+        // Should preserve from index 1 (second checkpoint)
+        assert!(!indexer.logs[0].active);
+        assert!(indexer.logs[1].active); // workflow step 1 preserved
+        assert!(indexer.logs[2].active);
+        assert!(indexer.logs[3].active); // workflow step 2 preserved
+        assert!(indexer.logs[4].active);
+    }
+
+    #[test]
+    fn test_apply_context_truncation_outside_workflow_preserves_user_messages() {
+        // Outside workflow: preserve from last user message
+        let logs = vec![
+            create_user_log(TEN_TOKENS),     // 0
+            create_assistant_log(ONE_TOKEN), // 1
+            create_user_log(TEN_TOKENS),     // 2 - second checkpoint
+            create_assistant_log(ONE_TOKEN), // 3
+            create_user_log(ONE_TOKEN),      // 4 - last checkpoint (last user)
+        ];
+        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+        indexer.apply_context_truncation();
+
+        // Should preserve from index 2 (second checkpoint, previous user message)
         assert!(!indexer.logs[0].active);
         assert!(!indexer.logs[1].active);
         assert!(indexer.logs[2].active);
+        assert!(indexer.logs[3].active);
+        assert!(indexer.logs[4].active);
     }
 }
