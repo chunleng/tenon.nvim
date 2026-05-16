@@ -5,6 +5,7 @@ Verify codebase is in good state before making changes
 Run full test suite:
 - Use project's test command (check AGENTS.md)
 - Run all tests to establish baseline
+- Batch tool calls when running multiple tests
 - Document test results
 
 If tests fail:

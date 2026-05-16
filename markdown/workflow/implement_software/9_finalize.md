@@ -3,6 +3,7 @@ Full verification and documentation
 
 ## Process
 Run full verification:
+- Batch tool calls when running multiple commands
 - Build entire project
 - Run full test suite
 - Check project standards (lint, format, etc.)
