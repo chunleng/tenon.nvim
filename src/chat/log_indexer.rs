@@ -27,11 +27,14 @@ impl ChatLogIndexer {
 
     /// Creates a ChatLogIndexer from existing logs (for history restoration).
     pub fn from_logs(logs: Vec<TenonLog>) -> Self {
-        Self {
+        let mut s = Self {
             logs: logs.into_iter().map(Arc::new).collect(),
             resume_from: 0,
             rag_context: RagContext::new(),
-        }
+        };
+
+        s.apply_context_truncation();
+        s
     }
 
     // --- Log access ---
@@ -54,11 +57,6 @@ impl ChatLogIndexer {
             return Vec::new();
         }
         self.logs.iter().take(self.resume_from).cloned().collect()
-    }
-
-    /// Returns the current resume_from index.
-    pub fn resume_from(&self) -> usize {
-        self.resume_from
     }
 
     // --- Query ---
@@ -96,40 +94,22 @@ impl ChatLogIndexer {
             .sum()
     }
 
-    /// Recounts tokens for all logs (for history restore).
-    pub fn recount_all_tokens(&mut self) {
-        for log in self.logs.iter_mut() {
-            // Use Arc::make_mut to get mutable access if we have the only reference
-            // This clones the inner TenonLog if there are other references
-            let log_ref = Arc::make_mut(log);
-            log_ref.recount_tokens();
-        }
-    }
-
     // --- Context management ---
 
     /// Applies context truncation if token count exceeds max_active_context_tokens.
-    /// Copies truncated logs to rag_logs and updates resume_from.
-    /// Logs remain in self.logs for display purposes.
+    /// Updates resume_from to skip older messages, keeping them in self.logs for display and RAG access.
     /// The last user/assistant exchange is always preserved.
     pub fn apply_context_truncation(&mut self) {
         let current_resume = self.resume_from;
 
         // Find the last user message - this is the boundary we cannot cross
-        let last_user_idx = self
-            .logs
-            .iter()
-            .rposition(|log| Self::is_user_log(log))
-            .unwrap_or(0);
+        let last_user_idx = self.find_last_user_index().unwrap_or(0);
 
         // Minimum boundary: we must keep the last exchange
         let min_resume = last_user_idx.min(self.logs.len().saturating_sub(1));
 
         // Calculate tokens from current resume_from
-        let mut total_tokens: usize = 0;
-        for log in self.logs.iter().skip(current_resume) {
-            total_tokens += log.token_count();
-        }
+        let mut total_tokens: usize = self.active_context_token_count();
 
         // If under threshold, no truncation needed
         if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
@@ -265,15 +245,6 @@ mod tests {
         ];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         assert!(indexer.active_context_token_count() > 0);
-    }
-
-    #[test]
-    fn test_recount_all_tokens() {
-        let logs = vec![create_user_log("Hello"), create_user_log("World")];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        let initial_count = indexer.active_context_token_count();
-        indexer.recount_all_tokens();
-        assert_eq!(indexer.active_context_token_count(), initial_count);
     }
 
     #[test]

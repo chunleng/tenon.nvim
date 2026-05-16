@@ -346,14 +346,7 @@ impl ChatSession {
                 ))
             })?;
 
-        let logs: Vec<TenonLog> = history
-            .logs
-            .into_iter()
-            .map(|mut log| {
-                log.recount_tokens();
-                log
-            })
-            .collect();
+        let logs: Vec<TenonLog> = history.logs;
 
         // Replay workflow logs to reconstruct active_workflow state.
         // Active workflow is derived from history, not stored directly,
@@ -377,9 +370,7 @@ impl ChatSession {
             wf
         };
 
-        let mut log_indexer = ChatLogIndexer::from_logs(logs);
-        log_indexer.recount_all_tokens();
-        log_indexer.apply_context_truncation();
+        let log_indexer = ChatLogIndexer::from_logs(logs);
 
         let session = Self {
             id: history.id,
