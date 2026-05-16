@@ -66,6 +66,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::Next,
                         condition: None,
                         output: "list of bug definition".to_string(),
+                        output_to_workflow_memory: None,
                     }],
                 },
                 WorkflowStep {
@@ -78,11 +79,13 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                             to: GotoStep::Step(1),
                             condition: Some("unable to locate".to_string()),
                             output: "reason why unable to locate".to_string(),
+                            output_to_workflow_memory: None,
                         },
                         WorkflowGotoInstruction {
                             to: GotoStep::Next,
                             condition: None,
                             output: "list of files+explanation related to bug".to_string(),
+                            output_to_workflow_memory: None,
                         },
                     ],
                 },
@@ -96,11 +99,13 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                             to: GotoStep::Step(1),
                             condition: Some("unable to create test".to_string()),
                             output: "reason why unable to create test".to_string(),
+                            output_to_workflow_memory: None,
                         },
                         WorkflowGotoInstruction {
                             to: GotoStep::Next,
                             condition: None,
                             output: "list of test case".to_string(),
+                            output_to_workflow_memory: None,
                         },
                     ],
                 },
@@ -113,6 +118,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::Next,
                         condition: None,
                         output: "cleanup done".to_string(),
+                        output_to_workflow_memory: None,
                     }],
                 },
                 WorkflowStep {
@@ -124,6 +130,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::EndWorkflow,
                         condition: None,
                         output: "analysis of the bug".to_string(),
+                        output_to_workflow_memory: None,
                     }],
                 },
             ],
@@ -142,6 +149,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::Next,
                         condition: None,
                         output: "workflow goal and step definitions".to_string(),
+                        output_to_workflow_memory: None,
                     }],
                 },
                 WorkflowStep {
@@ -153,6 +161,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::Next,
                         condition: None,
                         output: "drafted workflow".to_string(),
+                        output_to_workflow_memory: None,
                     }],
                 },
                 WorkflowStep {
@@ -164,6 +173,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::Next,
                         condition: None,
                         output: "flagged lines with reasons (or none if no issues)".to_string(),
+                        output_to_workflow_memory: None,
                     }],
                 },
                 WorkflowStep {
@@ -175,6 +185,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::Next,
                         condition: None,
                         output: "pruned workflow".to_string(),
+                        output_to_workflow_memory: None,
                     }],
                 },
                 WorkflowStep {
@@ -187,11 +198,13 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                             to: GotoStep::Step(2),
                             condition: Some("flow issues found".to_string()),
                             output: "flow issues description".to_string(),
+                            output_to_workflow_memory: None,
                         },
                         WorkflowGotoInstruction {
                             to: GotoStep::Next,
                             condition: None,
                             output: "validated workflow".to_string(),
+                            output_to_workflow_memory: None,
                         },
                     ],
                 },
@@ -205,11 +218,13 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                             to: GotoStep::Step(2),
                             condition: Some("user requests changes".to_string()),
                             output: "change requests".to_string(),
+                            output_to_workflow_memory: None,
                         },
                         WorkflowGotoInstruction {
                             to: GotoStep::EndWorkflow,
                             condition: None,
                             output: "final workflow".to_string(),
+                            output_to_workflow_memory: None,
                         },
                     ],
                 },
@@ -232,6 +247,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         output:
                             "requirements with acceptance criteria (each with verification method)"
                                 .to_string(),
+                        output_to_workflow_memory: Some("goal".to_string()),
                     }],
                 },
                 WorkflowStep {
@@ -243,6 +259,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::Next,
                         condition: None,
                         output: "next incremental change to make".to_string(),
+                        output_to_workflow_memory: None,
                     }],
                 },
                 WorkflowStep {
@@ -254,6 +271,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::Next,
                         condition: None,
                         output: "test that fails before change, passes after".to_string(),
+                        output_to_workflow_memory: None,
                     }],
                 },
                 WorkflowStep {
@@ -266,11 +284,13 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                             to: GotoStep::Step(4),
                             condition: Some("verification failed".to_string()),
                             output: "failure details".to_string(),
+                            output_to_workflow_memory: None,
                         },
                         WorkflowGotoInstruction {
                             to: GotoStep::Next,
                             condition: None,
                             output: "build result + affected test results".to_string(),
+                            output_to_workflow_memory: None,
                         },
                     ],
                 },
@@ -284,11 +304,13 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                             to: GotoStep::Step(2),
                             condition: Some("goal not reached".to_string()),
                             output: "remaining gap".to_string(),
+                            output_to_workflow_memory: None,
                         },
                         WorkflowGotoInstruction {
                             to: GotoStep::Next,
                             condition: None,
                             output: "goal reached: true/false with reasoning".to_string(),
+                            output_to_workflow_memory: None,
                         },
                     ],
                 },
@@ -301,6 +323,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::Next,
                         condition: None,
                         output: "cleaned codebase".to_string(),
+                        output_to_workflow_memory: None,
                     }],
                 },
                 WorkflowStep {
@@ -313,11 +336,13 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                             to: GotoStep::Step(2),
                             condition: Some("tests fail".to_string()),
                             output: "failed tests list".to_string(),
+                            output_to_workflow_memory: None,
                         },
                         WorkflowGotoInstruction {
                             to: GotoStep::EndWorkflow,
                             condition: None,
                             output: "all tests pass + unverifiable aspects documented".to_string(),
+                            output_to_workflow_memory: None,
                         },
                     ],
                 },
@@ -380,6 +405,8 @@ pub struct WorkflowGotoInstruction {
     pub to: GotoStep,
     pub condition: Option<String>,
     pub output: String,
+    #[serde(default)]
+    pub output_to_workflow_memory: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]

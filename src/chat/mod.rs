@@ -10,6 +10,7 @@ use chrono::{DateTime, Local};
 use nvim_oxi::{Result as OxiResult, api::types::LogLevel};
 use rig::{completion::Usage, message::ToolResultContent};
 use std::{
+    collections::HashMap,
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, LazyLock, Mutex, RwLock},
 };
@@ -83,6 +84,18 @@ fn build_workflow_prompt(
 
             let goto_instruction = goto_lines.join("\n");
 
+            // Build memory section if there's stored memory
+            let memory_section = if active.memory.is_empty() {
+                String::new()
+            } else {
+                let memory_entries: Vec<String> = active
+                    .memory
+                    .iter()
+                    .map(|(k, v)| format!("<memory name=\"{}\">{}</memory>", k, v))
+                    .collect();
+                memory_entries.join("\n")
+            };
+
             return format!(
                 "<context>\n\
                     Currently in {} step of {} workflow. Priority: user prompt > workflow instruction > chat history\n\
@@ -94,12 +107,13 @@ fn build_workflow_prompt(
                     <navigation>\n\
                     {}\n\
                     </navigation>\n\
-                    </context>\n\
+                    {}</context>\n\
                     {}",
                 step.title,
                 workflow.title,
                 step.instruction.resolve().unwrap_or_default(),
                 goto_instruction,
+                memory_section,
                 base_prompt
             );
         }
@@ -156,6 +170,7 @@ impl std::ops::Deref for ActiveAgent {
 pub struct ActiveWorkflow {
     pub id: String,
     pub step: usize,
+    pub memory: HashMap<String, String>,
 }
 
 impl ActiveWorkflow {
@@ -163,6 +178,7 @@ impl ActiveWorkflow {
         Self {
             id: id.to_string(),
             step,
+            memory: HashMap::new(),
         }
     }
 }
@@ -857,5 +873,50 @@ mod tests {
         if let TenonLogData::Tool(tl) = &indexer.logs[1].log.data() {
             assert!(tl.tool_result.is_some());
         }
+    }
+
+    #[test]
+    fn test_active_workflow_memory() {
+        let workflow = ActiveWorkflow::new("test_workflow", 1);
+        assert!(workflow.memory.is_empty());
+
+        // Verify memory field exists and can store values
+        let mut workflow = ActiveWorkflow::new("test_workflow", 1);
+        workflow
+            .memory
+            .insert("key1".to_string(), "value1".to_string());
+        workflow
+            .memory
+            .insert("key2".to_string(), "value2".to_string());
+
+        assert_eq!(workflow.memory.get("key1"), Some(&"value1".to_string()));
+        assert_eq!(workflow.memory.get("key2"), Some(&"value2".to_string()));
+        assert_eq!(workflow.memory.len(), 2);
+    }
+
+    #[test]
+    fn test_build_workflow_prompt_displays_memory() {
+        // Test that build_workflow_prompt includes stored memory in context
+        // Initialize PLUGIN_ROOT for testing
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().unwrap())
+            .ok();
+
+        let workflow = Arc::new(RwLock::new(Some(ActiveWorkflow {
+            id: "implement_software".to_string(),
+            step: 1,
+            memory: {
+                let mut m = HashMap::new();
+                m.insert("previous_output".to_string(), "test result".to_string());
+                m
+            },
+        })));
+
+        let prompt = build_workflow_prompt(&workflow, "user input".to_string());
+
+        // Memory should be included in the prompt
+        assert!(prompt.contains("<memory name=\"previous_output\">"));
+        assert!(prompt.contains("test result"));
+        assert!(prompt.contains("</memory>"));
     }
 }
