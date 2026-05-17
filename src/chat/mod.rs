@@ -118,7 +118,10 @@ fn build_workflow_prompt(
             );
         }
     }
-    base_prompt
+    format!(
+        "<context>Currently not in workflow</context>\n{}",
+        base_prompt
+    )
 }
 
 pub static CHAT_SESSIONS: LazyLock<Mutex<Vec<Arc<RwLock<ChatSession>>>>> =
