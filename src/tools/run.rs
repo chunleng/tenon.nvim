@@ -15,7 +15,7 @@ use tokio::process::Command;
 const SHELL_METACHARACTERS: &[&str] = &["|", "&&", ";", ">", "<", "$("];
 
 /// Hard cap on combined stdout+stderr output size (bytes).
-const OUTPUT_CAP: usize = 64 * 1024;
+const OUTPUT_CAP: usize = 32 * 1024;
 
 #[derive(Deserialize)]
 pub struct RunArgs {
@@ -266,14 +266,14 @@ async fn check_command_safety(command: &str) -> Result<(), ToolError> {
     Ok(())
 }
 
-/// Apply filter, head, and tail to stdout lines.
+/// Apply filter, head, and tail to output lines.
 fn apply_output_filters(
-    stdout: &str,
+    output: &str,
     filter: Option<&str>,
     head: Option<usize>,
     tail: Option<usize>,
 ) -> String {
-    let mut lines: Vec<&str> = stdout.lines().collect();
+    let mut lines: Vec<&str> = output.lines().collect();
 
     if let Some(f) = filter {
         lines.retain(|line| line.contains(f));
@@ -290,6 +290,16 @@ fn apply_output_filters(
     lines.join("\n")
 }
 
+/// Truncate output to OUTPUT_CAP bytes.
+/// Returns (truncated_output, was_truncated).
+fn truncate_output(output: &str) -> (String, bool) {
+    if output.len() <= OUTPUT_CAP {
+        return (output.to_string(), false);
+    }
+
+    (output[..OUTPUT_CAP].to_string(), true)
+}
+
 impl Tool for Run {
     const NAME: &'static str = "run";
     type Error = ToolError;
@@ -299,7 +309,7 @@ impl Tool for Run {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "run".to_string(),
-            description: "Execute allowed commands. Output: stdout (filtered) + all stderr."
+            description: "Execute allowed commands. Output: stdout (filtered) + stderr (filtered)."
                 .to_string(),
             parameters: json!({
                 "type": "object",
@@ -318,15 +328,15 @@ impl Tool for Run {
                     },
                     "filter": {
                         "type": "string",
-                        "description": "Only stdout lines containing this substring."
+                        "description": "Only lines (stdout and stderr) containing this substring."
                     },
                     "head": {
                         "type": "integer",
-                        "description": "Keep first N lines of stdout. Mutually exclusive with tail."
+                        "description": "Keep first N lines of output (stdout and stderr). Mutually exclusive with tail."
                     },
                     "tail": {
                         "type": "integer",
-                        "description": "Keep last N lines of stdout. Mutually exclusive with head."
+                        "description": "Keep last N lines of output (stdout and stderr). Mutually exclusive with head."
                     },
                     "env": {
                         "type": "object",
@@ -445,18 +455,21 @@ impl Tool for Run {
         let raw_stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let raw_stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-        // Apply output filters to stdout only
+        // Apply output filters to both stdout and stderr
         let filtered_stdout =
             apply_output_filters(&raw_stdout, args.filter.as_deref(), args.head, args.tail);
+        let filtered_stderr =
+            apply_output_filters(&raw_stderr, args.filter.as_deref(), args.head, args.tail);
 
-        // Check truncation on combined filtered output + stderr
-        let combined_len = filtered_stdout.len() + raw_stderr.len();
-        let truncated = combined_len > OUTPUT_CAP;
+        // Truncate each stream individually to OUTPUT_CAP
+        let (truncated_stdout, stdout_was_truncated) = truncate_output(&filtered_stdout);
+        let (truncated_stderr, stderr_was_truncated) = truncate_output(&filtered_stderr);
+        let truncated = stdout_was_truncated || stderr_was_truncated;
 
         let result = RunOutput {
             exit_code,
-            stdout: filtered_stdout,
-            stderr: raw_stderr,
+            stdout: truncated_stdout,
+            stderr: truncated_stderr,
             truncated,
         };
 
@@ -496,5 +509,21 @@ mod tests {
         let stdout = "error line1\ninfo line2\nerror line3\ninfo line4\nerror line5";
         let result = apply_output_filters(stdout, Some("error"), None, Some(2));
         assert_eq!(result, "error line3\nerror line5");
+    }
+
+    #[test]
+    fn test_truncate_output_under_cap() {
+        let output = "line1\nline2\nline3";
+        let (result, truncated) = truncate_output(output);
+        assert_eq!(result, "line1\nline2\nline3");
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn test_truncate_output_over_cap() {
+        let output = "x".repeat(100_000);
+        let (result, truncated) = truncate_output(&output);
+        assert!(truncated);
+        assert_eq!(result.len(), OUTPUT_CAP);
     }
 }
