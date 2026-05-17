@@ -23,8 +23,8 @@ pub struct RunArgs {
     pub cwd: Option<String>,
     pub timeout: Option<u64>,
     pub filter: Option<String>,
-    pub direction: Option<String>,
-    pub limit: Option<usize>,
+    pub head: Option<usize>,
+    pub tail: Option<usize>,
     pub env: Option<HashMap<String, String>>,
 }
 
@@ -266,12 +266,12 @@ async fn check_command_safety(command: &str) -> Result<(), ToolError> {
     Ok(())
 }
 
-/// Apply filter, direction, and limit to stdout lines.
+/// Apply filter, head, and tail to stdout lines.
 fn apply_output_filters(
     stdout: &str,
     filter: Option<&str>,
-    direction: Option<&str>,
-    limit: Option<usize>,
+    head: Option<usize>,
+    tail: Option<usize>,
 ) -> String {
     let mut lines: Vec<&str> = stdout.lines().collect();
 
@@ -279,24 +279,12 @@ fn apply_output_filters(
         lines.retain(|line| line.contains(f));
     }
 
-    if let Some(dir) = direction {
-        if dir == "head" {
-            // keep from the start
-        } else {
-            // "tail" (default) — keep from the end
-            lines.reverse();
-        }
-    }
-
-    if let Some(n) = limit {
+    if let Some(n) = head {
         lines.truncate(n);
-    }
-
-    // If we reversed for tail, reverse back
-    if let Some(dir) = direction
-        && dir != "head"
-    {
-        lines.reverse();
+    } else if let Some(n) = tail {
+        // Keep last n lines
+        let start = if lines.len() > n { lines.len() - n } else { 0 };
+        lines = lines.drain(start..).collect();
     }
 
     lines.join("\n")
@@ -332,13 +320,13 @@ impl Tool for Run {
                         "type": "string",
                         "description": "Only stdout lines containing this substring."
                     },
-                    "direction": {
-                        "type": "string",
-                        "description": "\"head\"|\"tail\". Which end to keep. Default: tail."
-                    },
-                    "limit": {
+                    "head": {
                         "type": "integer",
-                        "description": "Max stdout lines. null = no limit."
+                        "description": "Keep first N lines of stdout. Mutually exclusive with tail."
+                    },
+                    "tail": {
+                        "type": "integer",
+                        "description": "Keep last N lines of stdout. Mutually exclusive with head."
                     },
                     "env": {
                         "type": "object",
@@ -352,12 +340,20 @@ impl Tool for Run {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        // Validate mutual exclusivity of head and tail
+        if args.head.is_some() && args.tail.is_some() {
+            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Cannot set both 'head' and 'tail'. Use only one.",
+            ))));
+        }
+
         // Check for shell metacharacters
         if let Some(mc) = find_shell_metacharacter(&args.command) {
             return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!(
-                    "Shell metacharacter '{}' not allowed. No shell features (pipes, &&, redirects, $()). Use filter/limit/direction.",
+                    "Shell metacharacter '{}' not allowed. No shell features (pipes, &&, redirects, $()). Use filter/head/tail.",
                     mc
                 ),
             ))));
@@ -450,12 +446,8 @@ impl Tool for Run {
         let raw_stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         // Apply output filters to stdout only
-        let filtered_stdout = apply_output_filters(
-            &raw_stdout,
-            args.filter.as_deref(),
-            args.direction.as_deref(),
-            args.limit,
-        );
+        let filtered_stdout =
+            apply_output_filters(&raw_stdout, args.filter.as_deref(), args.head, args.tail);
 
         // Check truncation on combined filtered output + stderr
         let combined_len = filtered_stdout.len() + raw_stderr.len();
@@ -471,5 +463,38 @@ impl Tool for Run {
         Ok(serde_json::to_string(&result).unwrap_or_else(|_| {
             r#"{"exit_code":-1,"stdout":"","stderr":"","truncated":false}"#.to_string()
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_head_keeps_first_n_lines() {
+        let stdout = "line1\nline2\nline3\nline4\nline5";
+        let result = apply_output_filters(stdout, None, Some(3), None);
+        assert_eq!(result, "line1\nline2\nline3");
+    }
+
+    #[test]
+    fn test_tail_keeps_last_n_lines() {
+        let stdout = "line1\nline2\nline3\nline4\nline5";
+        let result = apply_output_filters(stdout, None, None, Some(3));
+        assert_eq!(result, "line3\nline4\nline5");
+    }
+
+    #[test]
+    fn test_filter_with_head() {
+        let stdout = "error line1\ninfo line2\nerror line3\ninfo line4\nerror line5";
+        let result = apply_output_filters(stdout, Some("error"), Some(2), None);
+        assert_eq!(result, "error line1\nerror line3");
+    }
+
+    #[test]
+    fn test_filter_with_tail() {
+        let stdout = "error line1\ninfo line2\nerror line3\ninfo line4\nerror line5";
+        let result = apply_output_filters(stdout, Some("error"), None, Some(2));
+        assert_eq!(result, "error line3\nerror line5");
     }
 }
