@@ -32,13 +32,33 @@ use serde_json::Value;
 ///
 /// Returns `None` for tools with no useful display arg (e.g. "think", MCP tools).
 pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
+    // Special case for "run": combine command + args for display
+    if name == "run" {
+        let command = args.get("command").and_then(|v| v.as_str())?;
+        let display = if let Some(args_list) = args.get("args").and_then(|v| v.as_array()) {
+            let args_str = args_list
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if args_str.is_empty() {
+                command.to_string()
+            } else {
+                format!("{} {}", command, args_str)
+            }
+        } else {
+            command.to_string()
+        };
+        let display = display.lines().collect::<Vec<_>>().join("↵");
+        return Some(format!("command: {}", display));
+    }
+
     let core_arg: &str = match name {
         "web_search" => "query",
         "read_file" | "edit_file" | "create_file" | "remove_path" => "filepath",
         "move_path" => "source",
         "list_files" | "search_text" => "pattern",
         "fetch_webpage" => "url",
-        "run" => "command",
         "navigate_workflow" => "step",
         _ => return None,
     };

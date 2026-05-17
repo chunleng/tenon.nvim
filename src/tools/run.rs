@@ -11,15 +11,13 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
 
-/// Shell metacharacters that indicate shell features (pipes, redirects, etc.)
-const SHELL_METACHARACTERS: &[&str] = &["|", "&&", ";", ">", "<", "$("];
-
 /// Hard cap on combined stdout+stderr output size (bytes).
 const OUTPUT_CAP: usize = 32 * 1024;
 
 #[derive(Deserialize)]
 pub struct RunArgs {
     pub command: String,
+    pub args: Option<Vec<String>>,
     pub cwd: Option<String>,
     pub timeout: Option<u64>,
     pub filter: Option<String>,
@@ -37,26 +35,6 @@ struct RunOutput {
     stdout: String,
     stderr: String,
     truncated: bool,
-}
-
-/// Check a command string for shell metacharacters.
-/// Returns the first metacharacter found, or None if clean.
-fn find_shell_metacharacter(command: &str) -> Option<&'static str> {
-    SHELL_METACHARACTERS
-        .iter()
-        .find(|&&mc| command.contains(mc))
-        .copied()
-        .map(|v| v as _)
-}
-
-/// Check if command starts with env var prefix (VAR=value).
-/// Returns true if the first token matches VAR=pattern.
-fn has_env_var_prefix(command: &str) -> bool {
-    command
-        .split_whitespace()
-        .next()
-        .map(|first| first.contains('='))
-        .unwrap_or(false)
 }
 
 /// Arg allowance for a whitelist pattern.
@@ -316,7 +294,12 @@ impl Tool for Run {
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "Command to execute. Runs directly without shell. Example: to run \"VAR=1 cargo build 2>&1 | grep error\", instead set env: {\"VAR\": \"1\"}, command: \"cargo build\", filter: \"error\". No need for 2>&1 - stderr always included."
+                        "description": "Executable to run (not a shell command). Example: 'git', 'make', 'cargo'"
+                    },
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Arguments for the command. Example: ['log', '--oneline'] for 'git log --oneline'"
                     },
                     "cwd": {
                         "type": "string",
@@ -358,38 +341,18 @@ impl Tool for Run {
             ))));
         }
 
-        // Check for shell metacharacters
-        if let Some(mc) = find_shell_metacharacter(&args.command) {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "Shell metacharacter '{}' not allowed. No shell features (pipes, &&, redirects, $()). Use filter/head/tail.",
-                    mc
-                ),
-            ))));
-        }
-
-        // Check for env var prefix (VAR=value cmd)
-        if has_env_var_prefix(&args.command) {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Env var prefix not allowed. No shell features (VAR=value cmd). Use env field.",
-            ))));
-        }
-
-        // Parse the command
-        let command_tokens = shlex::split(&args.command).ok_or_else(|| {
-            ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("Failed to parse command: '{}'", args.command),
-            )))
-        })?;
-
-        if command_tokens.is_empty() {
+        // Command is required and must not be empty
+        if args.command.trim().is_empty() {
             return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Empty command".to_string(),
             ))));
+        }
+
+        // Build command tokens for whitelist matching: [command, ...args]
+        let mut command_tokens = vec![args.command.clone()];
+        if let Some(ref cmd_args) = args.args {
+            command_tokens.extend(cmd_args.clone());
         }
 
         // Check whitelist
@@ -398,12 +361,18 @@ impl Tool for Run {
 
         if !command_matches_whitelist(&command_tokens, whitelist) {
             // Whitelist doesn't match - use LLM to check if command is safe
-            check_command_safety(&args.command).await?;
+            // Combine command + args for the check
+            let full_command = if let Some(ref cmd_args) = args.args {
+                format!("{} {}", args.command, cmd_args.join(" "))
+            } else {
+                args.command.clone()
+            };
+            check_command_safety(&full_command).await?;
         }
 
         // Build the process
-        let program = &command_tokens[0];
-        let program_args = &command_tokens[1..];
+        let program = &args.command;
+        let program_args = args.args.as_deref().unwrap_or(&[]);
 
         let timeout_secs = args.timeout.unwrap_or(30);
 
@@ -482,6 +451,52 @@ impl Tool for Run {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_whitelist_exact() {
+        let (tokens, allowance) = parse_whitelist_pattern("make");
+        assert_eq!(tokens, vec!["make"]);
+        assert!(matches!(allowance, ArgAllowance::Exact));
+    }
+
+    #[test]
+    fn test_parse_whitelist_one_arg() {
+        let (tokens, allowance) = parse_whitelist_pattern("make ?");
+        assert_eq!(tokens, vec!["make"]);
+        assert!(matches!(allowance, ArgAllowance::OneArg));
+    }
+
+    #[test]
+    fn test_parse_whitelist_any_args() {
+        let (tokens, allowance) = parse_whitelist_pattern("git log *");
+        assert_eq!(tokens, vec!["git", "log"]);
+        assert!(matches!(allowance, ArgAllowance::AnyArgs));
+    }
+
+    #[test]
+    fn test_command_matches_whitelist_with_separated_args() {
+        // Test: command + args should match whitelist patterns
+        // This test will FAIL before the change (function signature mismatch)
+        // and PASS after implementing command + args separation
+
+        let whitelist = vec!["git log *".to_string(), "make".to_string()];
+
+        // git log with args should match "git log *"
+        let command = "git".to_string();
+        let args = vec!["log".to_string(), "--oneline".to_string()];
+        let combined: Vec<String> = std::iter::once(command.clone())
+            .chain(args.clone())
+            .collect();
+        assert!(command_matches_whitelist(&combined, &whitelist));
+
+        // make without args should match "make"
+        let command = "make".to_string();
+        let args: Vec<String> = vec![];
+        let combined: Vec<String> = std::iter::once(command.clone())
+            .chain(args.clone())
+            .collect();
+        assert!(command_matches_whitelist(&combined, &whitelist));
+    }
 
     #[test]
     fn test_head_keeps_first_n_lines() {
