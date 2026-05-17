@@ -328,7 +328,7 @@ impl Tool for Run {
                     },
                     "filter": {
                         "type": "string",
-                        "description": "Only lines (stdout and stderr) containing this substring."
+                        "description": "Only lines (stdout and stderr) containing this literal substring."
                     },
                     "head": {
                         "type": "integer",
