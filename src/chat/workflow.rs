@@ -347,7 +347,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     ],
                 },
             ],
-            default_condition: "before modifying files that are production code".to_string(),
+            default_condition: "when writing/editing/implementing code".to_string(),
         },
     ]
 }

@@ -103,7 +103,8 @@ fn build_workflow_prompt(
                     <instruction>\n\
                     {}\n\
                     </instruction>\n\
-                    After completing instruction → call navigate_workflow with step number + step_output. If asking user question → stop, do not navigate.\n\
+                    If asking user question → stop, do not navigate.\n\
+                    After completing instruction → call navigate_workflow with step number + step_output.\n\
                     <navigation>\n\
                     {}\n\
                     </navigation>\n\
@@ -218,9 +219,7 @@ impl TenonAgent {
         let mut system_prompt = "Running on Tenon. Output markdown. Be brief, No filler or hedging or unnecessary words. Reduce emoji use. \
             Files content changes anytime. File ≠ expected → never revert, re-read → re-understand → changes. \
             History shows active behavior/prompt at that time. Prior actions may span agents → trust reported behavior. \
-            Earlier history may be truncated. Missing context → ask user for clarification. \
-            <directive></directive>=rules for agent conduct; no condition→always, condition→when matched. \
-            Explicit user instruction overrides directives.".to_string();
+            Earlier history may be truncated. Missing context → ask user for clarification.".to_string();
 
         // Add workflow information if agent has workflows configured
         if !self.workflows.is_empty() {
@@ -241,11 +240,15 @@ impl TenonAgent {
                 .collect();
 
             system_prompt.push_str(&format!(
-                " <workflow />=multi-step process. Start: `start_workflow <id>`. Condition match → prioritize workflow over unguided steps.\n\
+                "\n\n<workflow />=multi-step process. Start: `start_workflow <id>` when not in workflow. Condition match → ALWAYS PRIORITIZE WORKFLOW over unguided steps.\n\
                 {}",
                 workflow_info.join("")
             ));
         }
+
+        system_prompt.push_str(
+            "\n\n<directive></directive>=rules for agent conduct; no condition→always, condition→when matched. \
+            Explicit user instruction overrides directives.");
 
         let mut combined = vec![Directive {
             condition: None,
