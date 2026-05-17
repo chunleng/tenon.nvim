@@ -226,7 +226,20 @@ async fn check_command_safety(command: &str) -> Result<(), ToolError> {
         .map(|model| {
             let model = model.clone();
             let command = command.to_string();
-            async move { check_command_safety_with_llm(&command, &model).await }
+            async move {
+                let mut last_error = None;
+                for _ in 0..3 {
+                    match check_command_safety_with_llm(&command, &model).await {
+                        Ok(result) => return Ok(result),
+                        Err(e) => last_error = Some(e),
+                    }
+                }
+                Err(last_error.unwrap_or_else(|| {
+                    ToolError::ToolCallError(Box::new(std::io::Error::other(
+                        "LLM safety check failed after 3 attempts",
+                    )))
+                }))
+            }
         })
         .collect();
 
