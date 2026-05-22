@@ -120,7 +120,7 @@ fn build_workflow_prompt(
         }
     }
     format!(
-        "<context>Currently not in workflow</context>\n{}",
+        "<context>Currently not in workflow. Always use workflow when condition matches</context>\n{}",
         base_prompt
     )
 }
@@ -240,7 +240,7 @@ impl TenonAgent {
                 .collect();
 
             system_prompt.push_str(&format!(
-                "\n\n<workflow />=multi-step process. Start: `start_workflow <id>` when not in workflow. Condition match → ALWAYS PRIORITIZE WORKFLOW over unguided steps.\n\
+                "\n\n<workflow />=multi-step process. Start: `start_workflow <id>`.\n\
                 {}",
                 workflow_info.join("")
             ));
@@ -548,6 +548,12 @@ impl ChatSession {
                         log_indexer_clone.clone(),
                     );
 
+                    let chat_history = if let Ok(mut indexer) = log_indexer_clone.write() {
+                        indexer.retrieve_chatlog_with_context(&next_prompt)
+                    } else {
+                        Vec::new()
+                    };
+
                     // Add user message if provided
                     if save_next_prompt && let Ok(mut indexer) = log_indexer_clone.write() {
                         indexer.logs.push(crate::chat::log_indexer::IndexedLog {
@@ -558,12 +564,6 @@ impl ChatSession {
                         });
                         save_next_prompt = false;
                     }
-
-                    let chat_history = if let Ok(mut indexer) = log_indexer_clone.write() {
-                        indexer.retrieve_chatlog_with_context(&next_prompt)
-                    } else {
-                        Vec::new()
-                    };
 
                     let prompt = build_workflow_prompt(&active_workflow_clone, next_prompt.clone());
                     let mut stream = agent
