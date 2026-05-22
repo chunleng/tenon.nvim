@@ -224,5 +224,15 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
         },
     );
 
+    map.insert(
+        "Code Comment Basics".into(),
+        Directive {
+            condition: None,
+            source: DirectiveSource::File {
+                paths: vec![directive_path("code_comment_basics.md")],
+            },
+        },
+    );
+
     map
 }
