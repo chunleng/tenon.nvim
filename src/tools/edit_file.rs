@@ -145,7 +145,7 @@ impl Tool for EditFile {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "edit_file".to_string(),
-            description: "Find → replace. 'one' errors if >1 match.".to_string(),
+            description: "Find → replace. 'one' errors if >1 match. Example: empty file → search='', replace='new content'".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
