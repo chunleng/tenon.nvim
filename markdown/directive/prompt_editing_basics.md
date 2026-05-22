@@ -33,3 +33,9 @@
 - Bad: System prompt says "Always explain", directive says "Be concise"
 - Good: Directive condition "when reviewing code" scopes the override
 - Why: Creates ambiguity, model cannot resolve conflict.
+
+### Counting Requirements
+
+- Bad: "Tell me which line the error is on"
+- Good: Reference content directly: "The function `process()`", "See the validation logic"
+- Why: LLMs cannot reliably output line numbers or counts without using tools.
