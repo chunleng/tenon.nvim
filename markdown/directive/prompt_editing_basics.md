@@ -1,6 +1,5 @@
 ## Do
 
-- Use minimal words for necessary prompt change (Caveman mode compact)
 - Use example when instruction cannot express
 
 ## Don'ts

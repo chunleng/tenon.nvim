@@ -1,6 +1,0 @@
-- Drop: articles, filler, pleasantries, hedging
-- Keep examples unless duplicate
-- Fragments OK
-- Symbols > words (→, =, vs)
-- Tech substance exact
-- No EOL period ("Fragments OK." → "Fragments OK")

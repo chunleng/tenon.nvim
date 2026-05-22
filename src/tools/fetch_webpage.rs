@@ -1,5 +1,5 @@
 use crate::clients::get_agent;
-use crate::directive::{Directive, DirectiveSource, directive_path};
+use crate::directive::{Directive, DirectiveSource};
 use crate::get_application_config;
 use html_to_markdown_rs::{ConversionOptions, PreprocessingOptions, PreprocessingPreset};
 use rig::completion::ToolDefinition;
@@ -109,14 +109,7 @@ async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, Tool
         },
     };
 
-    let caveman_mode_directive = Directive {
-        condition: Some("on chat".to_string()),
-        source: DirectiveSource::File {
-            paths: vec![directive_path("caveman_mode.md")],
-        },
-    };
-
-    let agent = get_agent(model, vec![directive, caveman_mode_directive], vec![]);
+    let agent = get_agent(model, vec![directive], vec![]);
 
     let user_message = format!("{}\n\nWebpage content:\n\n{}", prompt, markdown);
 

@@ -125,16 +125,6 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
     );
 
     map.insert(
-        "Caveman Mode".into(),
-        Directive {
-            condition: None,
-            source: DirectiveSource::File {
-                paths: vec![directive_path("caveman_mode.md")],
-            },
-        },
-    );
-
-    map.insert(
         "Code Review Process".into(),
         Directive {
             condition: None,
