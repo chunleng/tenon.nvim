@@ -1,6 +1,7 @@
 ## Do
 
 - Use example when instruction cannot express
+- Compact after editing prompt
 
 ## Don'ts
 
@@ -8,13 +9,13 @@
 
 - Bad: "You are a backend developer"
 - Good: "Be meticulous and careful. Check work thoroughly."
-- Why: Role definitions lead LLM into stereotypical patterns. Define how agent should work, not what identity it has.
+- Why: Role definitions → stereotypical patterns. Define how agent works, not identity.
 
 ### Listing What Agent Does
 
 - Bad: "You write code"
-- Good: Remove such prompts. Use knowledge or workflow to document how to perform actions if needed.
-- Why: Agent already knows to act when prompted. Stating what it does creates stereotypical behavior, misinterprets user intent.
+- Good: Remove such prompts. Use knowledge/workflow to document actions if needed.
+- Why: Agent already knows to act when prompted. Stating what it does → stereotypical behavior, misinterprets user intent.
 
 ### Hedging Language
 
@@ -32,10 +33,10 @@
 
 - Bad: System prompt says "Always explain", directive says "Be concise"
 - Good: Directive condition "when reviewing code" scopes the override
-- Why: Creates ambiguity, model cannot resolve conflict.
+- Why: Creates ambiguity → model cannot resolve conflict.
 
 ### Counting Requirements
 
 - Bad: "Tell me which line the error is on"
 - Good: Reference content directly: "The function `process()`", "See the validation logic"
-- Why: LLMs cannot reliably output line numbers or counts without using tools.
+- Why: LLMs cannot reliably output line numbers/counts without tools.

@@ -404,7 +404,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         WorkflowGotoInstruction {
                             to: GotoStep::EndWorkflow,
                             condition: None,
-                            output: "final compacted texts".to_string(),
+                            output: "final texts".to_string(),
                             output_to_workflow_memory: None,
                         },
                     ],

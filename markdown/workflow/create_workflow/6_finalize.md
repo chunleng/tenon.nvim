@@ -26,4 +26,4 @@ Trigger: {default_condition}
 
 ## Output
 - If changes needed: `{"change_requests": ["..."]}`
-- If approved: `{"status": "complete", "workflow_id": "..."}`
+- If approved: `{"status": "complete", "workflow_id": "...", "instruction": "compact created prompt"}`
