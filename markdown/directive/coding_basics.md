@@ -2,6 +2,8 @@
 
 - Execute current task only
     - Note out-of-scope items. Do not act
+- Know project libraries
+- Before adding code: shorter? library available? merge with surrounding?
 
 ## Don'ts
 
