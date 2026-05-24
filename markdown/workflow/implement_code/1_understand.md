@@ -1,23 +1,23 @@
 ## Purpose
-Gather requirements and define verification criteria
+Gather requirements + define verification criteria
 
-**Important**: Requirements persist throughout the entire workflow. All subsequent steps reference these requirements.
+**Important**: Requirements persist throughout workflow → all subsequent steps reference
 
 ## Process
-Check input source:
-- User request: extract requirements
-- Previous workflow output: use as requirements
+**If requirements unclear → ask clarification before proceeding**
 
-**If requirements unclear → ask user for clarification before proceeding**
-**If user provides multiple options → ask user which one to proceed with**
+**If test framework not found → ask user:**
+- Setup test framework?
+- Improves verification
 
 Define acceptance criteria:
-- What must be true when implementation complete
+- What must be true when done
 - Measurable outcomes
 
 Define verification methods:
 - How to verify each criterion
-- Tests (preferred), or build + analysis together
+- Tests (preferred)
+- Build + analysis: Untestable (language/visual limits). Last resort.
 
 ## Output
 ```json
