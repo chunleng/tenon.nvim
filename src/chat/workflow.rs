@@ -134,7 +134,8 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     }],
                 },
             ],
-            default_condition: "before trying to resolve a bug".to_string(),
+            default_condition: "when user reports bug/issue/error or unexpected/broken behavior"
+                .to_string(),
         },
         Workflow {
             id: "create_workflow".to_string(),
@@ -347,7 +348,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     ],
                 },
             ],
-            default_condition: "when writing/editing/implementing code".to_string(),
+            default_condition: "when user requests code impl/changes (not just planning)".to_string(),
         },
         Workflow {
             id: "compact_text".to_string(),
