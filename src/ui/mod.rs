@@ -31,7 +31,7 @@ use crate::{
         },
         panels::fixed::{FixedBufferPanel, FixedBufferPanelOption},
         panels::swappable::{SwappableBufferPanel, SwappablePanelOption},
-        widget::display::{ChatDisplay, ChatDisplayData},
+        widget::chat_display::{ChatDisplay, ChatDisplayData},
     },
     utils::notify,
 };
