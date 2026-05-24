@@ -169,7 +169,7 @@ mod tests {
 
         // Create workflow with memory
         let workflow = Arc::new(RwLock::new(Some(ActiveWorkflow {
-            id: "implement_software".to_string(),
+            id: "implement_code".to_string(),
             step: 1,
             memory: HashMap::new(),
         })));
@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(active.step, 2);
 
         // Note: Memory would only be populated if the workflow definition has
-        // output_to_workflow_memory configured, which implement_software doesn't have
+        // output_to_workflow_memory configured, which implement_code doesn't have
         // in step 1's goto_instructions. This test validates the basic navigation works.
     }
 }

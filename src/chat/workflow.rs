@@ -234,13 +234,13 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 "when user wants to create a workflow (agent-prompting related only)".to_string(),
         },
         Workflow {
-            id: "implement_software".to_string(),
-            title: "Implement Software".to_string(),
+            id: "implement_code".to_string(),
+            title: "Implement Code".to_string(),
             steps: vec![
                 WorkflowStep {
                     title: "Understand".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/1_understand.md"),
+                        file: workflow_path("implement_code/1_understand.md"),
                     },
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
@@ -254,7 +254,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Plan".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/2_plan.md"),
+                        file: workflow_path("implement_code/2_plan.md"),
                     },
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
@@ -266,7 +266,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Prepare Test".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/3_prepare_test.md"),
+                        file: workflow_path("implement_code/3_prepare_test.md"),
                     },
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
@@ -278,7 +278,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Implement".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/4_implement.md"),
+                        file: workflow_path("implement_code/4_implement.md"),
                     },
                     goto_instructions: vec![
                         WorkflowGotoInstruction {
@@ -298,7 +298,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Goal Check".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/5_goal_check.md"),
+                        file: workflow_path("implement_code/5_goal_check.md"),
                     },
                     goto_instructions: vec![
                         WorkflowGotoInstruction {
@@ -318,7 +318,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Cleanup".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/6_cleanup.md"),
+                        file: workflow_path("implement_code/6_cleanup.md"),
                     },
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
@@ -330,7 +330,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                 WorkflowStep {
                     title: "Finalize".to_string(),
                     instruction: Instruction::File {
-                        file: workflow_path("implement_software/7_finalize.md"),
+                        file: workflow_path("implement_code/7_finalize.md"),
                     },
                     goto_instructions: vec![
                         WorkflowGotoInstruction {
@@ -348,7 +348,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     ],
                 },
             ],
-            default_condition: "when user requests code impl/changes (not just planning)".to_string(),
+            default_condition: "when user requests code impl/changes".to_string(),
         },
         Workflow {
             id: "compact_text".to_string(),

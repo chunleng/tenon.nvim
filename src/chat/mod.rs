@@ -905,7 +905,7 @@ mod tests {
             .ok();
 
         let workflow = Arc::new(RwLock::new(Some(ActiveWorkflow {
-            id: "implement_software".to_string(),
+            id: "implement_code".to_string(),
             step: 1,
             memory: {
                 let mut m = HashMap::new();
