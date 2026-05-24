@@ -49,4 +49,5 @@ let line: String = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(|| {
 
 See `.agent/` folder:
 - [ui.md](.agent/ui.md) - UI architecture
-- [tools.md](.agent/tools.md) - Creating tools workflow
+- [tools.md](.agent/tools.md) - Creating tools
+- [workflow.md](.agent/workflow.md) - Related workflow files
