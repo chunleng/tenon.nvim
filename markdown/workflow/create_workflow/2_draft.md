@@ -16,5 +16,31 @@ Draft workflow structure and each step's instruction content
 - Include examples when instruction abstract or complex
 - Define goto_instructions with conditions and outputs
 
+## Understanding Tenon Workflow
+
+### Components
+
+- **Workflow**
+  - `id`: string
+  - `title`: string
+  - `steps`: array
+  - `default_condition`: string - when to auto-trigger
+
+- **Step**
+  - `title`: string - step name (logs)
+  - `instruction`: file path (preferred) | inline text
+  - `goto_instructions`: array
+
+- **GotoInstruction**
+  - `to`: "Next" | "Step(n)" | "EndWorkflow"
+  - `condition`: string | null (null = always matches)
+  - `output`: string
+  - `output_to_workflow_memory`: string | null
+
+### Advice
+
+- Order conditions before catch-all (null): evaluated in order; null always matches → later conditions blocked
+- `output_to_workflow_memory`: workflow state (e.g., goals) → persists for all steps
+
 ## Output
-Workflow files created + workflow.rs updated
+None

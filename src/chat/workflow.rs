@@ -150,7 +150,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                         to: GotoStep::Next,
                         condition: None,
                         output: "workflow goal and step definitions".to_string(),
-                        output_to_workflow_memory: None,
+                        output_to_workflow_memory: Some("goal".to_string()),
                     }],
                 },
                 WorkflowStep {
@@ -161,7 +161,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
                     goto_instructions: vec![WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "drafted workflow".to_string(),
+                        output: "nothing".to_string(),
                         output_to_workflow_memory: None,
                     }],
                 },

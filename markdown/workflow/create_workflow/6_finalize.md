@@ -1,17 +1,15 @@
 ## Purpose
-Present workflow to user for final review and approval
+Present workflow → user for final review/approval
 
 ## Process
-1. Present complete workflow:
-   - Show workflow.rs entry
-   - Show each step's instruction file content
+1. Present changes from current iteration:
+   - Show workflow.rs entry if created/modified
+   - Show instruction file content if created/modified
 2. Ask user: "Does this workflow look correct?"
 3. If user requests changes:
-   - Do not edit on the spot
-   - Pass to step 2 with change requests for redrafting
-4. If user approves:
-   - Confirm workflow complete
-   - Output summary to chat
+   - No on-the-spot edits
+   - Pass to step 2 w/ change requests for redrafting
+4. If approved, complete workflow
 
 ## Presentation Format
 ```
@@ -25,5 +23,5 @@ Trigger: {default_condition}
 ```
 
 ## Output
-- If changes needed: `{"change_requests": ["..."]}`
-- If approved: `{"status": "complete", "workflow_id": "...", "instruction": "compact created prompt"}`
+- Changes needed: `{"change_requests": ["..."]}`
+- Approved: `{"status": "complete", "workflow_id": "...", "instruction": "compact created prompt"}`

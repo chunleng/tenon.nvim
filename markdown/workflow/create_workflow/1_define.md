@@ -4,7 +4,7 @@ Define workflow goal and step structure through user interaction. Critical: do n
 ## Process
 1. If goal not stated → ask: "What is the goal of this workflow?"
 2. Ask clarifying questions when goal ambiguous, incomplete, or conflicting
-3. Search for require("tenon") to find config location, search for existing workflow markdowns to find storage location (ask if ambiguous)
+3. Search for `require("tenon")` to find config location, search for existing workflow markdowns to find storage location (ask if ambiguous)
 4. Derive `workflow_id` (snake_case) and `trigger_condition` from purpose
 5. Propose step structure: `[{"step_title": "...", "purpose": "...", "input": "...", "output": "..."}]`
 6. Present flow: verify step N output → step N+1 input match
