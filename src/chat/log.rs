@@ -1,3 +1,4 @@
+use chrono::{DateTime, TimeZone, Utc};
 use rig::{
     OneOrMany,
     message::{AssistantContent, Image, Message, ToolResult, ToolResultContent, UserContent},
@@ -153,10 +154,93 @@ fn zero() -> usize {
     0
 }
 
+fn datetime_min() -> DateTime<Utc> {
+    Utc.timestamp_nanos(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    #[test]
+    fn test_last_updated_at_set_on_creation() {
+        let before = Utc::now();
+        let log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+            TenonUserTextMessage("test".to_string()),
+        )));
+        let after = Utc::now();
+
+        assert!(log.last_updated_at >= before);
+        assert!(log.last_updated_at <= after);
+    }
+
+    #[test]
+    fn test_last_updated_at_defaults_to_min_when_missing() {
+        let json = r#"{"token_count":5,"User":{"Text":"hello"}}"#;
+        let log: TenonLog = serde_json::from_str(json).unwrap();
+        assert_eq!(log.last_updated_at, Utc.timestamp_nanos(0));
+    }
+
+    #[test]
+    fn test_set_tool_result_updates_last_updated_at() {
+        let mut log = TenonLog::new(TenonLogData::Tool(TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                name: "test".into(),
+                args: serde_json::json!({}),
+            },
+            tool_result: None,
+        }));
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let before = Utc::now();
+        log.set_tool_result(Some(Ok(TenonToolResult::Text(rig::agent::Text {
+            text: "result".into(),
+        }))));
+        let after = Utc::now();
+
+        assert!(log.last_updated_at >= before);
+        assert!(log.last_updated_at <= after);
+    }
+
+    #[test]
+    fn test_append_reasoning_updates_last_updated_at() {
+        let mut log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
+            reasoning: None,
+            content: vec![],
+        }));
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let before = Utc::now();
+        log.append_reasoning("thinking");
+        let after = Utc::now();
+
+        assert!(log.last_updated_at >= before);
+        assert!(log.last_updated_at <= after);
+    }
+
+    #[test]
+    fn test_append_text_updates_last_updated_at() {
+        let mut log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
+            reasoning: None,
+            content: vec![],
+        }));
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let before = Utc::now();
+        log.append_text("hello");
+        let after = Utc::now();
+
+        assert!(log.last_updated_at >= before);
+        assert!(log.last_updated_at <= after);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonLog {
     #[serde(default = "zero")]
     pub token_count: usize,
+    #[serde(default = "datetime_min")]
+    pub last_updated_at: DateTime<Utc>,
     #[serde(flatten)]
     pub data: TenonLogData,
 }
@@ -164,7 +248,11 @@ pub struct TenonLog {
 impl TenonLog {
     pub fn new(data: TenonLogData) -> Self {
         let token_count = data.count_tokens();
-        Self { data, token_count }
+        Self {
+            data,
+            token_count,
+            last_updated_at: Utc::now(),
+        }
     }
 
     pub fn data(&self) -> &TenonLogData {
@@ -218,6 +306,7 @@ impl TenonLog {
             TenonLogData::Tool(tool_log) => {
                 tool_log.tool_result = result;
                 self.token_count = self.data.count_tokens();
+                self.last_updated_at = Utc::now();
             }
             _ => panic!("set_tool_result called on non-Tool TenonLog"),
         }
@@ -233,6 +322,7 @@ impl TenonLog {
                     Some(text) => text.push_str(reasoning),
                     None => msg.reasoning = Some(reasoning.to_string()),
                 }
+                self.last_updated_at = Utc::now();
                 true
             }
             _ => false,
@@ -253,6 +343,7 @@ impl TenonLog {
                         .push(TenonAssistantMessageContent::Text(text.to_string()));
                     self.token_count = self.data.count_tokens();
                 }
+                self.last_updated_at = Utc::now();
                 true
             }
             _ => false,
