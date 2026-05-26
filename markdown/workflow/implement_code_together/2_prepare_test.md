@@ -2,40 +2,42 @@
 Ensure test verifies incremental change. Tests only — no implementation
 
 ## Process
-Determine change type from Listen step
-
 > **Note**: Collaborating w/ user. May have future code. Don't remove w/o confirming. Blocked → ask user
 
-### Refactor changes (behavior preserved)
+1. Understand user intent & determine change type
+   - Review goal, clarify if needed
+   - Determine: behavior preserved?
+     - Yes → [Refactor changes](#refactor-changes-behavior-preserved)
+     - No → [Code changes](#code-changes-new-behavior)
+2. Output tests table
+   - Columns: Function Name, File, New/Existing, Test Run Status
+3. Confirm w/ user
+   - Confirmed → proceed to Implement
+   - Changes → understand user intent again
+
+## Refactor changes (behavior preserved)
 1. Identify affected tests
-   - Search for tests covering refactored code
+   - Search tests covering refactored code
    - List all tests exercising affected logic
 2. Ensure test coverage
-   - If test exists → document as verification point
-   - If no test → create passing test for refactored logic
-   - Use cohesion test if unsure whether to modify or create
+   - Existing test → document as verification point
+   - No test → create passing test for refactored logic
+   - Use cohesion test if unsure: modify or create
 3. Verify tests pass
-   - Run tests to confirm pass before refactoring
-   - Tests verify behavior remains correct after refactor
+   - Run tests before refactoring
+   - Confirm behavior remains correct
 
-### Code changes (new behavior)
-1. Search for existing tests
-   - Find tests related to files/code in goal
+## Code changes (new behavior)
+1. Search existing tests
+   - Find tests related to goal files/code
    - Identify tests that can be modified
 2. Prepare test
-   - If no existing test → create new test file if needed, write test asserting behavior in goal
-   - If existing test found → use cohesion test to decide modify vs. create
+   - No existing test → create new file, write test asserting goal behavior
+   - Existing test → use cohesion test: modify vs create
 3. Verify test fails
-   - Run test to confirm failure
-   - Failing test = change not yet made
-   - Passing test = goal already implemented or test incorrect → ask user: "Test passing. Implemented already, or should test be adjusted?"
-
-### Present & Confirm
-1. Output tests table to chat directly
-   - Exact columns: Function Name, File, New/Existing, Test Run Status
-2. Confirm w/ user
-   - Confirm → proceed to Implement
-   - Changes requested → adjust & re-confirm
+   - Run test → confirm failure
+   - Failing = change not yet made
+   - Passing = goal implemented or test incorrect → ask: "Test passing. Implemented already, or should test be adjusted?"
 
 ## Decision: Modify vs. Create test
 **Cohesion test:** Would both verifications fail for same reason?
