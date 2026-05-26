@@ -242,7 +242,7 @@ impl ChatStream {
 
 impl ChatAgent {
     pub async fn stream_chat(&self, message: String, history: Vec<Message>) -> ChatStream {
-        let multi_turn = 30;
+        let multi_turn = 100;
         match self {
             ChatAgent::Ollama(agent) => ChatStream::Ollama(
                 agent
