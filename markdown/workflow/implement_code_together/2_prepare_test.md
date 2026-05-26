@@ -13,8 +13,9 @@ Determine change type from Listen step
 2. Ensure test coverage
    - If test exists → document as verification point
    - If no test → create passing test for refactored logic
+   - Use cohesion test if unsure whether to modify or create
 3. Verify tests pass
-   - Run tests to confirm they pass before refactoring
+   - Run tests to confirm pass before refactoring
    - Tests verify behavior remains correct after refactor
 
 ### Code changes (new behavior)
@@ -23,7 +24,7 @@ Determine change type from Listen step
    - Identify tests that can be modified
 2. Prepare test
    - If no existing test → create new test file if needed, write test asserting behavior in goal
-   - If existing test covers similar functionality → modify to verify goal from Listen step
+   - If existing test found → use cohesion test to decide modify vs. create
 3. Verify test fails
    - Run test to confirm failure
    - Failing test = change not yet made
@@ -35,6 +36,15 @@ Determine change type from Listen step
 2. Confirm w/ user
    - Confirm → proceed to Implement
    - Changes requested → adjust & re-confirm
+
+## Decision: Modify vs. Create test
+**Cohesion test:** Would both verifications fail for same reason?
+- Yes → Same concept → Modify existing test
+- No → Different concepts → Create separate test
+
+**Example:**
+- Changing password length requirement → Modify `test_password_validation` (fails for same reason: invalid length)
+- Adding password complexity check → Create `test_password_complexity` (fails for different reason: missing special character, not length)
 
 ## Output
 ```json
