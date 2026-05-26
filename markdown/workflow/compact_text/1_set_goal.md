@@ -7,7 +7,7 @@ Check input source:
 - User request with file reference → read file, identify sections to compact
 - Pre-provided context from conversation → use that context directly
 
-List each target text with its source location (file path and distinctive text snippet if applicable)
+List each target text with source location (file path, distinctive text snippet)
 
 ## Output
 ```json

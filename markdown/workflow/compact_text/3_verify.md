@@ -1,5 +1,5 @@
 ## Purpose
-Check each edit preserves meaning
+Verify each edit preserves meaning
 
 ## Process
 For each compaction:
@@ -8,7 +8,7 @@ For each compaction:
    - Facts, commands, technical terms, examples preserved
    - Technical accuracy intact
    - No ambiguity introduced
-3. If meaning changed → revert to original
+3. Meaning changed? → revert to original
 
 Output only verified compactions
 
