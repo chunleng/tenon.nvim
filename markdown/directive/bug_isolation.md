@@ -1,12 +1,10 @@
 ## Debug Test
-Primary bug isolation technique: extract suspect code into test function for isolated observation.
-
-Environments often make running arbitrary code sections hard. Debug tests create testable entry point for suspect code by copying minimum flow from production.
-
-Note: Test frameworks often suppress output on pass. Fail debug tests deliberately to see prints. Debug tests are temporary — acceptable to violate production code standards.
+- Extract suspect code into test function for isolated observation
+- Running arbitrary code often hard. Debug tests create testable entry point by copying minimum flow from production
+- Test frameworks suppress output on pass. Fail debug tests deliberately to see prints. Temporary — acceptable to violate production standards
 
 ## Example
-Function fails when input is `[{"id": 1, "age": 2}, {"id": 2}, (IDs with age)..]`
+Function fails on input `[{"id": 1, "age": 2}, {"id": 2}, (IDs with age)..]`
 ```
 fn totalAge(users):
     clean_data(users) // problem: user without age not removed
@@ -37,7 +35,7 @@ fn totalAgeDebugTest():
 - Repeat to isolate multiple crashing inputs
 
 ### Binary Search (Find Crash)
-Add code incrementally. No crash → add more. Crash → bug in newly added code.
+Add code incrementally. No crash → add more. Crash → bug in added code.
 ```
 // Round 1
 fn totalAgeDebugTest():
@@ -75,10 +73,10 @@ fn totalAgeDebugTest():
         total += user.age
     print(total)
 ```
-Note: Works well combined with binary search
+Works well with binary search
 
 ### Stubbing
-Replace external dependencies with stubs for easier introspection and control.
+Replace dependencies with stubs for easier introspection + control.
 ```
 fn emailTotalAge():
     users = fetch_users()
@@ -96,7 +94,7 @@ fn emailTotalAgeDebugTest():
         total += user.age
     print(total)
 ```
-Note: Don't stub dependencies suspected to have the bug
+Don't stub dependencies suspected to have the bug
 
 ## When to Use
 - Large functions with multiple steps
