@@ -1,0 +1,69 @@
+use super::{
+    GotoStep, Instruction, Workflow, WorkflowGotoInstruction, WorkflowStep, workflow_path,
+};
+
+pub fn workflow() -> Workflow {
+    Workflow {
+        id: "compact_text".to_string(),
+        title: "Compact Text".to_string(),
+        steps: vec![
+            WorkflowStep {
+                title: "Set Goal".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("compact_text/1_set_goal.md"),
+                },
+                goto_instructions: vec![WorkflowGotoInstruction {
+                    to: GotoStep::Next,
+                    condition: None,
+                    output: "list of texts to compact".to_string(),
+                    output_to_workflow_memory: Some("goal".to_string()),
+                }],
+            },
+            WorkflowStep {
+                title: "Change".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("compact_text/2_change.md"),
+                },
+                goto_instructions: vec![WorkflowGotoInstruction {
+                    to: GotoStep::Next,
+                    condition: None,
+                    output: "compacted versions".to_string(),
+                    output_to_workflow_memory: None,
+                }],
+            },
+            WorkflowStep {
+                title: "Verify".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("compact_text/3_verify.md"),
+                },
+                goto_instructions: vec![WorkflowGotoInstruction {
+                    to: GotoStep::Next,
+                    condition: None,
+                    output: "verified compacted texts".to_string(),
+                    output_to_workflow_memory: None,
+                }],
+            },
+            WorkflowStep {
+                title: "Goal Check".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("compact_text/4_goal_check.md"),
+                },
+                goto_instructions: vec![
+                    WorkflowGotoInstruction {
+                        to: GotoStep::Step(2),
+                        condition: Some("texts can be simpler".to_string()),
+                        output: "texts needing further simplification".to_string(),
+                        output_to_workflow_memory: None,
+                    },
+                    WorkflowGotoInstruction {
+                        to: GotoStep::EndWorkflow,
+                        condition: None,
+                        output: "final texts".to_string(),
+                        output_to_workflow_memory: None,
+                    },
+                ],
+            },
+        ],
+        default_condition: "when asked to or trying to perform text compaction".to_string(),
+    }
+}
