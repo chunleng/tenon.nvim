@@ -7,13 +7,14 @@ Ensure test verifies incremental change. Tests only — no implementation
 1. Understand user intent & determine change type
    - Review goal, clarify if needed
    - Determine: behavior preserved?
-     - Yes → [Refactor changes](#refactor-changes-behavior-preserved)
-     - No → [Code changes](#code-changes-new-behavior)
+     - Yes → [Refactor changes](#refactor-changes-behavior-preserved) → **implement steps**
+     - No → [Code changes](#code-changes-new-behavior) → **implement steps**
+   - Then continue below
 2. Output tests table
    - Columns: Function Name, File, New/Existing, Test Run Status
-3. Confirm w/ user
-   - Confirmed → proceed to Implement
-   - Changes → understand user intent again
+3. **Confirm w/ user**
+   - Confirmed → proceed to next workflow step
+   - Changes → loop back to understand user intent
 
 ## Refactor changes (behavior preserved)
 1. Identify affected tests
