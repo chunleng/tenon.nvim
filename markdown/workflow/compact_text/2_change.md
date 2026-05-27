@@ -27,7 +27,6 @@ Edit target file. Report edits for next step
 ### Remove blank lines:
 - After headers
 - Between consecutive list items
-- After code blocks before next element
 - Around nested list markers
 
 ### Example:
