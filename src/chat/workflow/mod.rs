@@ -6,9 +6,6 @@ mod implement_code_together;
 mod plan_refactoring;
 mod plan_software_change;
 
-#[cfg(test)]
-mod mod_test;
-
 use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
