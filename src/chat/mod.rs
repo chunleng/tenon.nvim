@@ -33,6 +33,7 @@ use history::save_to_history;
 fn build_workflow_prompt(
     active_workflow: &Arc<RwLock<Option<ActiveWorkflow>>>,
     base_prompt: String,
+    workflows: &[WorkflowConfig],
 ) -> String {
     if let Ok(active_lock) = active_workflow.read()
         && let Some(active) = active_lock.as_ref()
@@ -98,13 +99,14 @@ fn build_workflow_prompt(
 
             return format!(
                 "<context>\n\
-                    Currently in {} step of {} workflow. Priority: user prompt > workflow instruction > chat history\n\
-                    Current step instruction:\n\
+                    Currently in {} step of {} workflow.\n\
+                    Perform in order:\n\
+                    1) Check user prompt: `[continue]`→continue to 2), else, process user prompt and skip 2) and 3)\n\
+                    2) Follow \"Process\" section in <instruction></instruction>. Question for user→ask directly and skip 3)\n\
+                    3) Check \"Process\" completion, complete→call tool to navigate workflow from <navigation></navigation>, else, go to 2)\n\
                     <instruction>\n\
                     {}\n\
                     </instruction>\n\
-                    If asking user question → stop, do not navigate.\n\
-                    After completing instruction → call navigate_workflow with step number + step_output.\n\
                     <navigation>\n\
                     {}\n\
                     </navigation>\n\
@@ -119,10 +121,37 @@ fn build_workflow_prompt(
             );
         }
     }
-    format!(
-        "<context>Currently not in workflow. Always use workflow when condition matches</context>\n{}",
+
+    // If agent has workflows configured but none is active, show context
+    if !workflows.is_empty() {
+        let registry = get_workflow_registry();
+        let workflow_info: Vec<String> = workflows
+            .iter()
+            .filter_map(|w| {
+                let condition = w
+                    .condition
+                    .as_ref()
+                    .or_else(|| registry.get(&w.id).map(|wf| &wf.default_condition))?;
+                Some(format!(
+                    "<workflow condition=\"{}\" id=\"{}\" />",
+                    condition, w.id
+                ))
+            })
+            .collect();
+
+        format!(
+            "<context>Currently not in workflow\n\
+            {}\n\
+            Condition matches→use start_workflow tool\n\
+            </context>\n\
+            {}",
+            workflow_info.join(""),
+            base_prompt
+        )
+    } else {
+        // Agent has no workflows - return base_prompt as-is
         base_prompt
-    )
+    }
 }
 
 pub static CHAT_SESSIONS: LazyLock<Mutex<Vec<Arc<RwLock<ChatSession>>>>> =
@@ -216,39 +245,13 @@ impl TenonAgent {
         log_indexer: Arc<RwLock<ChatLogIndexer>>,
     ) -> ChatAgent {
         // NOTE: Update token estimation when this prompt changes
-        let mut system_prompt = "Running on Tenon. Output markdown. Be brief, No filler or hedging or unnecessary words. Reduce emoji use. \
+        let system_prompt = "Running on Tenon. Output markdown. No emoji/icon unless necessary. \
             Files content changes anytime. File ≠ expected → never revert, re-read → re-understand → changes. \
             History shows active behavior/prompt at that time. Prior actions may span agents → trust reported behavior. \
-            Earlier history may be truncated. Missing context → ask user for clarification.".to_string();
-
-        // Add workflow information if agent has workflows configured
-        if !self.workflows.is_empty() {
-            let registry = get_workflow_registry();
-            let workflow_info: Vec<String> = self
-                .workflows
-                .iter()
-                .filter_map(|w| {
-                    let condition = w
-                        .condition
-                        .as_ref()
-                        .or_else(|| registry.get(&w.id).map(|wf| &wf.default_condition))?;
-                    Some(format!(
-                        "<workflow condition=\"{}\" id=\"{}\" />",
-                        condition, w.id
-                    ))
-                })
-                .collect();
-
-            system_prompt.push_str(&format!(
-                "\n\n<workflow />=multi-step process. Start: `start_workflow <id>`.\n\
-                {}",
-                workflow_info.join("")
-            ));
-        }
-
-        system_prompt.push_str(
-            "\n\n<directive></directive>=rules for agent conduct; no condition→always, condition→when matched. \
-            Explicit user instruction overrides directives.");
+            Earlier history may be truncated. Missing context → ask user.\n\n\
+            <directive></directive>=rules for agent conduct; no condition→always, condition→when matched. \
+            Explicit user instruction overrides directives.\n\
+            <context></context> in user message=additional information provided by Tenon for current situation".to_string();
 
         let mut combined = vec![Directive {
             condition: None,
@@ -260,31 +263,11 @@ impl TenonAgent {
 
         let mut tools = resolve_tools(&self.tool_names);
 
-        // Add start_workflow tool if agent has workflows configured (and no active workflow)
-        if !self.workflows.is_empty() {
-            let has_active = workflow_context
-                .read()
-                .map(|g| g.is_some())
-                .unwrap_or(false);
+        let has_active = workflow_context
+            .read()
+            .map(|g| g.is_some())
+            .unwrap_or(false);
 
-            if !has_active {
-                use crate::tools::start_workflow::StartWorkflow;
-                tools.push(Box::new(StartWorkflow {
-                    workflow_ids: self.workflows.iter().map(|w| w.id.clone()).collect(),
-                    active_workflow: workflow_context.clone(),
-                    log_indexer: log_indexer.clone(),
-                }));
-            }
-        }
-
-        // Add workflow navigation tool if there's an active workflow
-        let has_active = {
-            if let Ok(active_read) = workflow_context.read() {
-                active_read.is_some()
-            } else {
-                false
-            }
-        };
         if has_active {
             use crate::tools::end_workflow::EndWorkflow;
             use crate::tools::navigate_workflow::NavigateWorkflow;
@@ -295,6 +278,13 @@ impl TenonAgent {
             tools.push(Box::new(EndWorkflow {
                 active_workflow: workflow_context,
                 log_indexer,
+            }));
+        } else if !self.workflows.is_empty() {
+            use crate::tools::start_workflow::StartWorkflow;
+            tools.push(Box::new(StartWorkflow {
+                workflow_ids: self.workflows.iter().map(|w| w.id.clone()).collect(),
+                active_workflow: workflow_context.clone(),
+                log_indexer: log_indexer.clone(),
             }));
         }
 
@@ -565,7 +555,11 @@ impl ChatSession {
                         save_next_prompt = false;
                     }
 
-                    let prompt = build_workflow_prompt(&active_workflow_clone, next_prompt.clone());
+                    let prompt = build_workflow_prompt(
+                        &active_workflow_clone,
+                        next_prompt.clone(),
+                        &agent_clone.workflows,
+                    );
                     let mut stream = agent
                         .stream_chat(prompt.clone(), chat_history.clone())
                         .await;
@@ -914,11 +908,36 @@ mod tests {
             },
         })));
 
-        let prompt = build_workflow_prompt(&workflow, "user input".to_string());
+        let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &[]);
 
         // Memory should be included in the prompt
         assert!(prompt.contains("<memory name=\"previous_output\">"));
         assert!(prompt.contains("test result"));
         assert!(prompt.contains("</memory>"));
+    }
+
+    #[test]
+    fn test_build_workflow_prompt_no_workflows() {
+        // Initialize PLUGIN_ROOT for testing
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().unwrap())
+            .ok();
+
+        // Scenario 1: Agent has no workflows configured - should return base_prompt without context
+        let workflow = Arc::new(RwLock::new(None));
+        let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &[]);
+        assert_eq!(prompt, "user input");
+        assert!(!prompt.contains("<context>"));
+
+        // Scenario 2: Agent has workflows but none active - should show "not in workflow" context
+        let workflow_configs = vec![WorkflowConfig {
+            id: "implement_code".to_string(),
+            condition: Some("when user asks explicitly".to_string()),
+        }];
+        let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &workflow_configs);
+        assert!(prompt.contains("<context>Currently not in workflow"));
+        assert!(prompt.contains(
+            "<workflow condition=\"when user asks explicitly\" id=\"implement_code\" />"
+        ));
     }
 }
