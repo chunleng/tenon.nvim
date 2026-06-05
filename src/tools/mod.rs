@@ -27,6 +27,58 @@ pub use web_search::WebSearch;
 
 use serde_json::Value;
 
+/// Classification of tools based on their behavior when rerun.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolClassification {
+    /// Read-only tools that produce reproducible results.
+    /// Rerunning with same inputs yields the same output.
+    Idempotent,
+
+    /// Read-only tools that may produce different results on rerun,
+    /// but don't mutate any state.
+    NonMutating,
+
+    /// Tools that mutate state when run.
+    /// Rerunning may have different effects or cause errors.
+    Mutating,
+
+    /// Tenon system tools for workflow management.
+    System,
+
+    /// Tools with unknown classification (e.g., MCP tools).
+    Unknown,
+}
+
+/// Returns the classification for a tool by its name.
+///
+/// Built-in tools have fixed classifications:
+/// - Idempotent: read_file, list_files, search_text
+/// - NonMutating: web_search, fetch_webpage, think
+/// - Mutating: create_file, edit_file, move_path, remove_path, run
+/// - System: start_workflow, navigate_workflow, end_workflow
+///
+/// Unknown tool names (including MCP tools) return `ToolClassification::Unknown`.
+pub fn get_tool_classification(name: &str) -> ToolClassification {
+    match name {
+        // Idempotent tools: read-only, reproducible results
+        "read_file" | "list_files" | "search_text" => ToolClassification::Idempotent,
+
+        // Non-mutating tools: read-only, may produce different results
+        "web_search" | "fetch_webpage" | "think" => ToolClassification::NonMutating,
+
+        // Mutating tools: modify state when run
+        "create_file" | "edit_file" | "move_path" | "remove_path" | "run" => {
+            ToolClassification::Mutating
+        }
+
+        // System tools: Tenon workflow management
+        "start_workflow" | "navigate_workflow" | "end_workflow" => ToolClassification::System,
+
+        // Unknown: MCP tools or unrecognized names
+        _ => ToolClassification::Unknown,
+    }
+}
+
 /// Returns a short human-readable summary of what a tool call is doing,
 /// by extracting the core parameter from its args JSON.
 ///
@@ -199,4 +251,99 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
         .filter(|(name, _)| tool_matches_selectors(name, &name_refs))
         .map(|(_, tool)| tool)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_classification_idempotent_tools() {
+        // Idempotent tools: read_file, list_files, search_text
+        // These produce reproducible results when rerun with same inputs
+        assert_eq!(
+            get_tool_classification("read_file"),
+            ToolClassification::Idempotent
+        );
+        assert_eq!(
+            get_tool_classification("list_files"),
+            ToolClassification::Idempotent
+        );
+        assert_eq!(
+            get_tool_classification("search_text"),
+            ToolClassification::Idempotent
+        );
+    }
+
+    #[test]
+    fn test_tool_classification_non_mutating_tools() {
+        // Non-mutating tools: web_search, fetch_webpage, think
+        // These may produce different results on rerun but don't mutate state
+        assert_eq!(
+            get_tool_classification("web_search"),
+            ToolClassification::NonMutating
+        );
+        assert_eq!(
+            get_tool_classification("fetch_webpage"),
+            ToolClassification::NonMutating
+        );
+        assert_eq!(
+            get_tool_classification("think"),
+            ToolClassification::NonMutating
+        );
+    }
+
+    #[test]
+    fn test_tool_classification_mutating_tools() {
+        // Mutating tools: create_file, edit_file, move_path, remove_path, run
+        // These mutate state when run
+        assert_eq!(
+            get_tool_classification("create_file"),
+            ToolClassification::Mutating
+        );
+        assert_eq!(
+            get_tool_classification("edit_file"),
+            ToolClassification::Mutating
+        );
+        assert_eq!(
+            get_tool_classification("move_path"),
+            ToolClassification::Mutating
+        );
+        assert_eq!(
+            get_tool_classification("remove_path"),
+            ToolClassification::Mutating
+        );
+        assert_eq!(get_tool_classification("run"), ToolClassification::Mutating);
+    }
+
+    #[test]
+    fn test_tool_classification_system_tools() {
+        // System tools: start_workflow, navigate_workflow, end_workflow
+        // These are Tenon system tools for workflow management
+        assert_eq!(
+            get_tool_classification("start_workflow"),
+            ToolClassification::System
+        );
+        assert_eq!(
+            get_tool_classification("navigate_workflow"),
+            ToolClassification::System
+        );
+        assert_eq!(
+            get_tool_classification("end_workflow"),
+            ToolClassification::System
+        );
+    }
+
+    #[test]
+    fn test_tool_classification_unknown_tools() {
+        // Unknown tools: MCP tools or unrecognized tool names
+        assert_eq!(
+            get_tool_classification("unknown_tool"),
+            ToolClassification::Unknown
+        );
+        assert_eq!(
+            get_tool_classification("mcp_server__some_tool"),
+            ToolClassification::Unknown
+        );
+    }
 }

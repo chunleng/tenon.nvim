@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::rag::RagContext;
+use crate::tools::{ToolClassification, get_tool_classification};
 use rig::{OneOrMany, completion::Message, message::UserContent};
 
 use super::log::{TenonLog, TenonLogData};
@@ -105,17 +106,21 @@ impl ChatLogIndexer {
         matches!(log.data(), TenonLogData::Workflow(_))
     }
 
-    /// Returns true if the log entry is a tool log.
-    fn is_tool_log(log: &TenonLog) -> bool {
-        matches!(log.data(), TenonLogData::Tool(_))
-    }
-
     /// Returns true if the log entry is a user or assistant message (chat message).
     fn is_chat_log(log: &TenonLog) -> bool {
         matches!(
             log.data(),
             TenonLogData::User(_) | TenonLogData::Assistant(_)
         )
+    }
+
+    /// Returns the tool classification for a tool log.
+    /// Returns None for non-tool logs.
+    fn get_log_tool_classification(log: &TenonLog) -> Option<ToolClassification> {
+        match log.data() {
+            TenonLogData::Tool(tool_log) => Some(get_tool_classification(&tool_log.tool_call.name)),
+            _ => None,
+        }
     }
 
     /// Returns true if the workflow log indicates workflow start/navigate (step: Some).
@@ -176,8 +181,18 @@ impl ChatLogIndexer {
 
     /// Applies context truncation if token count exceeds max_active_context_tokens.
     /// Marks logs as inactive (removed from active context but kept for display/RAG).
-    /// Preserves last two checkpoints: workflow tools when in workflow, user messages otherwise.
-    /// Uses prioritized removal: tools → chat (excluding first user) → workflow, both before and after boundary.
+    ///
+    /// Regions:
+    /// - Region 1: Before 2x checkpoint (older logs)
+    /// - Region 2: Between 1x and 2x checkpoint (middle logs)
+    /// - Region 3: After 1x checkpoint (newer logs)
+    ///
+    /// Removal phases:
+    /// - Soft limit: Phase 1 (idempotent tools regions 1&2), Phase 2 (non-idempotent tools region 1)
+    /// - Hard limit: Phase 3 (chat/system region 1), Phase 4 (non-idempotent tools region 2),
+    ///               Phase 5 (idempotent tools region 3)
+    /// - Workflow logs are never removed
+    /// - First user message is always preserved
     pub fn apply_context_truncation(&mut self) {
         // Early return if under threshold
         let total = self.active_context_token_count();
@@ -185,108 +200,150 @@ impl ChatLogIndexer {
             return;
         }
 
-        // Find the last checkpoint, then find the checkpoint before it
-        let mut boundary_idx = Self::find_last_checkpoint_in(&self.logs);
-        if let Some(first) = boundary_idx
-            && first > 0
-            && let Some(second) = Self::find_last_checkpoint_in(&self.logs[..first])
-        {
-            boundary_idx = Some(second);
-        }
-        let boundary_idx = boundary_idx.unwrap_or(self.logs.len());
+        // Find checkpoints for region boundaries
+        // Region 1: before second checkpoint (older logs)
+        // Region 2: between first and second checkpoint (middle logs)
+        // Region 3: after first checkpoint (newer logs)
+        let first_checkpoint = Self::find_last_checkpoint_in(&self.logs);
+        let second_checkpoint = first_checkpoint.and_then(|fc| {
+            if fc > 0 {
+                Self::find_last_checkpoint_in(&self.logs[..fc])
+            } else {
+                None
+            }
+        });
 
         // Find the first user message index (must never be removed)
         let first_user_idx = Self::find_first_user_index(&self.logs);
 
-        // === BEFORE BOUNDARY: 3-phase removal ===
-        // Phase 1: Remove tool logs (oldest first)
-        // Phase 2: Remove chat logs (oldest first, exclude first user message)
-        // Phase 3: Remove workflow logs (oldest first)
+        // Helper to check if index is first user
+        let is_first_user = |idx: usize| first_user_idx == Some(idx);
+
+        // Helper to check if log is idempotent tool
+        let is_idempotent_tool = |log: &TenonLog| {
+            Self::get_log_tool_classification(log) == Some(ToolClassification::Idempotent)
+        };
+
+        // Helper to check if log is non-idempotent (non-mutating or mutating) tool
+        let is_non_idempotent_tool = |log: &TenonLog| {
+            matches!(
+                Self::get_log_tool_classification(log),
+                Some(ToolClassification::NonMutating | ToolClassification::Mutating)
+            )
+        };
+
+        // Helper to check if log is system tool
+        let is_system_tool = |log: &TenonLog| {
+            Self::get_log_tool_classification(log) == Some(ToolClassification::System)
+        };
+
+        // Define region boundaries
+        // Region 1: indices 0..region1_end (before checkpoint 2x)
+        // Region 2: indices region1_end..region2_end (includes checkpoint 2x, excludes checkpoint 1x)
+        // Region 3: indices region2_end..len (includes checkpoint 1x)
+        let region1_end = second_checkpoint.unwrap_or(0);
+        let region2_end = first_checkpoint.unwrap_or(0);
 
         let mut total_tokens = total;
-        let mut removed_indices = Vec::new();
 
-        // Phase 1: Remove tool logs before boundary
-        for idx in 0..boundary_idx {
+        // === SOFT LIMIT: Phase 1 - Remove idempotent tools from regions 1 & 2 ===
+        // Region 1 idempotent tools
+        for idx in 0..region1_end {
             if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
                 break;
             }
             let indexed = &self.logs[idx];
-            if indexed.active && Self::is_tool_log(&indexed.log) {
+            if indexed.active && is_idempotent_tool(&indexed.log) {
                 total_tokens -= indexed.log.token_count();
-                removed_indices.push(idx);
+                self.logs[idx].active = false;
             }
         }
 
-        // Phase 2: Remove chat logs before boundary (excluding first user message)
-        for idx in 0..boundary_idx {
+        // Region 2 idempotent tools
+        for idx in region1_end..region2_end {
             if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
                 break;
             }
             let indexed = &self.logs[idx];
-            let is_first_user = first_user_idx == Some(idx);
-            if indexed.active && Self::is_chat_log(&indexed.log) && !is_first_user {
+            if indexed.active && is_idempotent_tool(&indexed.log) {
                 total_tokens -= indexed.log.token_count();
-                removed_indices.push(idx);
+                self.logs[idx].active = false;
             }
         }
 
-        // Phase 3: Remove workflow logs before boundary
-        for idx in 0..boundary_idx {
+        // === SOFT LIMIT: Phase 2 - Remove non-idempotent tools from region 1 ===
+        for idx in 0..region1_end {
             if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
                 break;
             }
             let indexed = &self.logs[idx];
-            if indexed.active && Self::is_workflow_log(&indexed.log) {
+            if indexed.active && is_non_idempotent_tool(&indexed.log) {
                 total_tokens -= indexed.log.token_count();
-                removed_indices.push(idx);
+                self.logs[idx].active = false;
             }
         }
 
-        // Apply before-boundary truncation
-        for idx in &removed_indices {
-            self.logs[*idx].active = false;
-        }
-
-        // === AFTER BOUNDARY (HARD LIMIT): same 3-phase removal ===
+        // === HARD LIMIT: Phase 3 - Remove chat/system logs from region 1 ===
         if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
             let mut remaining_to_remove = total_tokens - Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS;
 
-            // Phase 4: Remove tool logs after boundary (oldest first)
-            for indexed in self.logs[boundary_idx..].iter_mut() {
+            // Remove chat logs (excluding first user) from region 1
+            for idx in 0..region1_end {
                 if remaining_to_remove == 0 {
                     break;
                 }
-                if indexed.active && Self::is_tool_log(&indexed.log) {
+                let indexed = &self.logs[idx];
+                if indexed.active && Self::is_chat_log(&indexed.log) && !is_first_user(idx) {
                     remaining_to_remove =
                         remaining_to_remove.saturating_sub(indexed.log.token_count());
-                    indexed.active = false;
+                    self.logs[idx].active = false;
                 }
             }
 
-            // Phase 5: Remove chat logs after boundary (excluding first user message)
-            for (idx_offset, indexed) in self.logs[boundary_idx..].iter_mut().enumerate() {
+            // Remove system logs from region 1
+            for idx in 0..region1_end {
                 if remaining_to_remove == 0 {
                     break;
                 }
-                let global_idx = boundary_idx + idx_offset;
-                let is_first_user = first_user_idx == Some(global_idx);
-                if indexed.active && Self::is_chat_log(&indexed.log) && !is_first_user {
+                let indexed = &self.logs[idx];
+                if indexed.active && is_system_tool(&indexed.log) {
                     remaining_to_remove =
                         remaining_to_remove.saturating_sub(indexed.log.token_count());
-                    indexed.active = false;
+                    self.logs[idx].active = false;
                 }
             }
+        }
 
-            // Phase 6: Remove workflow logs after boundary (oldest first)
-            for indexed in self.logs[boundary_idx..].iter_mut() {
+        // === HARD LIMIT: Phase 4 - Remove non-idempotent tools from region 2 ===
+        if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
+            let mut remaining_to_remove = total_tokens - Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS;
+
+            for idx in region1_end..region2_end {
                 if remaining_to_remove == 0 {
                     break;
                 }
-                if indexed.active && Self::is_workflow_log(&indexed.log) {
+                let indexed = &self.logs[idx];
+                if indexed.active && is_non_idempotent_tool(&indexed.log) {
                     remaining_to_remove =
                         remaining_to_remove.saturating_sub(indexed.log.token_count());
-                    indexed.active = false;
+                    self.logs[idx].active = false;
+                }
+            }
+        }
+
+        // === HARD LIMIT: Phase 5 - Remove idempotent tools from region 3 ===
+        if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
+            let mut remaining_to_remove = total_tokens - Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS;
+
+            for idx in region2_end..self.logs.len() {
+                if remaining_to_remove == 0 {
+                    break;
+                }
+                let indexed = &self.logs[idx];
+                if indexed.active && is_idempotent_tool(&indexed.log) {
+                    remaining_to_remove =
+                        remaining_to_remove.saturating_sub(indexed.log.token_count());
+                    self.logs[idx].active = false;
                 }
             }
         }
@@ -316,26 +373,26 @@ impl ChatLogIndexer {
 
 #[cfg(test)]
 mod tests {
-    const ONE_TOKEN: &str = "xx";
-    const TEN_TOKENS: &str = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
-    use skimtoken::estimate_tokens;
-
     use crate::chat::{
         TenonAssistantMessage, TenonAssistantMessageContent,
         log::{TenonLog, TenonLogData, TenonUserMessage, TenonUserTextMessage},
     };
 
-    fn create_user_log(text: &str) -> TenonLog {
-        TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-            TenonUserTextMessage(text.to_string()),
-        )))
+    fn create_user_log(token_count: usize) -> TenonLog {
+        let mut log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+            TenonUserTextMessage("x".repeat(token_count)),
+        )));
+        log.token_count = token_count;
+        log
     }
 
-    fn create_assistant_log(text: &str) -> TenonLog {
-        TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
-            content: vec![TenonAssistantMessageContent::Text(text.to_string())],
+    fn create_assistant_log(token_count: usize) -> TenonLog {
+        let mut log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
+            content: vec![TenonAssistantMessageContent::Text("x".repeat(token_count))],
             reasoning: None,
-        }))
+        }));
+        log.token_count = token_count;
+        log
     }
 
     fn create_workflow_log(id: &str, step: Option<usize>) -> TenonLog {
@@ -351,23 +408,21 @@ mod tests {
         )))
     }
 
-    fn create_tool_log(name: &str, result: bool) -> TenonLog {
+    fn create_tool_log(name: &str, token_count: usize) -> TenonLog {
         use crate::chat::TenonToolCall;
-        TenonLog::new(TenonLogData::Tool(crate::chat::log::TenonToolLog {
+        let mut log = TenonLog::new(TenonLogData::Tool(crate::chat::log::TenonToolLog {
             tool_call: TenonToolCall {
                 id: "1".into(),
                 internal_call_id: "1".into(),
                 name: name.into(),
                 args: serde_json::json!({}),
             },
-            tool_result: if result {
-                Some(Ok(crate::chat::log::TenonToolResult::Text(
-                    rig::agent::Text { text: "ok".into() },
-                )))
-            } else {
-                None
-            },
-        }))
+            tool_result: Some(Ok(crate::chat::log::TenonToolResult::Text(
+                rig::agent::Text { text: "ok".into() },
+            ))),
+        }));
+        log.token_count = token_count;
+        log
     }
 
     #[test]
@@ -378,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_log_indexer_from_logs() {
-        let logs = vec![create_user_log("Hello"), create_user_log("World")];
+        let logs = vec![create_user_log(1), create_user_log(1)];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         assert_eq!(indexer.logs.len(), 2);
         // All logs should start as active
@@ -389,7 +444,7 @@ mod tests {
     fn test_push_adds_log() {
         let mut indexer = super::ChatLogIndexer::new();
         indexer.logs.push(super::IndexedLog {
-            log: std::sync::Arc::new(create_user_log("Test message")),
+            log: std::sync::Arc::new(create_user_log(1)),
             active: true,
         });
         assert_eq!(indexer.logs.len(), 1);
@@ -403,21 +458,14 @@ mod tests {
 
     #[test]
     fn test_active_context_token_count_with_logs() {
-        let logs = vec![
-            create_user_log("Hello world"),
-            create_user_log("Test message"),
-        ];
+        let logs = vec![create_user_log(5), create_user_log(5)];
         let indexer = super::ChatLogIndexer::from_logs(logs);
-        assert!(indexer.active_context_token_count() > 0);
+        assert_eq!(indexer.active_context_token_count(), 10);
     }
 
     #[test]
     fn test_active_messages_returns_all_when_no_truncation() {
-        let logs = vec![
-            create_user_log("First"),
-            create_user_log("Second"),
-            create_user_log("Third"),
-        ];
+        let logs = vec![create_user_log(1), create_user_log(1), create_user_log(1)];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         let active = indexer.active_messages();
         assert_eq!(active.len(), 3);
@@ -425,11 +473,7 @@ mod tests {
 
     #[test]
     fn test_active_messages_returns_subset_after_truncation() {
-        let logs = vec![
-            create_user_log("First"),
-            create_user_log("Second"),
-            create_user_log("Third"),
-        ];
+        let logs = vec![create_user_log(1), create_user_log(1), create_user_log(1)];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
         // Simulate inactivity by setting active=false on first log
         indexer.logs[0].active = false;
@@ -439,11 +483,7 @@ mod tests {
 
     #[test]
     fn test_inactive_log_returns_empty_when_no_truncation() {
-        let logs = vec![
-            create_user_log("First"),
-            create_user_log("Second"),
-            create_user_log("Third"),
-        ];
+        let logs = vec![create_user_log(1), create_user_log(1), create_user_log(1)];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         let inactive = indexer.inactive_log();
         assert_eq!(inactive.len(), 0);
@@ -451,11 +491,7 @@ mod tests {
 
     #[test]
     fn test_inactive_log_returns_inactive_logs() {
-        let logs = vec![
-            create_user_log("First"),
-            create_user_log("Second"),
-            create_user_log("Third"),
-        ];
+        let logs = vec![create_user_log(1), create_user_log(1), create_user_log(1)];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
         // Simulate inactivity by setting active=false on first log
         indexer.logs[0].active = false;
@@ -472,7 +508,7 @@ mod tests {
 
     #[test]
     fn test_get_relevant_context_returns_empty_when_no_inactive_logs() {
-        let logs = vec![create_user_log("Hello")];
+        let logs = vec![create_user_log(1)];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         let result = indexer.get_relevant_context("test message");
         assert!(result.is_empty());
@@ -480,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_get_relevant_context_returns_empty_when_rag_context_empty() {
-        let logs = vec![create_user_log("First"), create_user_log("Second")];
+        let logs = vec![create_user_log(1), create_user_log(1)];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
         // Set active flag to false to create inactive logs
         indexer.logs[0].active = false;
@@ -492,166 +528,17 @@ mod tests {
         let _ = result;
     }
 
-    #[test]
-    fn test_one_token_and_ten_tokens_constants() {
-        // Verify constants match their intended token counts
-        assert_eq!(estimate_tokens(ONE_TOKEN), 1);
-        assert_eq!(estimate_tokens(TEN_TOKENS), 10);
-    }
-
-    // --- apply_context_truncation tests ---
-
-    #[test]
-    fn test_apply_context_truncation_no_truncation_when_under_threshold() {
-        // Create logs that are well under the test threshold (10 tokens)
-        let logs = vec![create_user_log(ONE_TOKEN), create_user_log(ONE_TOKEN)];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-
-        indexer.apply_context_truncation();
-
-        // Should not mark as inactive - all logs should have active=true
-        assert!(indexer.logs.iter().all(|l| l.active));
-    }
-
-    #[test]
-    fn test_apply_context_truncation_truncates_when_over_threshold() {
-        // Create logs that exceed the test threshold (10 tokens)
-        // New behavior: preserve last two checkpoints AND first user message
-        // First checkpoint: index 2 (last user)
-        // Second checkpoint: index 1 (previous user)
-        // First user message (index 0) is always preserved
-        // With assistant at index 0, it can be truncated
-        let logs = vec![
-            create_assistant_log(TEN_TOKENS), // 0 - should be truncated (not first user)
-            create_user_log(TEN_TOKENS),      // 1 - second checkpoint, preserved
-            create_user_log(ONE_TOKEN),       // 2 - first checkpoint, preserved (also first user)
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-
-        indexer.apply_context_truncation();
-
-        // First log (assistant) should be truncated, last two preserved
-        assert!(!indexer.logs[0].active, "assistant truncated");
-        assert!(indexer.logs[1].active, "second checkpoint preserved");
-        assert!(indexer.logs[2].active, "first checkpoint preserved");
-    }
-
-    #[test]
-    fn test_apply_context_truncation_preserves_last_exchange() {
-        // Even when severely over threshold, last two checkpoints must be preserved
-        // New behavior: first user message is always preserved
-        // Soft limit = 10, Hard limit = 20
-        // Using smaller tokens to stay under hard limit after truncation
-        let logs = vec![
-            create_assistant_log(TEN_TOKENS), // 0 - truncated (not first user)
-            create_user_log(TEN_TOKENS),      // 1 - first user, preserved
-            create_user_log(ONE_TOKEN),       // 2 - second checkpoint
-            create_user_log(ONE_TOKEN),       // 3 - last checkpoint
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-
-        indexer.apply_context_truncation();
-
-        // Total = 22 tokens, threshold = 10
-        // Boundary = 2 (second checkpoint from end)
-        // Before boundary: indices 0, 1
-        // Phase 2: assistant at 0 removed, total = 12 > 10
-        // First user at 1 preserved (can't remove)
-        // After boundary: indices 2, 3 = 2 tokens
-        // Hard limit: 12 tokens active < 20 hard limit, no removal
-        assert!(!indexer.logs[0].active, "assistant truncated");
-        assert!(indexer.logs[1].active, "first user preserved");
-        assert!(indexer.logs[2].active, "second checkpoint preserved");
-        assert!(indexer.logs[3].active, "last checkpoint preserved");
-    }
-
-    #[test]
-    fn test_apply_context_truncation_lands_on_user_boundary() {
-        // When truncation lands on non-user, should adjust to preserve from second checkpoint
-        // New behavior: first user message is always preserved
-        // First checkpoint: index 4 (last user)
-        // Second checkpoint: index 2 (previous user)
-        // First user at index 0 must be preserved
-        let logs = vec![
-            create_assistant_log(ONE_TOKEN), // 0 - truncated (assistant, not first user)
-            create_user_log(ONE_TOKEN),      // 1 - first user, preserved
-            create_user_log(ONE_TOKEN),      // 2 - second checkpoint, preserved
-            create_assistant_log(ONE_TOKEN), // 3 - preserved
-            create_user_log(TEN_TOKENS),     // 4 - first checkpoint, preserved
-            create_assistant_log(ONE_TOKEN), // 5 - preserved
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-
-        indexer.apply_context_truncation();
-
-        // Assistant at 0 truncated, first user at 1 preserved
-        assert!(!indexer.logs[0].active, "assistant truncated");
-        assert!(indexer.logs[1].active, "first user preserved");
-        assert!(indexer.logs[2].active, "second checkpoint preserved");
-        assert!(indexer.logs[3].active, "preserved");
-        assert!(indexer.logs[4].active, "last checkpoint preserved");
-        assert!(indexer.logs[5].active, "preserved");
-    }
-
-    #[test]
-    fn test_apply_context_truncation_no_change_when_already_inactive() {
-        // If logs are already inactive and under threshold, should not change
-        let logs = vec![
-            create_user_log(TEN_TOKENS),
-            create_user_log(ONE_TOKEN),
-            create_user_log(ONE_TOKEN),
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-
-        // Pre-mark first log as inactive to simulate prior truncation
-        indexer.logs[0].active = false;
-
-        // Apply truncation - should not change anything since under threshold
-        indexer.apply_context_truncation();
-
-        assert!(!indexer.logs[0].active, "first log should remain inactive");
-        assert!(indexer.logs[1].active, "second log should remain active");
-        assert!(indexer.logs[2].active, "third log should remain active");
-    }
-
-    #[test]
-    fn test_apply_context_truncation_empty_logs() {
-        let mut indexer = super::ChatLogIndexer::new();
-        indexer.apply_context_truncation();
-        assert_eq!(indexer.logs.len(), 0);
-    }
-
-    #[test]
-    fn test_retrieve_chatlog_with_context_applies_truncation() {
-        // Create logs that exceed threshold
-        // New behavior: first user message is always preserved
-        // Use assistant at index 0 to allow truncation
-        let logs = vec![
-            create_assistant_log(TEN_TOKENS), // 0 - truncated (not first user)
-            create_user_log(TEN_TOKENS),      // 1 - second checkpoint, preserved (first user)
-            create_user_log(ONE_TOKEN),       // 2 - first checkpoint, preserved
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        let result = indexer.retrieve_chatlog_with_context("");
-        // After truncation, two messages should be active (indices 1 and 2)
-        assert_eq!(result.len(), 2);
-        // First log (assistant) should be inactive
-        assert!(!indexer.logs[0].active, "assistant truncated");
-        assert!(indexer.logs[1].active, "first user preserved");
-        assert!(indexer.logs[2].active, "last checkpoint preserved");
-    }
-
     // --- Workflow-aware checkpoint tests ---
 
     #[test]
     fn test_is_log_in_workflow() {
         // Single setup covering all conditions
         let logs = vec![
-            create_user_log("First"),           // 0: no workflow before
+            create_user_log(1),                 // 0: no workflow before
             create_workflow_log("wf", Some(1)), // 1: workflow start
-            create_user_log("Second"),          // 2: in workflow
+            create_user_log(1),                 // 2: in workflow
             create_workflow_log("wf", None),    // 3: workflow end
-            create_user_log("Third"),           // 4: after workflow ended
+            create_user_log(1),                 // 4: after workflow ended
         ];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         assert!(!super::ChatLogIndexer::is_log_in_workflow_in_slice(
@@ -672,11 +559,11 @@ mod tests {
     fn test_find_last_checkpoint_in_workflow_uses_workflow_tool() {
         // In workflow: checkpoint is the last workflow tool
         let logs = vec![
-            create_user_log("First"),
+            create_user_log(1),
             create_workflow_log("test_workflow", Some(1)), // start
-            create_user_log("Second"),
+            create_user_log(1),
             create_workflow_log("test_workflow", Some(2)), // navigate to step 2
-            create_user_log("Third"),
+            create_user_log(1),
         ];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         // Last checkpoint should be index 3 (navigate_workflow to step 2)
@@ -690,10 +577,10 @@ mod tests {
     fn test_find_last_checkpoint_not_in_workflow_uses_user_message() {
         // Not in workflow: checkpoint is the last user message
         let logs = vec![
-            create_user_log("First"),
-            create_assistant_log("Response"),
-            create_user_log("Second"),
-            create_assistant_log("Response 2"),
+            create_user_log(1),
+            create_assistant_log(1),
+            create_user_log(1),
+            create_assistant_log(1),
         ];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         // Last checkpoint should be index 2 (last user message)
@@ -708,9 +595,9 @@ mod tests {
         // After workflow ends: checkpoint is last user message
         let logs = vec![
             create_workflow_log("test_workflow", Some(1)),
-            create_user_log("User in workflow"),
+            create_user_log(1),
             create_workflow_log("test_workflow", None), // end
-            create_user_log("After workflow"),
+            create_user_log(1),
         ];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         // Last checkpoint should be index 3 (user message after workflow ended)
@@ -720,236 +607,181 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_apply_context_truncation_in_workflow_preserves_workflow_steps() {
-        // In workflow: preserve from last workflow step
-        // New behavior: first user message is always preserved
-        let logs = vec![
-            create_assistant_log(TEN_TOKENS), // 0 - can be truncated (not first user)
-            create_workflow_log("wf", Some(1)), // 1 - will be second checkpoint
-            create_user_log(TEN_TOKENS),      // 2 - first user, preserved
-            create_workflow_log("wf", Some(2)), // 3 - last checkpoint (in workflow)
-            create_user_log(ONE_TOKEN),       // 4
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        indexer.apply_context_truncation();
-
-        // Should preserve from index 1 (second checkpoint)
-        // Phase 2 (chat): assistant at 0 removed, user at 2 is first user so preserved
-        assert!(!indexer.logs[0].active, "assistant truncated");
-        assert!(indexer.logs[1].active, "workflow step 1 preserved");
-        assert!(indexer.logs[2].active, "first user preserved");
-        assert!(indexer.logs[3].active, "workflow step 2 preserved");
-        assert!(indexer.logs[4].active, "last user preserved");
-    }
+    // --- Tool classification-aware truncation tests (new behavior) ---
+    //
+    // Regions definition:
+    // - Region 1: Before 2x checkpoint (older logs)
+    // - Region 2: Between 1x and 2x checkpoint (middle logs)
+    // - Region 3: After 1x checkpoint (newer logs)
+    //
+    // Removal phases:
+    // - Soft limit: Phase 1 (idempotent tools regions 1&2), Phase 2 (non-idempotent tools region 1)
+    // - Hard limit: Phase 3 (chat/system region 1), Phase 4 (non-idempotent tools region 2),
+    //               Phase 5 (idempotent tools region 3)
+    // - Workflow logs are never removed
 
     #[test]
-    fn test_apply_context_truncation_outside_workflow_preserves_user_messages() {
-        // Outside workflow: preserve from last user message
-        // New behavior: first user message is always preserved
-        // Use smaller tokens to stay under hard limit
+    fn test_truncation_no_truncation_when_under_threshold() {
+        // Baseline: no truncation when total tokens ≤ soft limit (10)
         let logs = vec![
-            create_assistant_log(ONE_TOKEN), // 0 - can be truncated (not first user)
-            create_user_log(TEN_TOKENS),     // 1 - first user, preserved
-            create_user_log(ONE_TOKEN),      // 2 - second checkpoint
-            create_assistant_log(ONE_TOKEN), // 3
-            create_user_log(ONE_TOKEN),      // 4 - last checkpoint (last user)
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        indexer.apply_context_truncation();
-
-        // Total = 14 tokens, threshold = 10
-        // Boundary at index 2 (second checkpoint from end)
-        // Before boundary: indices 0, 1
-        // Phase 2: assistant at 0 removed (1 token), total = 13 > 10
-        // User at 1 is first user, skip
-        // Hard limit: 13 < 20, no removal
-        // Assistant at 3 preserved (under hard limit)
-        assert!(!indexer.logs[0].active, "assistant truncated");
-        assert!(indexer.logs[1].active, "first user preserved");
-        assert!(indexer.logs[2].active, "second checkpoint preserved");
-        assert!(indexer.logs[3].active, "assistant preserved");
-        assert!(indexer.logs[4].active, "last user preserved");
-    }
-
-    // --- Hard limit tests ---
-
-    #[test]
-    fn test_apply_context_truncation_hard_limit_purges_tools_first() {
-        // Setup: Soft limit preserves last 2 checkpoints, hard limit triggers after
-        // Soft limit = 10, Hard limit = 20
-        // New behavior: first user message is always preserved
-        // Use assistant at index 0 to allow soft limit truncation
-        let logs = vec![
-            create_assistant_log(TEN_TOKENS), // 0 - can be purged by soft limit (not first user)
-            create_user_log(TEN_TOKENS),      // 1 - first user, preserved
-            create_user_log(ONE_TOKEN),       // 2 - second checkpoint (small token count)
-            create_tool_log("tool1", true),   // 3 - tool log, purged by hard limit phase 4
-            create_user_log(ONE_TOKEN),       // 4 - last checkpoint
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        indexer.apply_context_truncation();
-
-        // Total = 23 tokens, threshold = 10
-        // Boundary = 2 (second checkpoint from end)
-        // Before boundary: indices 0, 1
-        // Phase 2: assistant at 0 removed, total = 13 > 10
-        // First user at 1 preserved
-        // After boundary: indices 2, 3, 4 = 3 tokens
-        // Hard limit: 13 tokens < 20, no hard limit removal
-        assert!(!indexer.logs[0].active, "assistant purged by soft limit");
-        assert!(indexer.logs[1].active, "first user preserved");
-        assert!(indexer.logs[2].active, "second checkpoint preserved");
-        assert!(indexer.logs[3].active, "tool preserved (under hard limit)");
-        assert!(indexer.logs[4].active, "last user preserved");
-    }
-
-    #[test]
-    fn test_apply_context_truncation_hard_limit_purges_beyond_boundary() {
-        // Soft limit = 10, Hard limit = 20
-        // New behavior: first user message is always preserved
-        // Use assistant at index 0 to allow soft limit truncation
-        // Use smaller tokens to stay under hard limit
-        let logs = vec![
-            create_assistant_log(TEN_TOKENS), // 0 - can be purged by soft limit
-            create_user_log(ONE_TOKEN),       // 1 - first user, preserved
-            create_user_log(ONE_TOKEN),       // 2 - second checkpoint
-            create_user_log(ONE_TOKEN),       // 3 - first checkpoint
-            create_user_log(ONE_TOKEN),       // 4 - last user
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        indexer.apply_context_truncation();
-
-        // Total = 14 tokens, threshold = 10
-        // Checkpoints: users at 1, 2, 3, 4
-        // Boundary at index 3 (second checkpoint from end)
-        // Before boundary: indices 0, 1, 2
-        // Phase 2 (chat): assistant at 0 removed (10 tokens), user at 1 is first user (skip), user at 2 not removed (total would be 4 < 10, done)
-        // Actually: after removing assistant at 0, total = 4 < 10, stop
-        assert!(!indexer.logs[0].active, "assistant purged by soft limit");
-        assert!(indexer.logs[1].active, "first user preserved");
-        assert!(indexer.logs[2].active, "second checkpoint preserved");
-        assert!(indexer.logs[3].active, "first checkpoint preserved");
-        assert!(indexer.logs[4].active, "last user preserved");
-    }
-
-    // --- Prioritized removal tests (new behavior) ---
-
-    #[test]
-    fn test_before_boundary_removes_tools_before_chat() {
-        let logs = vec![
-            create_tool_log("tool1", true),
-            create_user_log(ONE_TOKEN),
-            create_assistant_log(TEN_TOKENS),
-            create_user_log(ONE_TOKEN),
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        indexer.apply_context_truncation();
-
-        assert!(!indexer.logs[0].active, "tool removed first");
-        assert!(indexer.logs[1].active, "first user preserved");
-        assert!(indexer.logs[2].active, "assistant preserved");
-        assert!(indexer.logs[3].active, "last user preserved");
-    }
-
-    #[test]
-    fn test_debug_truncation_behavior() {
-        // This test verifies the stopping behavior - removal stops when threshold reached
-        let logs = vec![
-            create_workflow_log("wf", Some(1)),
-            create_assistant_log(TEN_TOKENS),
-            create_assistant_log(TEN_TOKENS),
-            create_user_log(ONE_TOKEN),
-            create_user_log(ONE_TOKEN),
-        ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        indexer.apply_context_truncation();
-
-        // With threshold = 10, total ~22 tokens
-        // After removing one assistant (10 tokens), total ~12 tokens, still over threshold
-        // After removing second assistant (10 tokens), total ~2 tokens, under threshold, STOP
-        // Workflow preserved because threshold already reached
-        assert!(indexer.logs[0].active, "workflow preserved");
-        assert!(!indexer.logs[1].active, "first assistant removed");
-        // Note: second assistant may or may not be removed depending on exact token counts
-        // The key point is: assistants are removed before workflow
-    }
-
-    #[test]
-    fn test_before_boundary_removes_chat_before_workflow_when_over_threshold() {
-        // Test: with original 2-checkpoint boundary logic
-        // Hard limit can remove checkpoint users (not protected like first_user)
-        // Structure: user(0), assistant(1), user(2), assistant(3), workflow(4), user(5)
-        // Last checkpoint = workflow(4)
-        // Second checkpoint = user(2)
-        // Boundary = 2
-
-        // Use tokens that trigger hard limit after before-boundary removal
-        // Total: 1 + 20 + 1 + 20 + 3 + 1 = 46
-        // After removing assistant(1): 46 - 20 = 26 > 20 (HARD_LIMIT)
-        // Hard limit Phase 5 removes user(2) (1 token), remaining = 6 < 20
-        let logs = vec![
-            create_user_log(ONE_TOKEN), // 0 - first user (never removed)
-            create_assistant_log("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"), // 1 - assistant (20 tokens)
-            create_user_log(ONE_TOKEN), // 2 - user (second checkpoint, removed in hard limit)
-            create_assistant_log("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"), // 3 - assistant (20 tokens)
-            create_workflow_log("wf", Some(1)), // 4 - workflow start
-            create_user_log(ONE_TOKEN),         // 5 - user after workflow
+            create_user_log(1),
+            create_tool_log("read_file", 1),
+            create_user_log(1),
         ];
         let indexer = super::ChatLogIndexer::from_logs(logs);
 
-        // After from_logs, total = 20 (1+0+0+20+3+1 after removals)
-        // assistant(1) removed in before-boundary
-        // user(2) removed in hard limit Phase 5 (need 1 more token to get under 20)
-        assert!(indexer.logs[0].active, "first user preserved");
-        assert!(
-            !indexer.logs[1].active,
-            "assistant removed (before boundary)"
-        );
-        assert!(!indexer.logs[2].active, "user removed (hard limit Phase 5)");
-        assert!(
-            indexer.logs[3].active,
-            "assistant preserved (already under limit)"
-        );
-        assert!(indexer.logs[4].active, "workflow preserved");
-        assert!(indexer.logs[5].active, "user after workflow preserved");
+        // All logs should remain active
+        assert!(indexer.logs.iter().all(|l| l.active));
     }
 
     #[test]
-    fn test_before_boundary_workflow_removed_after_chat_exhausted() {
-        // This test has workflow at position 0 (in workflow)
-        // Workflow is the checkpoint, so boundary = 0
-        // Assistants are AFTER workflow (indices 1, 2), not before
-        // They should be removed in "after boundary" (hard limit) phase
+    fn test_truncation_phase1_idempotent_tools_regions_1_and_2() {
+        // Phase 1: Remove idempotent tools from regions 1&2 until soft limit (10) reached
+        // Structure:
+        // - Region 1: tool(read_file), user (checkpoint 2x) - indices 0, 1
+        // - Region 2: tool(web_search), user (checkpoint 1x) - indices 2, 3
+        // - Region 3: last user - index 4
         let logs = vec![
-            create_workflow_log("wf", Some(1)), // 0 - workflow (checkpoint)
-            create_assistant_log(TEN_TOKENS),   // 1 - assistant (after workflow)
-            create_assistant_log(TEN_TOKENS),   // 2 - assistant (after workflow)
-            create_user_log(ONE_TOKEN),         // 3 - first user
-            create_user_log(ONE_TOKEN),         // 4 - last user
+            create_user_log(1),
+            create_tool_log("read_file", 1),
+            create_tool_log("web_search", 1),
+            create_user_log(6),
+            create_tool_log("read_file", 1),
+            create_user_log(2),
         ];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
+        let indexer = super::ChatLogIndexer::from_logs(logs);
 
-        // Total ~12 tokens > 10 threshold
-        // Boundary = 0 (workflow at index 0)
-        // Before boundary = empty
-        // After boundary = indices 1-4
-        // Hard limit: remove assistants at 1, 2 to reduce token count
-        // After removing first assistant (10 tokens), total ~2 < 10, STOP
-        indexer.apply_context_truncation();
-
-        assert!(indexer.logs[0].active, "workflow preserved (checkpoint)");
+        // Phase 1 removes idempotent tools from regions 1 & 2
+        // read_file at index 1 (Region 1) should be removed
+        // web_search at index 2 (Region 1) should be preserved (non-idempotent)
+        // read_file at index 4 (Region 2) should be removed
+        assert!(indexer.logs[0].active, "first user preserved");
         assert!(
             !indexer.logs[1].active,
-            "first assistant removed (after boundary, hard limit)"
+            "idempotent tool removed (Region 1)"
         );
-        // Second assistant preserved because threshold reached after first removal
-        // This is correct behavior - we stop when threshold is met
         assert!(
             indexer.logs[2].active,
-            "second assistant preserved (threshold reached)"
+            "non-idempotent tool preserved (Region 1)"
         );
-        assert!(indexer.logs[3].active, "first user preserved");
-        assert!(indexer.logs[4].active, "last user preserved");
+        assert!(indexer.logs[3].active, "user preserved (checkpoint 2x)");
+        assert!(
+            !indexer.logs[4].active,
+            "idempotent tool removed (Region 2)"
+        );
+        assert!(indexer.logs[5].active, "user preserved (checkpoint 1x)");
+    }
+
+    #[test]
+    fn test_truncation_phase2_non_idempotent_tools_region_1() {
+        // Phase 2: Remove non-idempotent tools from region 1 until soft limit (10) reached
+        // After Phase 1 removes idempotent tools, if still over threshold,
+        // Phase 2 removes non-idempotent tools from region 1 only
+        let logs = vec![
+            create_user_log(1),
+            create_tool_log("web_search", 1),
+            create_user_log(10),
+            create_tool_log("web_search", 1),
+            create_user_log(1),
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+
+        // Phase 2: non-idempotent tool in region 1 is removed
+        assert!(indexer.logs[0].active, "first user preserved");
+        assert!(
+            !indexer.logs[1].active,
+            "web_search in region 1 removed (Phase 2)"
+        );
+        assert!(indexer.logs[2].active, "user (checkpoint 2x) preserved");
+        assert!(
+            indexer.logs[3].active,
+            "web_search in region 2 preserved (Phase 2 only touches region 1)"
+        );
+        assert!(indexer.logs[4].active, "user (checkpoint 1x) preserved");
+    }
+
+    #[test]
+    fn test_truncation_phase3_chat_system_logs_region_1() {
+        // Phase 3 (hard limit 20): Remove chat/system logs from region 1
+        // After Phase 1&2, if still over hard limit, remove chat logs from region 1
+        // Need > 20 tokens to trigger Phase 3
+        let logs = vec![
+            create_user_log(1),       // 0 - first user (never removed)
+            create_assistant_log(18), // 1 - assistant (Region 1, chat log)
+            create_user_log(1),       // 2 - user (checkpoint 2x, Region 1)
+            create_user_log(1),       // 3 - user (checkpoint 1x, Region 2)
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+
+        // Assistant (chat log) should be removed in Phase 3
+        // First user at index 1 should be preserved (never remove first user)
+        assert!(indexer.logs[0].active, "first user_preserved");
+        assert!(!indexer.logs[1].active, "assistant removed (Region 1)");
+        assert!(indexer.logs[2].active, "user preserved (checkpoint 2x)");
+        assert!(indexer.logs[3].active, "user preserved (checkpoint 1x)");
+    }
+
+    #[test]
+    fn test_truncation_phase4_non_idempotent_tools_region_2() {
+        // Phase 4 (hard limit 20): Remove non-idempotent tools from region 2
+        // After Phase 3, if still over hard limit, remove non-idempotent tools from region 2
+        let logs = vec![
+            create_user_log(1),               // 0 - first user (never removed)
+            create_user_log(1),               // 1 - user (checkpoint 2x)
+            create_tool_log("web_search", 1), // 2 - non-idempotent tool (Region 2)
+            create_user_log(18),              // 3 - user (checkpoint 1x)
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+
+        // Non-idempotent tool in region 2 should be removed in Phase 4
+        assert!(indexer.logs[0].active, "first user preserved");
+        assert!(indexer.logs[1].active, "user preserved (checkpoint 2x)");
+        assert!(
+            !indexer.logs[2].active,
+            "non-idempotent tool removed (Region 2)"
+        );
+        assert!(indexer.logs[3].active, "user preserved (checkpoint 1x)");
+    }
+
+    #[test]
+    fn test_truncation_phase5_idempotent_tools_region_3() {
+        // Phase 5 (hard limit 20): Remove idempotent tools from region 3
+        // After Phase 4, if still over hard limit, remove idempotent tools from region 3
+        let logs = vec![
+            create_user_log(1),              // 0 - first user (never removed)
+            create_user_log(1),              // 1 - user (checkpoint 2x)
+            create_user_log(20),             // 2 - user (checkpoint 1x)
+            create_tool_log("read_file", 1), // 3 - idempotent tool (Region 3)
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+
+        // Idempotent tool in region 3 should be removed in Phase 5
+        assert!(indexer.logs[0].active, "first user preserved");
+        assert!(indexer.logs[1].active, "user preserved (checkpoint 2x)");
+        assert!(indexer.logs[2].active, "user preserved (checkpoint 1x)");
+        assert!(
+            !indexer.logs[3].active,
+            "idempotent tool removed (Region 3)"
+        );
+    }
+
+    #[test]
+    fn test_truncation_first_user_always_preserved() {
+        // First user message is never removed across all phases
+        // This is a fundamental invariant
+        let logs = vec![
+            create_user_log(10), // 0 - first user (MUST be preserved)
+            create_user_log(20), // 1 - random user log in the middle gets removed instead
+            create_user_log(20), // 2 - user (checkpoint 2x)
+            create_user_log(1),  // 3 - user (checkpoint 1x)
+        ];
+        let indexer = super::ChatLogIndexer::from_logs(logs);
+
+        // First user must always be preserved regardless of token pressure
+        assert!(
+            indexer.logs[0].active,
+            "first user ALWAYS preserved (invariant)"
+        );
+        assert!(!indexer.logs[1].active, "second got removed instead");
     }
 }
