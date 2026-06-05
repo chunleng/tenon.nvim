@@ -13,7 +13,7 @@ Ensure test verifies incremental change. Tests only — no implementation
 2. Output tests table
    - Columns: Function Name, File, New/Existing, Test Run Status
 3. **Confirm w/ user**
-   - Confirmed → proceed to next workflow step
+   - Confirmed + test implemented or explicitly told to skip → proceed to next workflow step
    - Changes → loop back to understand user intent
 
 ## Refactor changes (behavior preserved)
