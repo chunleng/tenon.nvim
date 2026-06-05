@@ -234,5 +234,15 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
         },
     );
 
+    map.insert(
+        "Reduce Commentary".into(),
+        Directive {
+            condition: None,
+            source: DirectiveSource::File {
+                paths: vec![directive_path("reduce-commentary.md")],
+            },
+        },
+    );
+
     map
 }
