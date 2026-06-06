@@ -15,5 +15,13 @@ Implement code to make test pass
   - If confirmed → format code and navigate to step 1
   - If rejected → revise based on feedback, restart implementation
 
+## Handling User Response
+Confirm + info
+- new requirement → confirmed
+- change request → rejected
+
+- "Good, now add error handling" → confirmed
+- "Works, but rename variable" → rejected
+
 ## Output
 Nothing
