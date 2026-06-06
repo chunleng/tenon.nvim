@@ -3,6 +3,7 @@ use rig::completion::Usage;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
+use super::SessionUsage;
 use super::log::TenonLog;
 use super::log_indexer::ChatLogIndexer;
 
@@ -18,7 +19,8 @@ pub struct ChatHistory {
     pub title: Option<String>,
     pub agent_name: String,
     pub model_display: String,
-    pub usage: Option<Usage>,
+    #[serde(default)]
+    pub usage: Usage,
     pub logs: Vec<TenonLog>,
     /// Datetime when the session was created. Defaults to current time for legacy history files.
     #[serde(default = "session_datetime_now")]
@@ -37,7 +39,7 @@ pub struct SessionMetadata<'a> {
 pub fn save_to_history(
     metadata: SessionMetadata<'_>,
     log_indexer: &ChatLogIndexer,
-    usage: &Arc<RwLock<Option<Usage>>>,
+    usage: &Arc<RwLock<SessionUsage>>,
     history_directory: &str,
 ) {
     let logs_vec: Vec<TenonLog> = log_indexer
@@ -45,7 +47,7 @@ pub fn save_to_history(
         .iter()
         .map(|indexed| (*indexed.log).clone())
         .collect();
-    let usage_val = usage.read().ok().and_then(|u| *u);
+    let usage_val = usage.read().map(|u| u.accumulated).unwrap_or_default();
 
     let history = ChatHistory {
         id: metadata.id.to_string(),

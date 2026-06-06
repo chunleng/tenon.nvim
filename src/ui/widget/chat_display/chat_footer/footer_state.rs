@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use crate::chat::chat_session_count;
 use crate::get_application_config;
 use crate::ui::widget::chat_display::ChatDisplayData;
+use crate::utils::format_token_with_delta;
 
 #[cfg(not(test))]
 use crate::tools::resolve_tool_names;
@@ -28,6 +29,11 @@ pub struct FooterValues {
     pub cached_tokens: u64,
     pub total_tokens: u64,
     pub context_tokens: u64,
+    // Delta values for last exchange
+    pub input_tokens_delta: u64,
+    pub output_tokens_delta: u64,
+    pub cached_tokens_delta: u64,
+    pub total_tokens_delta: u64,
 }
 
 impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
@@ -42,17 +48,30 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
             let model_display = session.active_agent.inner.model.display_name();
             let current_tool_names = session.active_agent.tool_names.clone();
 
-            let (input_tokens, output_tokens, cached_tokens, total_tokens) =
-                if let Some(usage) = session.usage.read().ok().and_then(|u| *u) {
-                    (
-                        usage.input_tokens,
-                        usage.output_tokens,
-                        usage.cached_input_tokens,
-                        usage.total_tokens,
-                    )
-                } else {
-                    (0, 0, 0, 0)
-                };
+            let (
+                input_tokens,
+                output_tokens,
+                cached_tokens,
+                total_tokens,
+                input_tokens_delta,
+                output_tokens_delta,
+                cached_tokens_delta,
+                total_tokens_delta,
+            ) = if let Ok(usage_lock) = session.usage.read() {
+                let session_usage = &*usage_lock;
+                (
+                    session_usage.accumulated.input_tokens,
+                    session_usage.accumulated.output_tokens,
+                    session_usage.accumulated.cached_input_tokens,
+                    session_usage.accumulated.total_tokens,
+                    session_usage.last_exchange.input_tokens,
+                    session_usage.last_exchange.output_tokens,
+                    session_usage.last_exchange.cached_input_tokens,
+                    session_usage.last_exchange.total_tokens,
+                )
+            } else {
+                (0, 0, 0, 0, 0, 0, 0, 0)
+            };
 
             let context_tokens = session
                 .log_indexer
@@ -73,6 +92,10 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
                 cached_tokens,
                 total_tokens,
                 context_tokens: context_tokens as u64,
+                input_tokens_delta,
+                output_tokens_delta,
+                cached_tokens_delta,
+                total_tokens_delta,
             };
         }
 
@@ -88,6 +111,10 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
             cached_tokens: 0,
             total_tokens: 0,
             context_tokens: 0,
+            input_tokens_delta: 0,
+            output_tokens_delta: 0,
+            cached_tokens_delta: 0,
+            total_tokens_delta: 0,
         }
     }
 }
@@ -127,6 +154,10 @@ impl FooterState {
                     || prev.cached_tokens != current.cached_tokens
                     || prev.total_tokens != current.total_tokens
                     || prev.context_tokens != current.context_tokens
+                    || prev.input_tokens_delta != current.input_tokens_delta
+                    || prev.output_tokens_delta != current.output_tokens_delta
+                    || prev.cached_tokens_delta != current.cached_tokens_delta
+                    || prev.total_tokens_delta != current.total_tokens_delta
             }
         };
 
@@ -212,13 +243,15 @@ impl FooterState {
             meta_suffix
         );
 
+        // Format token counts with K/M/B suffixes
+        let input = format_token_with_delta(values.input_tokens, values.input_tokens_delta);
+        let output = format_token_with_delta(values.output_tokens, values.output_tokens_delta);
+        let cached = format_token_with_delta(values.cached_tokens, values.cached_tokens_delta);
+        let total = format_token_with_delta(values.total_tokens, values.total_tokens_delta);
+
         let token_line = format!(
             "tokens: {}~ | usage: {} 󰕒 + {} 󰇚 + {}  = {} total",
-            values.context_tokens,
-            values.input_tokens,
-            values.output_tokens,
-            values.cached_tokens,
-            values.total_tokens
+            values.context_tokens, input, output, cached, total
         );
 
         (title_line, token_line)
@@ -229,41 +262,39 @@ impl FooterState {
 mod tests {
     use super::*;
 
+    impl FooterValues {
+        fn test_default() -> Self {
+            Self {
+                title: None,
+                chat_index: 0,
+                total_count: 1,
+                agent_name: "default".to_string(),
+                model_display: "claude-3-5-sonnet".to_string(),
+                current_tool_names: vec!["read_file".to_string()],
+                input_tokens: 0,
+                output_tokens: 0,
+                cached_tokens: 0,
+                total_tokens: 0,
+                context_tokens: 0,
+                input_tokens_delta: 0,
+                output_tokens_delta: 0,
+                cached_tokens_delta: 0,
+                total_tokens_delta: 0,
+            }
+        }
+    }
+
     #[test]
     fn test_footer_should_render_on_first_call() {
         let mut state = FooterState::new();
-        let values = FooterValues {
-            title: None,
-            chat_index: 0,
-            total_count: 1,
-            agent_name: "default".to_string(),
-            model_display: "claude-3-5-sonnet".to_string(),
-            current_tool_names: vec!["read_file".to_string()],
-            input_tokens: 0,
-            output_tokens: 0,
-            cached_tokens: 0,
-            total_tokens: 0,
-            context_tokens: 0,
-        };
+        let values = FooterValues::test_default();
         assert!(state.should_render(&values));
     }
 
     #[test]
     fn test_footer_should_render_when_title_changes() {
         let mut state = FooterState::new();
-        let values1 = FooterValues {
-            title: None,
-            chat_index: 0,
-            total_count: 1,
-            agent_name: "default".to_string(),
-            model_display: "claude-3-5-sonnet".to_string(),
-            current_tool_names: vec!["read_file".to_string()],
-            input_tokens: 0,
-            output_tokens: 0,
-            cached_tokens: 0,
-            total_tokens: 0,
-            context_tokens: 0,
-        };
+        let values1 = FooterValues::test_default();
         assert!(state.should_render(&values1));
 
         let values2 = FooterValues {
@@ -277,17 +308,11 @@ mod tests {
     fn test_footer_should_render_when_token_usage_changes() {
         let mut state = FooterState::new();
         let values1 = FooterValues {
-            title: None,
-            chat_index: 0,
-            total_count: 1,
-            agent_name: "default".to_string(),
-            model_display: "claude-3-5-sonnet".to_string(),
-            current_tool_names: vec!["read_file".to_string()],
             input_tokens: 100,
             output_tokens: 50,
-            cached_tokens: 0,
             total_tokens: 150,
             context_tokens: 200,
+            ..FooterValues::test_default()
         };
         assert!(state.should_render(&values1));
 
@@ -302,19 +327,7 @@ mod tests {
     #[test]
     fn test_footer_should_not_render_when_unchanged() {
         let mut state = FooterState::new();
-        let values = FooterValues {
-            title: None,
-            chat_index: 0,
-            total_count: 1,
-            agent_name: "default".to_string(),
-            model_display: "claude-3-5-sonnet".to_string(),
-            current_tool_names: vec!["read_file".to_string()],
-            input_tokens: 0,
-            output_tokens: 0,
-            cached_tokens: 0,
-            total_tokens: 0,
-            context_tokens: 0,
-        };
+        let values = FooterValues::test_default();
         assert!(state.should_render(&values));
         assert!(!state.should_render(&values));
         assert!(!state.should_render(&values));
@@ -336,6 +349,10 @@ mod tests {
             cached_tokens: 25,
             total_tokens: 175,
             context_tokens: 200,
+            input_tokens_delta: 100,
+            output_tokens_delta: 50,
+            cached_tokens_delta: 25,
+            total_tokens_delta: 175,
         };
 
         // Populate cache
@@ -350,7 +367,7 @@ mod tests {
         );
         assert_eq!(
             token_line,
-            "tokens: 200~ | usage: 100 󰕒 + 50 󰇚 + 25  = 175 total"
+            "tokens: 200~ | usage: 100 (+100) 󰕒 + 50 (+50) 󰇚 + 25 (+25)  = 175 (+175) total"
         );
     }
 
@@ -365,11 +382,7 @@ mod tests {
             model_display: "ollama: glm-5.1".to_string(),
             // 1 tool, 9 removed from default's 10 tools
             current_tool_names: vec!["read_file".to_string()],
-            input_tokens: 0,
-            output_tokens: 0,
-            cached_tokens: 0,
-            total_tokens: 0,
-            context_tokens: 0,
+            ..FooterValues::test_default()
         };
 
         // Populate cache
@@ -404,11 +417,7 @@ mod tests {
                 "web_search".to_string(),
                 "think".to_string(),
             ],
-            input_tokens: 0,
-            output_tokens: 0,
-            cached_tokens: 0,
-            total_tokens: 0,
-            context_tokens: 0,
+            ..FooterValues::test_default()
         };
 
         // Populate cache
@@ -416,7 +425,7 @@ mod tests {
 
         let (title_line, token_line) = state.get_footer_lines(&values);
 
-        // No diff shown
+        // No diff shown - delta omitted when 0
         assert_eq!(title_line, "󰭹 Test Chat 1 of 1, agent: default");
         assert_eq!(token_line, "tokens: 0~ | usage: 0 󰕒 + 0 󰇚 + 0  = 0 total");
     }
@@ -436,11 +445,7 @@ mod tests {
                 "edit_file".to_string(),
                 "mcp_server____custom_tool".to_string(), // Extra tool
             ],
-            input_tokens: 0,
-            output_tokens: 0,
-            cached_tokens: 0,
-            total_tokens: 0,
-            context_tokens: 0,
+            ..FooterValues::test_default()
         };
 
         // Populate cache

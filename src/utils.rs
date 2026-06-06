@@ -70,6 +70,54 @@ pub fn notify(message: impl ToString, log_level: LogLevel) {
     let _ = api::command(&lua_code);
 }
 
+/// Format a token count with 2 significant figures and K/M/B suffixes.
+///
+/// Examples:
+/// - 100 → "100"
+/// - 1020 → "1.0K"
+/// - 15300 → "15K"
+/// - 1234567 → "1.2M"
+/// - 1500000000 → "1.5B"
+pub fn format_token_count(count: u64) -> String {
+    if count < 1000 {
+        return count.to_string();
+    }
+
+    let units = ["K", "M", "B"];
+    let mut num = count as f64;
+    let mut unit_index = 0;
+
+    while num >= 1000.0 && unit_index < units.len() {
+        num /= 1000.0;
+        unit_index += 1;
+    }
+
+    // unit_index is now 1-based (1=K, 2=M, 3=B)
+    let suffix = units[unit_index - 1];
+
+    // Format with up to 1 decimal place, removing trailing zeros
+    if num < 10.0 {
+        format!("{:.1}{}", num, suffix)
+    } else {
+        format!("{:.0}{}", num, suffix)
+    }
+}
+
+/// Format token count with delta, hiding delta when it's 0.
+///
+/// Examples:
+/// - (100, 0) → "100"
+/// - (100, 5) → "100 (+5)"
+/// - (1020, 100) → "1.0K (+100)"
+pub fn format_token_with_delta(accumulated: u64, delta: u64) -> String {
+    let accumulated_str = format_token_count(accumulated);
+    if delta == 0 {
+        accumulated_str
+    } else {
+        format!("{} (+{})", accumulated_str, format_token_count(delta))
+    }
+}
+
 pub static GLOBAL_EXECUTION_HANDLER: LazyLock<NeovimExecutionHandler> =
     LazyLock::new(NeovimExecutionHandler::new);
 
@@ -273,5 +321,39 @@ impl NeovimExecutionHandler {
                     )))
                 })
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_token_count_small() {
+        assert_eq!(format_token_count(0), "0");
+        assert_eq!(format_token_count(100), "100");
+        assert_eq!(format_token_count(999), "999");
+    }
+
+    #[test]
+    fn test_format_token_count_thousands() {
+        assert_eq!(format_token_count(1000), "1.0K");
+        assert_eq!(format_token_count(1020), "1.0K");
+        assert_eq!(format_token_count(1500), "1.5K");
+        assert_eq!(format_token_count(15300), "15K");
+        assert_eq!(format_token_count(999999), "1000K");
+    }
+
+    #[test]
+    fn test_format_token_count_millions() {
+        assert_eq!(format_token_count(1_000_000), "1.0M");
+        assert_eq!(format_token_count(1_234_567), "1.2M");
+        assert_eq!(format_token_count(15_000_000), "15M");
+    }
+
+    #[test]
+    fn test_format_token_count_billions() {
+        assert_eq!(format_token_count(1_000_000_000), "1.0B");
+        assert_eq!(format_token_count(1_500_000_000), "1.5B");
     }
 }
