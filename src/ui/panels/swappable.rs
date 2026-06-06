@@ -72,7 +72,7 @@ impl SwappableBufferPanel {
             number: option.number,
             relative_number: option.relative_number,
             sign_column: option.sign_column.to_string(),
-            winfixbuf: false,
+            winfixbuf: true,
             window_option: option.window_option.clone(),
         };
         let window = NvimWindow::new(buffer, window_option)?;
@@ -133,7 +133,13 @@ impl SwappableBufferPanel {
             )))
         })?;
 
+        // Toggle winfixbuf off to allow buffer swap, then back on
+        let win_opts = nvim_oxi::api::opts::OptionOpts::builder()
+            .win(self.window.inner.clone())
+            .build();
+        nvim_oxi::api::set_option_value("winfixbuf", false, &win_opts)?;
         self.window.inner.set_buf(&widget.buffer().inner)?;
+        nvim_oxi::api::set_option_value("winfixbuf", true, &win_opts)?;
 
         self.active = ActiveWidget {
             key: key.to_string(),
