@@ -3,12 +3,10 @@
 Neovim plugin. Pure Rust. `nvim-oxi` bindings. Agentic chat tool.
 
 ## Build & Format
-
-After changing Rust code:
-
-1. `cargo build` → verify no breakage
-2. `cargo test <module>` → test changed code
-3. `cargo fmt` → format code
+1. `cargo build`
+2. `cargo test <module>`
+3. `cargo fmt`
+4. `cargo clippy`
 
 ## Main Thread Guide
 
