@@ -278,6 +278,40 @@ impl ChatWindow {
         Ok(())
     }
 
+    /// Adjusts the input window height to fit content, clamped to [3, 30% editor height].
+    fn adjust_input_window_height(window: &api::Window) -> OxiResult<()> {
+        let editor_height =
+            api::get_option_value::<u32>("lines", &api::opts::OptionOpts::default())?;
+        let max_height = (editor_height as f32 * 0.3) as u32;
+
+        let text_height = window
+            .text_height(&api::opts::WinTextHeightOpts::default())?
+            .all;
+        let target_height = text_height.max(3).min(max_height);
+
+        let mut win = window.clone();
+        win.set_height(target_height)?;
+        Ok(())
+    }
+
+    /// Registers buffer-local autocmds to adjust input window height on text changes.
+    fn setup_input_height_autocmd(buffer: api::Buffer) -> OxiResult<()> {
+        api::create_autocmd(
+            ["TextChanged", "TextChangedI"],
+            &CreateAutocmdOpts::builder()
+                .buffer(buffer)
+                .callback(|_| {
+                    let win = api::get_current_win();
+                    if win.is_valid() {
+                        let _ = Self::adjust_input_window_height(&win);
+                    }
+                    false
+                })
+                .build(),
+        )?;
+        Ok(())
+    }
+
     /// Loads the chat session at `index`, keeping windows open.
     pub fn load_chat(&mut self, index: usize) -> OxiResult<()> {
         self.loaded_chat_index.store(index, Ordering::SeqCst);
@@ -317,10 +351,16 @@ impl ChatWindow {
             );
             if !panel.widget_keys().any(|k| k == chat_key) {
                 let buffer = self.create_input_buffer()?;
-                let widget = BasicWidget::new(buffer);
+                let widget = BasicWidget::new(buffer.clone());
                 panel.add_widget(&chat_key, Box::new(widget))?;
+                Self::setup_input_height_autocmd(buffer.inner)?;
             }
             panel.swap_to(chat_key)?;
+
+            // Adjust window height for the newly loaded buffer
+            if let Some(win) = panel.window.get_window() {
+                Self::adjust_input_window_height(&win)?;
+            }
         }
 
         Ok(())
@@ -590,6 +630,15 @@ impl ChatWindow {
                     })
                     .build(),
             )?;
+
+            // Set initial window height and register autocmd for dynamic height adjustment
+            if let Some(win) = input_win.window.get_window() {
+                Self::adjust_input_window_height(&win)?;
+            }
+            if let Some(buffer) = input_win.active_widget().buffer().get_buffer() {
+                Self::setup_input_height_autocmd(buffer)?;
+            }
+
             self.input_window = Arc::new(Mutex::new(Some(input_win.clone())));
             Ok(input_win)
         }
