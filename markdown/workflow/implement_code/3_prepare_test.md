@@ -1,32 +1,34 @@
 ## Purpose
-Ensure test exists verifying incremental change
+Ensure test verifies incremental change. Tests only — no implementation
 
 ## Process
-Determine change type from Plan step
+1. Determine: behavior preserved?
+  - Yes → [Refactor changes](#refactor-changes-behavior-preserved) → **implement steps**
+  - No → [Code changes](#code-changes-new-behavior) → **implement steps**
 
-### Refactor changes (behavior preserved)
+## Refactor changes (behavior preserved)
 1. Identify affected tests
-   - Search for tests covering refactored code
-   - List all tests exercising affected logic
+  - Search tests covering refactored code
+  - List all tests exercising affected logic
 2. Ensure test coverage
-   - If test exists: Document as verification point
-   - If no test: Create passing test for logic being refactored
-   - Use cohesion test if unsure whether to modify or create
+  - Existing test → document as verification point
+  - No test → create passing test for refactored logic
+  - Use cohesion test if unsure: modify or create
 3. Verify tests pass
-   - Run tests to confirm they pass before refactoring
-   - These tests verify behavior remains correct after refactor
+  - Run tests before refactoring
+  - Confirm behavior remains correct
 
-### Code changes (new behavior)
-1. Search for existing tests
-   - Find tests matching verification criteria
-   - Identify tests that can be modified
+## Code changes (new behavior)
+1. Search existing tests
+  - Find tests matching verification criteria
+  - Identify tests that can be modified
 2. Prepare test
-   - If no existing test: Create new test file if needed, write test asserting expected behavior
-   - If existing test found: Use cohesion test to decide modify vs. create
+  - No existing test → create new file, write test asserting goal behavior
+  - Existing test → use cohesion test: modify vs create
 3. Verify test fails
-   - Run test to confirm failure
-   - Failing test = change not yet made
-   - Passing test = change already done or test is wrong
+  - Run test → confirm failure
+  - Failing = change not yet made
+  - Passing test = change already done or test is wrong
 
 ## Decision: Modify vs. Create test
 **Cohesion test:** Would both verifications fail for same reason?
