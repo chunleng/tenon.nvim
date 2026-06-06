@@ -142,7 +142,7 @@ fn build_workflow_prompt(
         format!(
             "<context>Currently not in workflow\n\
             {}\n\
-            Condition matches→use start_workflow tool\n\
+            Condition matches→start_workflow tool. If multiple→first\n\
             </context>\n\
             {}",
             workflow_info.join(""),
