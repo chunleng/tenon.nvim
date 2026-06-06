@@ -114,20 +114,18 @@ impl ChatFooterRenderer {
                             let _ = buffer.clear_namespace(ns_spinner_clone, 0..);
 
                             // Place spinner on second last line if still processing
-                            if is_processing {
-                                if let Ok(line_count) = buffer.line_count() {
-                                    let second_last_line = line_count.saturating_sub(2);
-                                    let opts = SetExtmarkOpts::builder()
-                                        .sign_text(spinner_char)
-                                        .sign_hl_group("TenonSignProcessing")
-                                        .build();
-                                    let _ = buffer.set_extmark(
-                                        ns_spinner_clone,
-                                        second_last_line,
-                                        0,
-                                        &opts,
-                                    );
-                                }
+                            if is_processing && let Ok(line_count) = buffer.line_count() {
+                                let second_last_line = line_count.saturating_sub(2);
+                                let opts = SetExtmarkOpts::builder()
+                                    .sign_text(spinner_char)
+                                    .sign_hl_group("TenonSignProcessing")
+                                    .build();
+                                let _ = buffer.set_extmark(
+                                    ns_spinner_clone,
+                                    second_last_line,
+                                    0,
+                                    &opts,
+                                );
                             }
                         }
                         Ok(())

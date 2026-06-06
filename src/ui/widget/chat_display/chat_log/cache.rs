@@ -53,7 +53,7 @@ fn process_log_lines(current_log: &TenonLogData, next_log: Option<&TenonLogData>
 
     // Add empty line separator unless both current and next are Tools
     if !(matches!(current_log, TenonLogData::Tool(_))
-        && next_log.map_or(false, |n| matches!(n, TenonLogData::Tool(_))))
+        && next_log.is_some_and(|n| matches!(n, TenonLogData::Tool(_))))
     {
         x.extend(vec!["".to_string()]);
     }

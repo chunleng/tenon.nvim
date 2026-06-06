@@ -32,48 +32,48 @@ pub struct FooterValues {
 
 impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
     fn from(data: Arc<RwLock<ChatDisplayData>>) -> Self {
-        if let Ok(data) = data.read() {
-            if let Ok(session) = data.chat_session.read() {
-                let title = session.title.read().ok().and_then(|t| t.clone());
-                let chat_index = data.chat_index;
-                let total_count = chat_session_count();
-                let agent_name = session.active_agent.name.clone();
-                let model_display = session.active_agent.inner.model.display_name();
-                let current_tool_names = session.active_agent.tool_names.clone();
+        if let Ok(data) = data.read()
+            && let Ok(session) = data.chat_session.read()
+        {
+            let title = session.title.read().ok().and_then(|t| t.clone());
+            let chat_index = data.chat_index;
+            let total_count = chat_session_count();
+            let agent_name = session.active_agent.name.clone();
+            let model_display = session.active_agent.inner.model.display_name();
+            let current_tool_names = session.active_agent.tool_names.clone();
 
-                let (input_tokens, output_tokens, cached_tokens, total_tokens) =
-                    if let Some(usage) = session.usage.read().ok().and_then(|u| u.clone()) {
-                        (
-                            usage.input_tokens,
-                            usage.output_tokens,
-                            usage.cached_input_tokens,
-                            usage.total_tokens,
-                        )
-                    } else {
-                        (0, 0, 0, 0)
-                    };
-
-                let context_tokens = session
-                    .log_indexer
-                    .read()
-                    .ok()
-                    .map(|idx| idx.active_context_token_count())
-                    .unwrap_or(0);
-
-                return Self {
-                    title,
-                    chat_index,
-                    total_count,
-                    agent_name,
-                    model_display,
-                    current_tool_names,
-                    input_tokens,
-                    output_tokens,
-                    cached_tokens,
-                    total_tokens,
-                    context_tokens: context_tokens as u64,
+            let (input_tokens, output_tokens, cached_tokens, total_tokens) =
+                if let Some(usage) = session.usage.read().ok().and_then(|u| *u) {
+                    (
+                        usage.input_tokens,
+                        usage.output_tokens,
+                        usage.cached_input_tokens,
+                        usage.total_tokens,
+                    )
+                } else {
+                    (0, 0, 0, 0)
                 };
-            }
+
+            let context_tokens = session
+                .log_indexer
+                .read()
+                .ok()
+                .map(|idx| idx.active_context_token_count())
+                .unwrap_or(0);
+
+            return Self {
+                title,
+                chat_index,
+                total_count,
+                agent_name,
+                model_display,
+                current_tool_names,
+                input_tokens,
+                output_tokens,
+                cached_tokens,
+                total_tokens,
+                context_tokens: context_tokens as u64,
+            };
         }
 
         Self {

@@ -189,8 +189,9 @@ impl ChatLogIndexer {
     ///
     /// Removal phases:
     /// - Soft limit: Phase 1 (idempotent tools regions 1&2), Phase 2 (non-idempotent tools region 1)
-    /// - Hard limit: Phase 3 (chat/system region 1), Phase 4 (non-idempotent tools region 2),
-    ///               Phase 5 (idempotent tools region 3)
+    /// - Hard limit:
+    ///   - Phase 3 (chat/system region 1), Phase 4 (non-idempotent tools region 2),
+    ///   - Phase 5 (idempotent tools region 3)
     /// - Workflow logs are never removed
     /// - First user message is always preserved
     pub fn apply_context_truncation(&mut self) {
