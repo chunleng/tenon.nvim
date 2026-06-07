@@ -3,8 +3,8 @@ Ensure test verifies incremental change. Tests only — no implementation
 
 ## Process
 1. Determine: behavior preserved?
-  - Yes → [Refactor changes](#refactor-changes-behavior-preserved) → **implement steps**
-  - No → [Code changes](#code-changes-new-behavior) → **implement steps**
+  - Yes → refer+execute "Refactor changes" section
+  - No → refer+execute "Code changes" section
 
 ## Refactor changes (behavior preserved)
 1. Identify affected tests
