@@ -1,5 +1,7 @@
 use nvim_oxi::{
-    Dictionary, Function, Object, api::Buffer, api::types::LogLevel, conversion::FromObject,
+    Dictionary, Function, Object,
+    api::{Buffer, opts::OptionOpts, types::LogLevel},
+    conversion::FromObject,
 };
 
 use crate::{get_chat_window, utils::format_path_relative};
@@ -27,15 +29,12 @@ fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
         |(bufnr, start_line, start_col, end_line, end_col): InsertSelectionParams| {
             let buf = Buffer::from(bufnr);
 
-            // Get buffer filename and filetype
-            let filepath = buf.get_name().ok().map(|p| p.to_string_lossy().to_string());
-            let filename = filepath.as_ref().map(|path| format_path_relative(path));
-            #[allow(deprecated)]
-            let filetype: String = buf
-                .get_option("filetype")
+            // Get buftype first to determine formatting approach
+            let option_opt = OptionOpts::builder().buffer(buf.clone()).build();
+            let buftype: String = nvim_oxi::api::get_option_value("buftype", &option_opt)
                 .ok()
                 .and_then(|obj| String::from_object(obj).ok())
-                .unwrap_or("text".to_string());
+                .unwrap_or_default();
 
             // Convert from 1-indexed (Lua) to 0-indexed (nvim_oxi)
             // For lines 5-6 (1-indexed), we want 0-indexed rows 4-5, range 4..6
@@ -88,39 +87,58 @@ fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
             }
             let snippet_text = snippet_lines.join("\n");
 
-            // Format as markdown
-            // end_line from Vim is exclusive (line after last), so display_end = end_line - 1
-            let header = if let Some(ref name) = filename {
-                if start_line == end_line {
-                    format!("Snippet from {} Line {}\n", name, start_line)
-                } else {
-                    format!("Snippet from {} Lines {}-{}\n", name, start_line, end_line)
-                }
-            } else if start_line == end_line {
-                format!("Snippet Line {}\n", start_line)
+            // Format based on buftype
+            let markdown = if buftype == "nofile" {
+                // Blockquote format for nofile buffers
+                let quoted = snippet_text
+                    .lines()
+                    .map(|line| format!("> {}", line))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("{}\n", quoted)
             } else {
-                format!("Snippet Lines {}-{}\n", start_line, end_line)
-            };
+                // Code block format for regular buffers
+                // Get snippet-specific metadata
+                let filepath = buf.get_name().ok().map(|p| p.to_string_lossy().to_string());
+                let filename = filepath.as_ref().map(|path| format_path_relative(path));
+                let filetype: String = nvim_oxi::api::get_option_value("filetype", &option_opt)
+                    .ok()
+                    .and_then(|obj| String::from_object(obj).ok())
+                    .unwrap_or("text".to_string());
 
-            // Escape triple backticks at line start
-            let escaped_snippet = snippet_text
-                .lines()
-                .map(|line| {
-                    if let Some(stripped) = line.strip_prefix("```") {
-                        format!("\\`\\`\\`{}", stripped)
+                // end_line from Vim is exclusive (line after last), so display_end = end_line - 1
+                let header = if let Some(ref name) = filename {
+                    if start_line == end_line {
+                        format!("Snippet from {} Line {}\n", name, start_line)
                     } else {
-                        line.to_string()
+                        format!("Snippet from {} Lines {}-{}\n", name, start_line, end_line)
                     }
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
+                } else if start_line == end_line {
+                    format!("Snippet Line {}\n", start_line)
+                } else {
+                    format!("Snippet Lines {}-{}\n", start_line, end_line)
+                };
 
-            let markdown = format!(
-                "{}\n```{}\n{}\n```\n",
-                header.trim_end(),
-                filetype,
-                escaped_snippet
-            );
+                // Escape triple backticks at line start
+                let escaped_snippet = snippet_text
+                    .lines()
+                    .map(|line| {
+                        if let Some(stripped) = line.strip_prefix("```") {
+                            format!("\\`\\`\\`{}", stripped)
+                        } else {
+                            line.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                format!(
+                    "{}\n```{}\n{}\n```\n",
+                    header.trim_end(),
+                    filetype,
+                    escaped_snippet
+                )
+            };
 
             // Append to chat input using the existing method
             if let Ok(mut win) = get_chat_window().lock() {
