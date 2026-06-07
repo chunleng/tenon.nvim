@@ -127,6 +127,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         k,
                         TenonAgent::new(
                             SupportedModels {
+                                connector_name: v.model.connector.clone(),
                                 config: model_config.to_owned(),
                                 model_name: v.model.name,
                             },
@@ -158,6 +159,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                             msg: format!("unknown connector for model: {}", m.connector),
                         }))?;
                     Ok(SupportedModels {
+                        connector_name: m.connector.clone(),
                         config: provider_config.to_owned(),
                         model_name: m.name,
                     })
@@ -179,6 +181,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         ),
                     }))?;
                 conf.tools.fetch_webpage.model = Some(SupportedModels {
+                    connector_name: model.connector.clone(),
                     config: provider_config.to_owned(),
                     model_name: model.name,
                 });
@@ -199,6 +202,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                                 ),
                             }))?;
                         Ok(SupportedModels {
+                            connector_name: m.connector.clone(),
                             config: provider_config.to_owned(),
                             model_name: m.name,
                         })
@@ -220,6 +224,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         msg: format!("unknown connector for title model: {}", model.connector),
                     }))?;
                 conf.title.model = Some(SupportedModels {
+                    connector_name: model.connector.clone(),
                     config: provider_config.to_owned(),
                     model_name: model.name,
                 });

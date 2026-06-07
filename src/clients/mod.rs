@@ -61,19 +61,14 @@ pub use openai::{OpenAIProviderConfig, get_openai_agent};
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SupportedModels {
+    pub connector_name: String,
     pub config: ProviderConfig,
     pub model_name: String,
 }
 
 impl SupportedModels {
     pub fn display_name(&self) -> String {
-        match self.config {
-            ProviderConfig::Ollama(_) => format!("ollama: {}", self.model_name),
-            ProviderConfig::Gemini(_) => format!("gemini: {}", self.model_name),
-            ProviderConfig::OpenAI(_) => format!("openai: {}", self.model_name),
-            ProviderConfig::Anthropic(_) => format!("anthropic: {}", self.model_name),
-            ProviderConfig::Bedrock(_) => format!("bedrock: {}", self.model_name),
-        }
+        format!("{}: {}", self.connector_name, self.model_name)
     }
 }
 

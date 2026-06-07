@@ -94,6 +94,7 @@ impl Default for TenonConfig {
             }),
         );
         let default_model = SupportedModels {
+            connector_name: "ollama_cloud".to_string(),
             config: ollama_cloud_provider.clone(),
             model_name: "glm-5.1".to_string(),
         };

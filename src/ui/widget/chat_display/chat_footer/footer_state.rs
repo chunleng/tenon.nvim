@@ -379,7 +379,7 @@ mod tests {
             chat_index: 0,
             total_count: 1,
             agent_name: "default".to_string(),
-            model_display: "ollama: glm-5.1".to_string(),
+            model_display: "ollama_cloud: glm-5.1".to_string(),
             // 1 tool, 9 removed from default's 10 tools
             current_tool_names: vec!["read_file".to_string()],
             ..FooterValues::test_default()
@@ -404,7 +404,7 @@ mod tests {
             chat_index: 0,
             total_count: 1,
             agent_name: "default".to_string(),
-            model_display: "ollama: glm-5.1".to_string(),
+            model_display: "ollama_cloud: glm-5.1".to_string(),
             current_tool_names: vec![
                 "create_file".to_string(),
                 "edit_file".to_string(),
@@ -439,7 +439,7 @@ mod tests {
             chat_index: 0,
             total_count: 1,
             agent_name: "default".to_string(),
-            model_display: "ollama: glm-5.1".to_string(),
+            model_display: "ollama_cloud: glm-5.1".to_string(),
             current_tool_names: vec![
                 "read_file".to_string(),
                 "edit_file".to_string(),
