@@ -85,6 +85,6 @@ pub fn workflow() -> Workflow {
                 ],
             },
         ],
-        default_condition: "when user wants feature added/behavior changed. includes direct changes like \"Let's make this red\"".to_string(),
+        default_condition: "user requests add feature or change behavior: \"Let's make this red\" or new greenfield project".to_string(),
     }
 }

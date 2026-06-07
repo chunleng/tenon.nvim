@@ -4,24 +4,25 @@ Gather requirements, identify existing features, detect contradictions with curr
 ## Process
 1. If this is a revisit (issues returned from Verify step), address the issues first
 2. Understand user's request:
-   - For high-level requests, decompose into sub-features with clarifying questions
-   - Example: "build flight simulator" → "render runway | render plane | simulate physics | ..."
-   - Ask clarifying questions for each component
+  - For high-level requests, decompose into sub-features with clarifying questions
+  - Example: "build flight simulator" → "render runway | render plane | simulate physics | ..."
+  - Ask clarifying questions for each component
+    - If this is a greenfield project, always ask if test should be set up
 3. Investigate codebase:
-   - What existing features relate to this request
-   - What behaviors might conflict or contradict
-   - What assumptions exist in current implementation
+  - What existing features relate to this request
+  - What behaviors might conflict or contradict
+  - What assumptions exist in current implementation
 4. Things to note for investigation:
-   - What must stay the same
-   - What can change
-   - Migration requirements (for behavior changes)
-   - Backward compatibility needs
-   - Potential conflicts with existing features
-   - Non-functional requirements (for significant changes):
-     - Performance: response time, throughput, latency
-     - Privacy: data handling, logging, PII
-     - Security: authentication, authorization
-     - Scalability: expected load, growth
+  - What must stay the same
+  - What can change
+  - Migration requirements (for behavior changes)
+  - Backward compatibility needs
+  - Potential conflicts with existing features
+  - Non-functional requirements (for significant changes):
+    - Performance: response time, throughput, latency
+    - Privacy: data handling, logging, PII
+    - Security: authentication, authorization
+    - Scalability: expected load, growth
 5. Clarify conflicts and ambiguities with user
 
 ## Output
