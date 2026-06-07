@@ -103,7 +103,7 @@ fn build_workflow_prompt(
                     Perform in order:\n\
                     1) Check user prompt: `[continue]`→continue to 2), else, process user prompt and skip 2) and 3)\n\
                     2) Follow \"Process\" section in <instruction></instruction>. Question for user→ask directly and skip 3)\n\
-                    3) Check \"Process\" completion, complete→call tool to navigate workflow from <navigation></navigation>, else, go to 2)\n\
+                    3) Check \"Process\" completion, complete→call tool to navigate workflow from <navigation></navigation> (Use \"Output\" section for navigate output), else, go to 2)\n\
                     <instruction>\n\
                     {}\n\
                     </instruction>\n\
