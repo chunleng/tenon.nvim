@@ -58,7 +58,7 @@ fn parse_whitelist_pattern(pattern: &str) -> (Vec<String>, ArgAllowance) {
     let trimmed = pattern.trim();
     let tokens: Vec<String> = shlex::split(trimmed).unwrap_or_default();
 
-    let allowance = if trimmed.ends_with(" *") {
+    let allowance = if trimmed == "*" || trimmed.ends_with(" *") {
         ArgAllowance::AnyArgs
     } else if trimmed.ends_with(" ?") {
         ArgAllowance::OneArg
@@ -540,5 +540,40 @@ mod tests {
         let (result, truncated) = truncate_output(&output);
         assert!(truncated);
         assert_eq!(result.len(), OUTPUT_CAP);
+    }
+
+    #[test]
+    fn test_standalone_wildcard_allows_all_commands() {
+        // Pattern "*" should match any command (allow all)
+        let whitelist = vec!["*".to_string()];
+
+        // Single command without args
+        let combined = vec!["make".to_string()];
+        assert!(
+            command_matches_whitelist(&combined, &whitelist),
+            "Pattern '*' should match 'make'"
+        );
+
+        // Command with args
+        let combined = vec![
+            "git".to_string(),
+            "log".to_string(),
+            "--oneline".to_string(),
+        ];
+        assert!(
+            command_matches_whitelist(&combined, &whitelist),
+            "Pattern '*' should match 'git log --oneline'"
+        );
+
+        // Any arbitrary command
+        let combined = vec![
+            "cargo".to_string(),
+            "build".to_string(),
+            "--release".to_string(),
+        ];
+        assert!(
+            command_matches_whitelist(&combined, &whitelist),
+            "Pattern '*' should match 'cargo build --release'"
+        );
     }
 }
