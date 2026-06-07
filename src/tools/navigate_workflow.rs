@@ -34,19 +34,17 @@ impl Tool for NavigateWorkflow {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "navigate_workflow".to_string(),
-            description:
-                "Navigate workflow steps. NEVER USE halfway through current step. use after current step COMPLETES."
-                    .to_string(),
+            description: "Navigate workflow steps".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "step": {
                         "type": "integer",
-                        "description": "The step number to navigate to (1-indexed)"
+                        "description": "Step number (1-indexed)"
                     },
                     "step_output": {
                         "type": "string",
-                        "description": "Message to pass to the next step"
+                        "description": "Message for next step"
                     }
                 },
                 "required": ["step", "step_output"]

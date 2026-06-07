@@ -34,16 +34,13 @@ impl Tool for StartWorkflow {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "start_workflow".to_string(),
-            description: format!(
-                "Start a workflow. Each workflow has a condition when it should be used. Available workflows: {}. Use this tool when the user's request matches a workflow's condition.",
-                self.workflow_ids.join(", ")
-            ),
+            description: "Start workflow. Use when request matches workflow condition".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "workflow_id": {
                         "type": "string",
-                        "description": "The ID of the workflow to start"
+                        "description": "Workflow to start"
                     }
                 },
                 "required": ["workflow_id"]
