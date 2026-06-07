@@ -27,3 +27,5 @@ chrono = { version = "0.4", features = ["serde"] }
 skimtoken = "0.2"
 anyhow = "1.0.102"
 lance-linalg = "0.15"
+unpdf = "0.7"
+bytes = "1"
