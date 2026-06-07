@@ -25,7 +25,9 @@ impl Tool for FetchWebpage {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "fetch_webpage".to_string(),
-            description: "Fetch webpage → readable text. Prefer prompt param → reduces tokens. With prompt: answer based on content. Without prompt: full markdown.".to_string(),
+            description:
+                "Fetch webpage → readable text. w/ prompt (RECOMMENDED): answer from content. Else: full markdown"
+                    .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -35,7 +37,7 @@ impl Tool for FetchWebpage {
                     },
                     "prompt": {
                         "type": "string",
-                        "description": "RECOMMENDED → reduces output tokens. What to extract/answer. Returns only the answer. Scalar: fact/yes-no. Structured: table/steps/kvpairs. Compressed: summary/takeaways/translation. Filtered: return portion of document."
+                        "description": "What to extract/answer. Returns answer only. Scalar: fact/yes-no. Structured: table/steps/kvpairs. Compressed: summary/takeaways/translation. Filtered: partial document"
                     }
                 },
                 "required": ["url"]
