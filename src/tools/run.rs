@@ -287,44 +287,44 @@ impl Tool for Run {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "run".to_string(),
-            description: "Execute allowed commands. Output: stdout (filtered) + stderr (filtered)."
+            description: "Run command (exec form). Output: stdout+stderr (filtered). E.g. git log → command='git', args=['log']."
                 .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "Executable to run (not a shell command). Example: 'git', 'make', 'cargo'"
+                        "description": "Executable. E.g. 'git', 'make'."
                     },
                     "args": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Arguments for the command. Example: ['log', '--oneline'] for 'git log --oneline'"
+                        "description": "Args. E.g. ['log', '--oneline']."
                     },
                     "cwd": {
                         "type": "string",
-                        "description": "Working directory. Default: cwd."
+                        "description": "Working dir. Default: cwd."
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "Seconds before kill. Default: 30."
+                        "description": "Timeout (sec). Default: 30."
                     },
                     "filter": {
                         "type": "string",
-                        "description": "Only lines (stdout and stderr) containing this literal substring."
+                        "description": "Filter lines containing substring."
                     },
                     "head": {
                         "type": "integer",
-                        "description": "Keep first N lines of output (stdout and stderr). Mutually exclusive with tail."
+                        "description": "Keep first N lines. Exclusive with tail."
                     },
                     "tail": {
                         "type": "integer",
-                        "description": "Keep last N lines of output (stdout and stderr). Mutually exclusive with head."
+                        "description": "Keep last N lines. Exclusive with head."
                     },
                     "env": {
                         "type": "object",
                         "additionalProperties": {"type": "string"},
-                        "description": "Env vars to set."
+                        "description": "Env vars."
                     }
                 },
                 "required": ["command"]
