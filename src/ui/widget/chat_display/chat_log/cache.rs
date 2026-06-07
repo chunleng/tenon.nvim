@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use chrono::{DateTime, Utc};
 
 use crate::chat::{ChatSession, TenonLog, TenonLogData};
+use crate::tools::{ToolClassification, get_tool_classification};
 use crate::ui::widget::chat_display::format::DisplayChatFormatter;
 
 pub struct StreamUpdate {
@@ -14,10 +15,14 @@ pub struct StreamUpdate {
     pub sign_hl_group: String,
 }
 
+enum RenderedLocation {
+    Hidden,
+    Shown { line_start: usize, line_end: usize },
+}
+
 struct RenderedLogEntry {
     log: Arc<TenonLog>,
-    line_start: usize,
-    line_end: usize,
+    render_location: RenderedLocation,
     last_updated_at: DateTime<Utc>,
 }
 
@@ -71,9 +76,10 @@ impl ChatLogCache {
     }
 
     /// Updates an existing rendered entry or inserts a new one.
-    /// Returns `(render_info, new_current_line)` where:
-    /// - `render_info` is `Some((line_start, line_end))` when entry changed/new (needs render)
-    /// - `render_info` is `None` when entry unchanged (skip render)
+    /// Returns `(render_location, new_current_line)` where:
+    /// - `render_location` is `Some(Shown { line_start, line_end })` when entry changed/new and not System tool (needs render)
+    /// - `render_location` is `Some(Hidden)` when entry is System tool (no render)
+    /// - `render_location` is `None` when entry unchanged (skip render)
     /// - `new_current_line` is always provided for position tracking
     fn upsert_entry_if_changed(
         &mut self,
@@ -81,39 +87,81 @@ impl ChatLogCache {
         log: &Arc<TenonLog>,
         lines: &[String],
         current_line: usize,
-    ) -> (Option<(usize, usize)>, usize) {
+    ) -> (Option<RenderedLocation>, usize) {
+        // Check if this is a System tool (should be hidden from rendering)
+        let is_system_tool = match &log.data {
+            TenonLogData::Tool(tool_log) => {
+                get_tool_classification(&tool_log.tool_call.name) == ToolClassification::System
+            }
+            _ => false,
+        };
+
         if let Some(existing) = self.rendered_entries.get_mut(log_index) {
+            // At this point, render_location is Shown
+            let (line_start, line_end) = match &existing.render_location {
+                RenderedLocation::Shown {
+                    line_start,
+                    line_end,
+                } => (*line_start, *line_end),
+                RenderedLocation::Hidden => return (None, current_line),
+            };
+
             // Check if separator changed (line count differs for Tool logs)
-            let separator_changed = existing.line_end - existing.line_start != lines.len();
+            let separator_changed = line_end - line_start != lines.len();
 
             // Unchanged entry: return position for tracking, but no render needed
             if log.last_updated_at <= existing.last_updated_at && !separator_changed {
-                return (None, existing.line_end);
+                return (None, line_end);
             }
 
             // Changed entry: use stored line_end for replace, then update it
-            let replace_line_end = existing.line_end;
-            existing.line_end = existing.line_start + lines.len();
+            let replace_line_end = line_end;
+            let new_line_end = line_start + lines.len();
+
+            existing.render_location = RenderedLocation::Shown {
+                line_start,
+                line_end: new_line_end,
+            };
             existing.last_updated_at = log.last_updated_at;
 
             return (
-                Some((existing.line_start, replace_line_end)),
-                existing.line_end,
+                Some(RenderedLocation::Shown {
+                    line_start,
+                    line_end: replace_line_end,
+                }),
+                new_line_end,
             );
         }
 
         // New entry
-        let line_start = current_line;
-        let line_end = current_line + lines.len();
+        if is_system_tool {
+            self.rendered_entries.push(RenderedLogEntry {
+                log: log.clone(),
+                render_location: RenderedLocation::Hidden,
+                last_updated_at: log.last_updated_at,
+            });
+            (Some(RenderedLocation::Hidden), current_line)
+        } else {
+            let line_start = current_line;
+            let line_end = current_line + lines.len();
 
-        self.rendered_entries.push(RenderedLogEntry {
-            log: log.clone(),
-            line_start,
-            line_end,
-            last_updated_at: log.last_updated_at,
-        });
+            self.rendered_entries.push(RenderedLogEntry {
+                log: log.clone(),
+                render_location: RenderedLocation::Shown {
+                    line_start,
+                    line_end,
+                },
+                last_updated_at: log.last_updated_at,
+            });
 
-        (Some((line_start, line_start)), line_end)
+            (
+                Some(RenderedLocation::Shown {
+                    line_start,
+                    line_end: line_start, // For new entries, replace from start
+                }),
+                line_end,
+            )
+        }
     }
 
     pub fn poll_render_update(&mut self) -> Vec<StreamUpdate> {
@@ -139,7 +187,10 @@ impl ChatLogCache {
         let mut current_line = self
             .rendered_entries
             .get(check_from.saturating_sub(1))
-            .map(|entry| entry.line_end)
+            .map(|entry| match &entry.render_location {
+                RenderedLocation::Shown { line_end, .. } => *line_end,
+                RenderedLocation::Hidden => 0, // Hidden entries don't affect line position
+            })
             .unwrap_or(0);
 
         // Collect StreamUpdates for new logs
@@ -168,14 +219,23 @@ impl ChatLogCache {
         let updates: Vec<StreamUpdate> = logs_data
             .into_iter()
             .filter_map(|(log_index, log, lines)| {
-                let (render_info, new_current_line) =
+                let (render_location, new_current_line) =
                     self.upsert_entry_if_changed(log_index, &log, &lines, current_line);
 
                 current_line = new_current_line;
 
-                render_info.map(|(replace_line_start, replace_line_end)| StreamUpdate {
-                    replace_line_start,
-                    replace_line_end,
+                // Only create StreamUpdate for Shown entries
+                let (line_start, line_end) = match render_location? {
+                    RenderedLocation::Shown {
+                        line_start,
+                        line_end,
+                    } => (line_start, line_end),
+                    RenderedLocation::Hidden => return None,
+                };
+
+                Some(StreamUpdate {
+                    replace_line_start: line_start,
+                    replace_line_end: line_end,
                     lines,
                     line_hl_group: log.data.line_hl_group(),
                     sign: log.data.sign(),
@@ -604,5 +664,24 @@ mod tests {
         )));
         let lines = process_log_lines(&reasoning_log, Some(&user_log));
         assert_eq!(lines, vec!["... Line 5", ""]);
+    }
+
+    #[test]
+    fn test_system_tools_excluded_from_render() {
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Hello");
+        add_tool_log(&mut cache, "start_workflow", 1);
+        add_tool_log(&mut cache, "read_file", 2);
+
+        let updates = cache.poll_render_update();
+
+        assert_eq!(
+            updates.len(),
+            2,
+            "System tools should be excluded from render"
+        );
+        assert_eq!(updates[0].lines, vec!["Hello", ""]);
+        assert!(updates[1].lines[0].contains("read_file"));
     }
 }
