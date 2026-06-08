@@ -357,6 +357,18 @@ impl TenonLog {
 }
 
 impl TenonLogData {
+    /// Returns true if this log should be hidden from the chat display.
+    /// System tools (start_workflow, navigate_workflow, end_workflow) are hidden.
+    pub fn is_system_tool(&self) -> bool {
+        match self {
+            TenonLogData::Tool(tool_log) => {
+                crate::tools::get_tool_classification(&tool_log.tool_call.name)
+                    == crate::tools::ToolClassification::System
+            }
+            _ => false,
+        }
+    }
+
     fn count_tokens(&self) -> usize {
         match self {
             TenonLogData::User(msg) => match msg {

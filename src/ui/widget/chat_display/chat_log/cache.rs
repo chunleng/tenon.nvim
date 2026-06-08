@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 use chrono::{DateTime, Utc};
 
 use crate::chat::{ChatSession, TenonLog, TenonLogData};
-use crate::tools::{ToolClassification, get_tool_classification};
 use crate::ui::widget::chat_display::format::DisplayChatFormatter;
 
 pub struct StreamUpdate {
@@ -38,6 +37,9 @@ pub struct ChatLogCache {
 use std::sync::atomic::Ordering;
 
 fn process_log_lines(current_log: &TenonLogData, next_log: Option<&TenonLogData>) -> Vec<String> {
+    // Treat system tools as hidden (no next_log)
+    let next_log = next_log.filter(|n| !n.is_system_tool());
+
     let mut x: Vec<String> = current_log.lines().into_iter().collect();
 
     // For assistant reasoning, limit displayed lines
@@ -88,14 +90,6 @@ impl ChatLogCache {
         lines: &[String],
         current_line: usize,
     ) -> (Option<RenderedLocation>, usize) {
-        // Check if this is a System tool (should be hidden from rendering)
-        let is_system_tool = match &log.data {
-            TenonLogData::Tool(tool_log) => {
-                get_tool_classification(&tool_log.tool_call.name) == ToolClassification::System
-            }
-            _ => false,
-        };
-
         if let Some(existing) = self.rendered_entries.get_mut(log_index) {
             // At this point, render_location is Shown
             let (line_start, line_end) = match &existing.render_location {
@@ -134,7 +128,7 @@ impl ChatLogCache {
         }
 
         // New entry
-        if is_system_tool {
+        if log.data.is_system_tool() {
             self.rendered_entries.push(RenderedLogEntry {
                 log: log.clone(),
                 render_location: RenderedLocation::Hidden,
@@ -203,9 +197,10 @@ impl ChatLogCache {
                 .iter()
                 .enumerate()
                 .map(|(offset, indexed_log)| {
-                    let next_log = indexer
-                        .logs
-                        .get(check_from + offset + 1)
+                    // Find next visible log (skip system tools)
+                    let next_log = indexer.logs[check_from + offset + 1..]
+                        .iter()
+                        .find(|n| !n.log.data.is_system_tool())
                         .map(|n| &n.log.data);
 
                     let x = process_log_lines(&indexed_log.log.data, next_log);
@@ -683,5 +678,34 @@ mod tests {
         );
         assert_eq!(updates[0].lines, vec!["Hello", ""]);
         assert!(updates[1].lines[0].contains("read_file"));
+    }
+
+    #[test]
+    fn test_process_log_lines_uses_next_visible_log() {
+        use crate::chat::log::{TenonAssistantMessage, TenonLogData, TenonToolCall, TenonToolLog};
+
+        // Assistant reasoning followed by system tool only → should treat as last (show 3 lines)
+        let reasoning_log = TenonLogData::Assistant(TenonAssistantMessage {
+            reasoning: Some("Line 1\nLine 2\nLine 3\nLine 4\nLine 5".to_string()),
+            content: vec![],
+        });
+        let system_tool_log = TenonLogData::Tool(TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                name: "start_workflow".into(),
+                args: serde_json::json!({}),
+            },
+            tool_result: None,
+        });
+
+        // Current: next_log is system tool → shows 1 line (has_next = true)
+        // Desired: next_log is None (system tool hidden) → shows 3 lines (last visible)
+        let lines = process_log_lines(&reasoning_log, Some(&system_tool_log));
+        assert_eq!(
+            lines,
+            vec!["... Line 3", "Line 4", "Line 5", ""],
+            "Assistant reasoning followed by system tool should be treated as last visible log"
+        );
     }
 }
