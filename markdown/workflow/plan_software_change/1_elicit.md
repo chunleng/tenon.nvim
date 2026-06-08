@@ -4,8 +4,10 @@ Gather requirements, identify existing features, detect contradictions with curr
 ## Process
 1. If this is a revisit (issues returned from Verify step), address the issues first
 2. Understand user's request:
-  - For high-level requests, decompose into sub-features with clarifying questions
-  - Example: "build flight simulator" → "render runway | render plane | simulate physics | ..."
+  - high-level requests:
+    - Grill me on plan (one question at a time) until shared understanding
+    - Decompose → sub-features
+    - Continue grill + decompose until sub-features clear
   - Ask clarifying questions for each component
     - If this is a greenfield project, always ask if test should be set up
 3. Investigate codebase:
