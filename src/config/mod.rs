@@ -48,21 +48,10 @@ impl Default for HistoryConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TitleConfig {
     pub model: Option<SupportedModels>,
-    pub prompt: String,
-}
-
-impl Default for TitleConfig {
-    fn default() -> Self {
-        Self {
-            model: None,
-            prompt: "2-6 words from prompt. Title only. \
-                e.g. \"Fix login bug in auth module\" → Login bug fix"
-                .to_string(),
-        }
-    }
+    pub prompt: Option<String>,
 }
 
 #[derive(Debug, Clone)]

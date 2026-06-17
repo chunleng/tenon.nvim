@@ -1,3 +1,4 @@
+use crate::chat::helpers::TitleHandler;
 use crate::{
     clients::{ChatAgent, StreamItem, SupportedModels, get_agent},
     config::user::WorkflowConfig,
@@ -15,6 +16,7 @@ use std::{
     sync::{Arc, LazyLock, Mutex, RwLock},
 };
 
+pub mod helpers;
 pub mod history;
 pub mod log;
 pub mod log_indexer;
@@ -296,7 +298,6 @@ impl TenonAgent {
 
 pub struct ChatSession {
     pub id: String,
-    pub title: Arc<RwLock<Option<String>>>,
     pub log_indexer: Arc<RwLock<ChatLogIndexer>>,
     pub usage: Arc<RwLock<SessionUsage>>,
     pub active_agent: ActiveAgent,
@@ -304,8 +305,7 @@ pub struct ChatSession {
     pub session_datetime: DateTime<Local>,
     cancel_token: Arc<AtomicBool>,
     active_thread: Option<std::thread::JoinHandle<()>>,
-    cancel_title_token: Arc<AtomicBool>,
-    title_thread: Option<std::thread::JoinHandle<()>>,
+    title_handler: TitleHandler,
 }
 
 impl ChatSession {
@@ -315,10 +315,10 @@ impl ChatSession {
     }
 
     pub fn with_agent_name(agent_name: String) -> OxiResult<Self> {
+        let log_indexer = Arc::new(RwLock::new(ChatLogIndexer::new()));
         Ok(Self {
             id: generate_chat_id(),
-            title: Arc::new(RwLock::new(None)),
-            log_indexer: Arc::new(RwLock::new(ChatLogIndexer::new())),
+            log_indexer: log_indexer.clone(),
             usage: Arc::new(RwLock::new(SessionUsage::default())),
             active_agent: ActiveAgent {
                 name: agent_name.to_string(),
@@ -332,8 +332,7 @@ impl ChatSession {
             session_datetime: Local::now(),
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
-            cancel_title_token: Arc::new(AtomicBool::new(false)),
-            title_thread: None,
+            title_handler: TitleHandler::new(log_indexer),
         })
     }
 
@@ -380,11 +379,11 @@ impl ChatSession {
         };
 
         let log_indexer = ChatLogIndexer::from_logs(logs);
+        let log_indexer_arc = Arc::new(RwLock::new(log_indexer));
 
         let session = Self {
             id: history.id,
-            title: Arc::new(RwLock::new(history.title)),
-            log_indexer: Arc::new(RwLock::new(log_indexer)),
+            log_indexer: log_indexer_arc.clone(),
             usage: Arc::new(RwLock::new(SessionUsage {
                 accumulated: history.usage,
                 last_exchange: Usage::new(),
@@ -397,113 +396,29 @@ impl ChatSession {
             session_datetime: history.session_datetime,
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
-            cancel_title_token: Arc::new(AtomicBool::new(false)),
-            title_thread: None,
+            title_handler: TitleHandler::from_history(history.title, log_indexer_arc),
         };
 
         Ok(session)
+    }
+
+    pub fn title(&self) -> Option<String> {
+        self.title_handler.title.read().ok().and_then(|t| t.clone())
     }
 
     pub fn cancel(&mut self) {
         self.cancel_token.store(true, Ordering::SeqCst);
     }
 
-    pub fn cancel_title(&mut self) {
-        self.cancel_title_token.store(true, Ordering::SeqCst);
-    }
-
     pub fn is_processing(&self) -> bool {
-        let main_thread_running = if let Some(thread) = self.active_thread.as_ref() {
-            !thread.is_finished()
-        } else {
-            false
-        };
+        let main_thread_running = self
+            .active_thread
+            .as_ref()
+            .is_some_and(|t| !t.is_finished());
 
-        let title_thread_running = if let Some(thread) = self.title_thread.as_ref() {
-            !thread.is_finished()
-        } else {
-            false
-        };
+        let title_thread_running = self.title_handler.is_generating();
 
         main_thread_running || title_thread_running
-    }
-
-    /// Generates a title for the chat if not already set.
-    /// Runs in a separate thread to avoid blocking the main chat stream.
-    pub fn generate_title(&mut self, first_message: String) {
-        if self.title.read().map(|t| t.is_some()).unwrap_or(false) {
-            return;
-        }
-
-        // Cancel previous title generation
-        self.cancel_title_token.store(true, Ordering::SeqCst);
-        self.cancel_title_token = Arc::new(AtomicBool::new(false));
-        let cancel_token = Arc::clone(&self.cancel_title_token);
-
-        let title_arc = Arc::clone(&self.title);
-        let config = get_application_config();
-
-        self.title_thread = Some(std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                // Get title model or fall back to default agent's model
-                let model = config.title.model.clone().or_else(|| {
-                    config
-                        .agents
-                        .get(&config.default_agent)
-                        .map(|a| a.model.clone())
-                });
-
-                let model = match model {
-                    Some(m) => m,
-                    None => return,
-                };
-
-                let directive = vec![Directive {
-                    condition: None,
-                    source: DirectiveSource::Text {
-                        value: config.title.prompt.clone(),
-                    },
-                }];
-
-                let agent = get_agent(model, directive, vec![]);
-
-                match agent
-                    .chat(format!("Generate title:\n```\n{}\n```", first_message))
-                    .await
-                {
-                    Ok(title) => {
-                        if cancel_token.load(Ordering::SeqCst) {
-                            return;
-                        }
-                        let trimmed = title.trim();
-                        if !trimmed.is_empty()
-                            && let Ok(mut t) = title_arc.write()
-                        {
-                            *t = Some(
-                                trimmed
-                                    .lines()
-                                    .collect::<Vec<_>>()
-                                    .first()
-                                    .map(|x| x.to_string())
-                                    .unwrap_or("Untitled".to_string()),
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("[tenon] Failed to generate title: {}", e);
-                    }
-                }
-            });
-        }));
-    }
-
-    pub fn is_generating_title(&self) -> bool {
-        if let Some(thread) = self.title_thread.as_ref() {
-            !thread.is_finished()
-        } else {
-            false
-        }
     }
 
     /// Internal method to send a chat request.
@@ -516,7 +431,7 @@ impl ChatSession {
 
         // Generate title if this is a new user message
         if save_prompt {
-            self.generate_title(prompt.clone());
+            self.title_handler.generate_title();
         }
 
         self.prune_incomplete_messages();
@@ -525,7 +440,7 @@ impl ChatSession {
         let usage_clone = Arc::clone(&self.usage);
         let agent_clone = self.active_agent.clone();
         let chat_id = self.id.clone();
-        let title_clone = Arc::clone(&self.title);
+        let title_clone = Arc::clone(&self.title_handler.title);
         let session_datetime = self.session_datetime;
         let cancel_token = Arc::clone(&self.cancel_token);
         let active_workflow_clone = Arc::clone(&self.active_workflow);

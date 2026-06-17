@@ -41,7 +41,7 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
         if let Ok(data) = data.read()
             && let Ok(session) = data.chat_session.read()
         {
-            let title = session.title.read().ok().and_then(|t| t.clone());
+            let title = session.title();
             let chat_index = data.chat_index;
             let total_count = chat_session_count();
             let agent_name = session.active_agent.name.clone();

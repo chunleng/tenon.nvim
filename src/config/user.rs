@@ -230,7 +230,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                 });
             }
             if let Some(prompt) = title.prompt {
-                conf.title.prompt = prompt;
+                conf.title.prompt = Some(prompt);
             }
         }
 

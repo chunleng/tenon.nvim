@@ -181,12 +181,7 @@ fn select_chat_fn() -> Function<(), ()> {
                     .enumerate()
                     .map(|(i, session)| {
                         let guard = session.read().unwrap();
-                        let title = guard
-                            .title
-                            .read()
-                            .ok()
-                            .and_then(|t| t.clone())
-                            .unwrap_or_else(|| "Untitled".to_string());
+                        let title = guard.title().unwrap_or_else(|| "Untitled".to_string());
                         format!("Chat {} | {}", i + 1, title)
                     })
                     .collect();
