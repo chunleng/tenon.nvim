@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use nvim_oxi::serde::DeserializeError;
 use serde::Deserialize;
@@ -7,7 +7,7 @@ use crate::{
     chat::TenonAgent,
     clients::{ProviderConfig, SupportedModels},
     config::TenonConfig,
-    directive::Directive,
+    directive::{Directive, DirectiveSource},
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -67,7 +67,7 @@ pub struct WorkflowConfig {
 pub struct TenonAgentConfig {
     model: ModelConfig,
     #[serde(default)]
-    directive: Vec<Directive>,
+    directive: Vec<DirectiveConfig>,
     #[serde(default)]
     tool_names: Vec<String>,
     #[serde(default)]
@@ -80,6 +80,58 @@ pub struct TenonAgentConfig {
 pub struct ModelConfig {
     connector: String,
     name: String,
+}
+
+/// Describes a directive source as provided in user configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
+pub enum DirectiveSourceConfig {
+    /// An inline string.
+    Text { value: String },
+
+    /// File paths.
+    File { paths: Vec<PathBuf> },
+
+    /// Reference to a system directive by name.
+    System { name: String },
+}
+
+/// A directive as provided in user configuration, with an optional condition.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DirectiveConfig {
+    /// Optional condition for conditional directive application.
+    #[serde(default)]
+    pub condition: Option<String>,
+    /// The source of the directive content.
+    #[serde(flatten)]
+    pub source: DirectiveSourceConfig,
+}
+
+impl TryFrom<DirectiveConfig> for Directive {
+    type Error = std::io::Error;
+
+    fn try_from(config: DirectiveConfig) -> Result<Self, Self::Error> {
+        let source = match config.source {
+            DirectiveSourceConfig::Text { value } => DirectiveSource::Text { value },
+            DirectiveSourceConfig::File { paths } => DirectiveSource::File { paths },
+            DirectiveSourceConfig::System { name } => {
+                let registry = crate::get_directive_registry();
+                registry
+                    .get(&name)
+                    .map(|d| d.source.clone())
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            format!("System directive '{}' not found", name),
+                        )
+                    })?
+            }
+        };
+        Ok(Directive {
+            condition: config.condition,
+            source,
+        })
+    }
 }
 
 impl TryFrom<TenonUserConfig> for TenonConfig {
@@ -123,6 +175,16 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                             }
                         }
                     }
+                    let directives = v
+                        .directive
+                        .into_iter()
+                        .map(Directive::try_from)
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| {
+                            nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                                msg: e.to_string(),
+                            })
+                        })?;
                     Ok((
                         k,
                         TenonAgent::new(
@@ -131,7 +193,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                                 config: model_config.to_owned(),
                                 model_name: v.model.name,
                             },
-                            v.directive,
+                            directives,
                             &v.tool_names,
                             v.workflows,
                         ),
@@ -235,5 +297,73 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
         }
 
         Ok(conf)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn try_from_text_config_preserves_condition() {
+        let config = DirectiveConfig {
+            condition: Some("when coding".into()),
+            source: DirectiveSourceConfig::Text {
+                value: "be careful".into(),
+            },
+        };
+        let directive = Directive::try_from(config).unwrap();
+        assert_eq!(directive.condition.as_deref(), Some("when coding"));
+        assert!(matches!(
+            &directive.source,
+            DirectiveSource::Text { value } if value == "be careful"
+        ));
+    }
+
+    #[test]
+    fn try_from_file_config_preserves_paths() {
+        let config = DirectiveConfig {
+            condition: None,
+            source: DirectiveSourceConfig::File {
+                paths: vec![PathBuf::from("./example.md")],
+            },
+        };
+        let directive = Directive::try_from(config).unwrap();
+        assert!(directive.condition.is_none());
+        assert!(matches!(
+            &directive.source,
+            DirectiveSource::File { paths } if paths.len() == 1
+        ));
+    }
+
+    #[test]
+    fn try_from_system_config_expands_from_registry() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+        let config = DirectiveConfig {
+            condition: Some("when making code changes".into()),
+            source: DirectiveSourceConfig::System {
+                name: "YAGNI Attitude".into(),
+            },
+        };
+        let directive = Directive::try_from(config).unwrap();
+        assert_eq!(
+            directive.condition.as_deref(),
+            Some("when making code changes")
+        );
+        assert!(matches!(&directive.source, DirectiveSource::File { .. }));
+    }
+
+    #[test]
+    fn try_from_system_config_unknown_name_returns_not_found() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+        let config = DirectiveConfig {
+            condition: None,
+            source: DirectiveSourceConfig::System {
+                name: "Does Not Exist".into(),
+            },
+        };
+        let result = Directive::try_from(config);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
     }
 }

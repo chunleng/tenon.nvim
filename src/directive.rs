@@ -1,4 +1,3 @@
-use serde::Deserialize;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -6,18 +5,14 @@ use std::{
 
 use crate::utils::plugin_path;
 
-/// Describes where a directive comes from: an inline string, file paths, or a system directive reference.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
+/// Describes where a directive's content comes from: an inline string or file paths.
+#[derive(Debug, Clone)]
 pub enum DirectiveSource {
     /// An inline string. Easy for user to provide directly
     Text { value: String },
 
     /// File paths. Relative paths are resolved against the current working directory.
     File { paths: Vec<PathBuf> },
-
-    /// Reference to a system directive by name.
-    System { name: String },
 }
 
 impl DirectiveSource {
@@ -25,7 +20,6 @@ impl DirectiveSource {
     ///
     /// For `Text` this returns the value directly.
     /// For `File` this reads all files and joins them with "---" separators.
-    /// For `System` this looks up the system directive and resolves it.
     pub fn resolve(&self) -> Result<String, std::io::Error> {
         match self {
             DirectiveSource::Text { value } => Ok(value.clone()),
@@ -54,16 +48,6 @@ impl DirectiveSource {
                 let non_empty: Vec<_> = resolved.into_iter().flatten().collect();
                 Ok(non_empty.join("\n\n---\n\n"))
             }
-            DirectiveSource::System { name } => {
-                let registry = crate::get_directive_registry();
-                let directive = registry.get(name).ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        format!("System directive '{}' not found", name),
-                    )
-                })?;
-                directive.source.resolve()
-            }
         }
     }
 }
@@ -72,13 +56,11 @@ impl DirectiveSource {
 ///
 /// Wraps a `DirectiveSource` with an optional condition that determines
 /// when the directive should be applied. When resolved, outputs XML format.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Directive {
     /// Optional condition for conditional directive application.
-    #[serde(default)]
     pub condition: Option<String>,
     /// The source of the directive content.
-    #[serde(flatten)]
     pub source: DirectiveSource,
 }
 
