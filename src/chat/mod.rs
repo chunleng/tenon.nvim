@@ -1,4 +1,5 @@
 use crate::chat::helpers::TitleHandler;
+use crate::directive::directive_path;
 use crate::{
     clients::{ChatAgent, StreamItem, SupportedModels, get_agent},
     config::user::WorkflowConfig,
@@ -144,9 +145,8 @@ fn build_workflow_prompt(
             .collect();
 
         format!(
-            "<context>Currently not in workflow\n\
+            "<context>Currently not in workflow. Available workflows:\n\
             {}\n\
-            Condition matches→start_workflow tool. If multiple→first\n\
             </context>\n\
             {}",
             workflow_info.join(""),
@@ -248,19 +248,10 @@ impl TenonAgent {
         workflow_context: Arc<RwLock<Option<ActiveWorkflow>>>,
         log_indexer: Arc<RwLock<ChatLogIndexer>>,
     ) -> ChatAgent {
-        // NOTE: Update token estimation when this prompt changes
-        let system_prompt = "Running on Tenon. Output markdown. No emoji/icon unless necessary. \
-            Files content changes anytime. File ≠ expected → never revert, re-read → re-understand → changes. \
-            History shows active behavior/prompt at that time. Prior actions may span agents → trust reported behavior. \
-            Earlier history may be truncated. Missing context → ask user.\n\n\
-            <directive></directive>=rules for agent conduct; no condition→always, condition→when matched. \
-            Explicit user instruction overrides directives.\n\
-            <context></context> in user message=additional information provided by Tenon for current situation".to_string();
-
         let mut combined = vec![Directive {
             condition: None,
-            source: DirectiveSource::Text {
-                value: system_prompt,
+            source: DirectiveSource::File {
+                paths: vec![directive_path("tenon_constitution.md")],
             },
         }];
         combined.extend(self.directive.iter().cloned());

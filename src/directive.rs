@@ -226,5 +226,15 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
         },
     );
 
+    map.insert(
+        "Tenon Constitution".into(),
+        Directive {
+            condition: None,
+            source: DirectiveSource::File {
+                paths: vec![directive_path("tenon_constitution.md")],
+            },
+        },
+    );
+
     map
 }
