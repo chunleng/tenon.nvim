@@ -677,7 +677,7 @@ impl ChatSession {
     /// Continue the chat without adding a new user message.
     /// Useful for prompting the LLM to continue from where it left off.
     pub fn continue_chat(&mut self) {
-        self.send_chat_request("[continue]".to_string(), false);
+        self.send_chat_request("".to_string(), false);
     }
 
     pub fn send_message(&mut self, message: String) {
