@@ -90,8 +90,19 @@ impl TitleHandler {
                     condition: None,
                     source: DirectiveSource::Text {
                         value: config.title.prompt.clone().unwrap_or_else(|| {
-                            "2-6 words from prompt. Title only. \
-                             e.g. \"Fix login bug in auth module\" → Login bug fix"
+                            "Title generation\n
+                            - Output title only\n
+                            - 2-6 words\n
+                            - Output \"Untitled\" when not enough context to form meaningful title\n\n
+                            Example:\n
+                            - prompt: Fix login bug in auth module\n
+                              reply: Login bug fix\n
+                            - prompt: Fix bug, add features for task manager\n
+                              reply: Task manager code change\n
+                            - prompt: Hey yo!\n
+                              reply: Untitled\n
+                            - prompt: X\n
+                              reply: Untitled\n"
                                 .to_string()
                         }),
                     },
