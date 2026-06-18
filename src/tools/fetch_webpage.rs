@@ -105,7 +105,7 @@ async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, Tool
         },
     };
 
-    let agent = get_agent(model, vec![directive], vec![]);
+    let agent = get_agent(model, vec![directive], vec![], true);
 
     let user_message = format!("{}\n\nWebpage content:\n\n{}", prompt, markdown);
 

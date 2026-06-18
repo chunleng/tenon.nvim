@@ -25,6 +25,7 @@ pub fn get_anthropic_agent(
     model_name: String,
     preamble: Option<String>,
     tools: Vec<Box<dyn ToolDyn>>,
+    thinking: bool,
 ) -> Agent<anthropic::completion::CompletionModel> {
     let api_key = config.api_key.resolve().unwrap_or_else(|e| {
         eprintln!("[tenon] {}", e);
@@ -40,11 +41,12 @@ pub fn get_anthropic_agent(
         agent = agent.preamble(&p);
     }
 
-    agent
-        .max_tokens(16000)
-        .additional_params(serde_json::json!({
+    agent = agent.max_tokens(16000);
+    if thinking {
+        agent = agent.additional_params(serde_json::json!({
             "thinking": { "type": "enabled", "budget_tokens": 10000 }
-        }))
-        .tools(tools)
-        .build()
+        }));
+    }
+
+    agent.tools(tools).build()
 }

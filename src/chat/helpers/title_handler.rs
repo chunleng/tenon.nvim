@@ -97,7 +97,7 @@ impl TitleHandler {
                     },
                 }];
 
-                let agent = get_agent(model, directive, vec![]);
+                let agent = get_agent(model, directive, vec![], false);
 
                 match agent
                     .chat(format!("Generate title:\n```\n{}\n```", first_message))

@@ -283,7 +283,7 @@ impl TenonAgent {
             }));
         }
 
-        get_agent(self.model.clone(), combined, tools)
+        get_agent(self.model.clone(), combined, tools, true)
     }
 }
 

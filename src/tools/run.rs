@@ -157,7 +157,7 @@ Output:
         },
     };
 
-    let agent = get_agent(model.clone(), vec![safety_checker_directive], vec![]);
+    let agent = get_agent(model.clone(), vec![safety_checker_directive], vec![], true);
 
     let user_message = format!("Command: {}", command);
 

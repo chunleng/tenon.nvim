@@ -8,6 +8,7 @@ pub fn get_bedrock_agent(
     model_name: String,
     preamble: Option<String>,
     tools: Vec<Box<dyn ToolDyn>>,
+    thinking: bool,
 ) -> Agent<rig_bedrock::completion::CompletionModel> {
     // There's no config provider because bedrock is configured solely by env. Following are some
     // environment that you can override to provide the necessary configuration to bedrock (apart
@@ -30,9 +31,11 @@ pub fn get_bedrock_agent(
                 || x.contains("opus-4-6")
                 || x.contains("sonnet-4-6") =>
             {
-                agent = agent.additional_params(serde_json::json!({
-                    "thinking": { "type": "enabled", "budget_tokens": 10000 }
-                }));
+                if thinking {
+                    agent = agent.additional_params(serde_json::json!({
+                        "thinking": { "type": "enabled", "budget_tokens": 10000 }
+                    }));
+                }
             }
             _ => {}
         }

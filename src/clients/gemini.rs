@@ -25,6 +25,7 @@ pub fn get_gemini_agent(
     model_name: String,
     preamble: Option<String>,
     tools: Vec<Box<dyn ToolDyn>>,
+    _thinking: bool,
 ) -> Agent<gemini::CompletionModel> {
     let api_key = config.api_key.resolve().unwrap_or_else(|e| {
         eprintln!("[tenon] {}", e);

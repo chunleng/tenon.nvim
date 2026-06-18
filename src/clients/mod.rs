@@ -301,6 +301,7 @@ pub fn get_agent(
     model: SupportedModels,
     directive: Vec<Directive>,
     tools: Vec<Box<dyn ToolDyn>>,
+    thinking: bool,
 ) -> ChatAgent {
     let resolved_directive = if directive.is_empty() {
         None
@@ -328,29 +329,34 @@ pub fn get_agent(
             model.model_name,
             resolved_directive,
             tools,
+            thinking,
         )),
         ProviderConfig::Gemini(config) => ChatAgent::Gemini(get_gemini_agent(
             config,
             model.model_name,
             resolved_directive,
             tools,
+            thinking,
         )),
         ProviderConfig::OpenAI(config) => ChatAgent::OpenAI(get_openai_agent(
             config,
             model.model_name,
             resolved_directive,
             tools,
+            thinking,
         )),
         ProviderConfig::Anthropic(config) => ChatAgent::Anthropic(get_anthropic_agent(
             config,
             model.model_name,
             resolved_directive,
             tools,
+            thinking,
         )),
         ProviderConfig::Bedrock(_config) => ChatAgent::Bedrock(get_bedrock_agent(
             model.model_name,
             resolved_directive,
             tools,
+            thinking,
         )),
     }
 }
