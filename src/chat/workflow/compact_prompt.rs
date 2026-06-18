@@ -4,13 +4,13 @@ use super::{
 
 pub fn workflow() -> Workflow {
     Workflow {
-        id: "compact_text".to_string(),
-        title: "Compact Text".to_string(),
+        id: "compact_prompt".to_string(),
+        title: "Compact Prompt".to_string(),
         steps: vec![
             WorkflowStep {
                 title: "Set Goal".to_string(),
                 instruction: Instruction::File {
-                    file: workflow_path("compact_text/1_set_goal.md"),
+                    file: workflow_path("compact_prompt/1_set_goal.md"),
                 },
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
@@ -22,7 +22,7 @@ pub fn workflow() -> Workflow {
             WorkflowStep {
                 title: "Change".to_string(),
                 instruction: Instruction::File {
-                    file: workflow_path("compact_text/2_change.md"),
+                    file: workflow_path("compact_prompt/2_change.md"),
                 },
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
@@ -32,27 +32,15 @@ pub fn workflow() -> Workflow {
                 }],
             },
             WorkflowStep {
-                title: "Verify".to_string(),
-                instruction: Instruction::File {
-                    file: workflow_path("compact_text/3_verify.md"),
-                },
-                goto_instructions: vec![WorkflowGotoInstruction {
-                    to: GotoStep::Next,
-                    condition: None,
-                    output: "verified compacted texts".to_string(),
-                    output_to_workflow_memory: None,
-                }],
-            },
-            WorkflowStep {
                 title: "Goal Check".to_string(),
                 instruction: Instruction::File {
-                    file: workflow_path("compact_text/4_goal_check.md"),
+                    file: workflow_path("compact_prompt/3_goal_check.md"),
                 },
                 goto_instructions: vec![
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(2),
                         condition: Some("texts can be simpler".to_string()),
-                        output: "texts needing further simplification".to_string(),
+                        output: "texts needing change".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {

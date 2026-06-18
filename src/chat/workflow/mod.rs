@@ -1,4 +1,4 @@
-mod compact_text;
+mod compact_prompt;
 mod create_workflow;
 mod edit_document;
 mod find_software_bug_root_cause;
@@ -68,7 +68,7 @@ pub fn load_system_workflows() -> Vec<Workflow> {
         implement_code::workflow(),
         plan_refactoring::workflow(),
         plan_software_change::workflow(),
-        compact_text::workflow(),
+        compact_prompt::workflow(),
         implement_code_together::workflow(),
     ]
 }

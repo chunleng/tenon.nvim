@@ -1,5 +1,4 @@
-## Purpose
-Identify and list target texts to compact
+List target texts to compact
 
 ## Process
 Check input source:
