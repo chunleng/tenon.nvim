@@ -52,6 +52,7 @@ fzf.fzf_exec({options}, {{
     prompt = '{prompt}> ',
     fzf_opts = {{
         ['--no-sort'] = '',
+        ['--no-multi'] = '',
     }},
     winopts = {{
         on_create = function()
