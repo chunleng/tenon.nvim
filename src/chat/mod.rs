@@ -66,7 +66,7 @@ fn build_workflow_prompt(
                         }
                         Some(step) => {
                             format!(
-                                "{}navigate_output step:{} output:{}",
+                                "{}navigate_workflow step:{} output:{}",
                                 condition, step, instr.output
                             )
                         }
@@ -105,10 +105,10 @@ fn build_workflow_prompt(
             return format!(
                 "<context>\n\
                     Currently in {} step of {} workflow.\n\
-                    Perform in order:\n\
-                    1) Check user prompt: `[continue]`→continue to 2), else, process user prompt and skip 2) and 3)\n\
-                    2) Follow \"Process\" section in <instruction></instruction>. Question for user→ask directly and skip 3)\n\
-                    3) Check \"Process\" completion, complete→call tool to navigate workflow from <navigation></navigation> (Use \"Output\" section for navigate output), else, go to 2)\n\
+                    Complete \"Process\" section in `instruction` tag. \
+                    Upon full completion, never halfway unless explicitly asked, \
+                    follow \"Output\" section to create step output and call tool from `navigate` tag to navigate.\n\
+                    \n\n\
                     <instruction>\n\
                     {}\n\
                     </instruction>\n\
@@ -517,7 +517,7 @@ impl ChatSession {
                                             "start_workflow" if result.is_ok() => {
                                                 // Continue to first workflow step
                                                 should_continue = true;
-                                                next_prompt = "[continue]".to_string();
+                                                next_prompt = "".to_string();
                                                 break;
                                             }
                                             "navigate_workflow" if result.is_ok() => {
