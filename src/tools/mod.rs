@@ -1,3 +1,4 @@
+pub mod analyze_image;
 pub mod create_file;
 pub mod edit_file;
 pub mod end_workflow;
@@ -13,6 +14,7 @@ pub mod start_workflow;
 pub mod web_search;
 
 use crate::mcp::McpHubCaller;
+pub use analyze_image::AnalyzeImage;
 pub use create_file::CreateFile;
 pub use edit_file::EditFile;
 pub use fetch_webpage::FetchWebpage;
@@ -64,7 +66,9 @@ pub fn get_tool_classification(name: &str) -> ToolClassification {
         "read_file" | "list_files" | "search_text" => ToolClassification::Idempotent,
 
         // Non-mutating tools: read-only, may produce different results
-        "web_search" | "fetch_webpage" | "think" => ToolClassification::NonMutating,
+        "web_search" | "fetch_webpage" | "think" | "analyze_image" => {
+            ToolClassification::NonMutating
+        }
 
         // Mutating tools: modify state when run
         "create_file" | "edit_file" | "move_path" | "remove_path" | "run" => {
@@ -111,6 +115,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
         "move_path" => "source",
         "list_files" | "search_text" => "pattern",
         "fetch_webpage" => "url",
+        "analyze_image" => "image",
         "navigate_workflow" => "step",
         _ => return None,
     };
@@ -150,6 +155,7 @@ pub fn all_tool_names() -> Vec<String> {
         "search_text".into(),
         "web_search".into(),
         "think".into(),
+        "analyze_image".into(),
     ];
 
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {
@@ -211,6 +217,10 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
         (
             "fetch_webpage".to_string(),
             Box::new(FetchWebpage) as Box<dyn ToolDyn>,
+        ),
+        (
+            "analyze_image".to_string(),
+            Box::new(AnalyzeImage) as Box<dyn ToolDyn>,
         ),
         (
             "list_files".to_string(),
@@ -289,6 +299,10 @@ mod tests {
         );
         assert_eq!(
             get_tool_classification("think"),
+            ToolClassification::NonMutating
+        );
+        assert_eq!(
+            get_tool_classification("analyze_image"),
             ToolClassification::NonMutating
         );
     }

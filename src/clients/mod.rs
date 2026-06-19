@@ -236,7 +236,11 @@ impl ChatStream {
 }
 
 impl ChatAgent {
-    pub async fn stream_chat(&self, message: String, history: Vec<Message>) -> ChatStream {
+    pub async fn stream_chat(
+        &self,
+        message: impl Into<Message> + Send,
+        history: Vec<Message>,
+    ) -> ChatStream {
         let multi_turn = 100;
         match self {
             ChatAgent::Ollama(agent) => ChatStream::Ollama(
@@ -274,7 +278,10 @@ impl ChatAgent {
 
     /// Non-streaming convenience: collects all text from a single-turn chat.
     /// Ignores tool calls — intended for lightweight sub-agent use (e.g. summarization).
-    pub async fn chat(&self, message: String) -> Result<String, rig::agent::StreamingError> {
+    pub async fn chat(
+        &self,
+        message: impl Into<Message> + Send,
+    ) -> Result<String, rig::agent::StreamingError> {
         let mut stream = self.stream_chat(message, vec![]).await;
         let mut full_text = String::new();
         let mut was_text = false;

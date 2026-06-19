@@ -12,6 +12,7 @@ pub mod user;
 #[derive(Debug, Clone)]
 pub struct ToolsConfig {
     pub fetch_webpage: FetchWebpageConfig,
+    pub analyze_image: AnalyzeImageConfig,
     pub run: RunConfig,
 }
 
@@ -19,6 +20,7 @@ impl Default for ToolsConfig {
     fn default() -> Self {
         Self {
             fetch_webpage: FetchWebpageConfig { model: None },
+            analyze_image: AnalyzeImageConfig { model: None },
             run: RunConfig::default(),
         }
     }
@@ -26,6 +28,11 @@ impl Default for ToolsConfig {
 
 #[derive(Debug, Clone, Default)]
 pub struct FetchWebpageConfig {
+    pub model: Option<SupportedModels>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AnalyzeImageConfig {
     pub model: Option<SupportedModels>,
 }
 

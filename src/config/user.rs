@@ -38,6 +38,7 @@ pub struct TitleUserConfig {
 #[serde(deny_unknown_fields)]
 pub struct ToolsUserConfig {
     pub fetch_webpage: Option<FetchWebpageUserConfig>,
+    pub analyze_image: Option<AnalyzeImageUserConfig>,
     pub run: Option<RunUserConfig>,
 }
 
@@ -53,6 +54,12 @@ pub struct RunUserConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FetchWebpageUserConfig {
+    pub model: Option<ModelConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnalyzeImageUserConfig {
     pub model: Option<ModelConfig>,
 }
 
@@ -243,6 +250,24 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         ),
                     }))?;
                 conf.tools.fetch_webpage.model = Some(SupportedModels {
+                    connector_name: model.connector.clone(),
+                    config: provider_config.to_owned(),
+                    model_name: model.name,
+                });
+            }
+            if let Some(analyze_image) = tools.analyze_image
+                && let Some(model) = analyze_image.model
+            {
+                let provider_config: &ProviderConfig = conf
+                    .connectors
+                    .get(&model.connector)
+                    .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                        msg: format!(
+                            "unknown connector for analyze_image model: {}",
+                            model.connector
+                        ),
+                    }))?;
+                conf.tools.analyze_image.model = Some(SupportedModels {
                     connector_name: model.connector.clone(),
                     config: provider_config.to_owned(),
                     model_name: model.name,
