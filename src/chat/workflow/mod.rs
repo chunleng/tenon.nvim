@@ -1,4 +1,5 @@
 mod compact_prompt;
+mod create_pr_description;
 mod create_workflow;
 mod edit_document;
 mod find_software_bug_root_cause;
@@ -63,6 +64,7 @@ impl Default for Instruction {
 pub fn load_system_workflows() -> Vec<Workflow> {
     vec![
         find_software_bug_root_cause::workflow(),
+        create_pr_description::workflow(),
         create_workflow::workflow(),
         edit_document::workflow(),
         implement_code::workflow(),
