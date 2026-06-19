@@ -13,33 +13,52 @@ fn is_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
 }
 
-fn image_mime_type(path: &str) -> &'static str {
-    match path
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_lowercase()
-        .as_str()
-    {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "bmp" => "image/bmp",
-        _ => "image/png",
+fn is_svg(bytes: &[u8]) -> bool {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_ascii_lowercase().contains("<svg"),
+        Err(_) => false,
     }
 }
 
-fn read_image_as_data_url(path: &str) -> Result<String, ToolError> {
-    let bytes = std::fs::read(path).map_err(|e| {
-        ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-            "Failed to read image '{}': {}",
-            path, e
-        ))))
-    })?;
-    let encoded = STANDARD.encode(&bytes);
-    let mime = image_mime_type(path);
-    Ok(format!("data:{mime};base64,{encoded}"))
+/// Rasterize SVG to PNG at 1024px longest side, preserving aspect ratio.
+fn rasterize_svg(bytes: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    use resvg::tiny_skia;
+    use resvg::usvg;
+
+    let mut opt = usvg::Options::default();
+    opt.fontdb_mut().load_system_fonts();
+    let tree = usvg::Tree::from_data(bytes, &opt)?;
+
+    let size = tree.size().to_int_size();
+    let (svg_w, svg_h) = (size.width(), size.height());
+
+    let longest = svg_w.max(svg_h).max(1) as f32;
+    let scale = 1024.0 / longest;
+
+    let target_w = ((svg_w as f32 * scale).round() as u32).max(1);
+    let target_h = ((svg_h as f32 * scale).round() as u32).max(1);
+
+    let mut pixmap = tiny_skia::Pixmap::new(target_w, target_h).ok_or("Failed to create pixmap")?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+
+    Ok(pixmap.encode_png()?)
+}
+
+/// Rasterize SVG to PNG if input is SVG. Otherwise return bytes unchanged.
+/// Falls back to original bytes on rasterization failure.
+fn rasterize_if_svg(original_bytes: &[u8]) -> Vec<u8> {
+    if is_svg(original_bytes) {
+        match rasterize_svg(original_bytes) {
+            Ok(png_bytes) => png_bytes,
+            Err(_) => original_bytes.to_vec(),
+        }
+    } else {
+        original_bytes.to_vec()
+    }
 }
 
 #[derive(Deserialize)]
@@ -68,7 +87,7 @@ impl Tool for AnalyzeImage {
                 "properties": {
                     "image": {
                         "type": "string",
-                        "description": "Path or URL to image. Supports common formats (PNG, JPEG, GIF, WebP, BMP)."
+                        "description": "Path or URL to image. Supports common formats (PNG, JPEG, GIF, WebP, BMP, SVG)."
                     },
                     "prompt": {
                         "type": "string",
@@ -84,17 +103,24 @@ impl Tool for AnalyzeImage {
         let image_content = if is_url(&args.image) {
             UserContent::image_url(&args.image, None, None)
         } else {
-            let data_url = read_image_as_data_url(&args.image)?;
-            let base64_data = data_url
-                .split_once(',')
-                .map(|(_, b64)| b64.to_string())
-                .ok_or_else(|| {
-                    ToolError::ToolCallError(Box::new(std::io::Error::other(
-                        "Invalid data URL format",
-                    )))
-                })?;
-            let media_type = ImageMediaType::from_mime_type(image_mime_type(&args.image))
-                .unwrap_or(ImageMediaType::PNG);
+            let bytes = std::fs::read(&args.image).map_err(|e| {
+                ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
+                    "Failed to read image '{}': {}",
+                    args.image, e
+                ))))
+            })?;
+            let processed = rasterize_if_svg(&bytes);
+            let base64_data = STANDARD.encode(&processed);
+
+            let mime = match image::guess_format(&processed) {
+                Ok(image::ImageFormat::Png) => "image/png",
+                Ok(image::ImageFormat::Jpeg) => "image/jpeg",
+                Ok(image::ImageFormat::Gif) => "image/gif",
+                Ok(image::ImageFormat::WebP) => "image/webp",
+                Ok(image::ImageFormat::Bmp) => "image/bmp",
+                _ => "image/png",
+            };
+            let media_type = ImageMediaType::from_mime_type(mime).unwrap_or(ImageMediaType::PNG);
             UserContent::image_base64(base64_data, Some(media_type), None)
         };
 
@@ -144,7 +170,6 @@ impl Tool for AnalyzeImage {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_is_url() {
         assert!(is_url("https://example.com/image.png"));
@@ -155,23 +180,54 @@ mod tests {
     }
 
     #[test]
-    fn test_read_image_as_data_url() {
-        let temp_path = std::env::temp_dir().join("tenon_test_image.png");
-        std::fs::write(&temp_path, b"fake png content").unwrap();
+    fn test_svg_rasterization() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+            <rect width="200" height="100" fill="white"/>
+            <rect x="10" y="10" width="180" height="80" fill="black"/>
+        </svg>"#;
 
-        let result = read_image_as_data_url(temp_path.to_str().unwrap());
-        assert!(result.is_ok(), "Should read image: {:?}", result.err());
+        let result = rasterize_if_svg(svg);
 
-        let data_url = result.unwrap();
+        let decoded = image::load_from_memory(&result);
         assert!(
-            data_url.starts_with("data:image/png;base64,"),
-            "Should produce PNG data URL, got: {data_url}"
-        );
-        assert!(
-            data_url.len() > "data:image/png;base64,".len(),
-            "Base64 part should be non-empty"
+            decoded.is_ok(),
+            "SVG should be rasterized to decodable PNG, got error: {:?}",
+            decoded.err()
         );
 
-        std::fs::remove_file(&temp_path).ok();
+        // Output should not be the original SVG XML bytes
+        assert_ne!(
+            result.as_slice(),
+            svg.as_slice(),
+            "SVG should be rasterized, not passed through as raw XML"
+        );
+    }
+
+    #[test]
+    fn test_svg_aspect_ratio() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100">
+            <rect width="200" height="100" fill="blue"/>
+        </svg>"#;
+
+        let result = rasterize_if_svg(svg);
+        let decoded = image::load_from_memory(&result).unwrap();
+        let (w, h) = (decoded.width(), decoded.height());
+
+        let ratio = w as f64 / h as f64;
+        assert!(
+            (ratio - 2.0).abs() < 0.1,
+            "SVG with 2:1 viewBox should preserve aspect ratio, got {ratio:.3} ({w}x{h})"
+        );
+    }
+
+    #[test]
+    fn test_svg_fallback() {
+        let invalid_svg = b"<svg><this is not valid svg content>";
+        let result = rasterize_if_svg(invalid_svg);
+        assert_eq!(
+            result.as_slice(),
+            invalid_svg.as_slice(),
+            "Malformed SVG that fails rasterization should fall back to original bytes"
+        );
     }
 }
