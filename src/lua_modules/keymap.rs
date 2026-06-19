@@ -21,6 +21,7 @@ pub fn create_lua_keymap_module() -> Dictionary {
     keymap_dict.insert("select_tools", Object::from(select_tools_fn()));
     keymap_dict.insert("toggle_focus", Object::from(toggle_focus_fn()));
     keymap_dict.insert("select_history", Object::from(select_history_fn()));
+    keymap_dict.insert("rename", Object::from(rename_fn()));
 
     keymap_dict
 }
@@ -240,6 +241,55 @@ fn select_model_fn() -> Function<(), ()> {
                 GLOBAL_EXECUTION_HANDLER
                     .notify_on_main_thread(format!("picker error: {}", e), LogLevel::Error);
             }
+        }
+    })
+}
+
+fn rename_fn() -> Function<(), ()> {
+    Function::from_fn({
+        move |()| {
+            let current_title: Option<String> = (|| {
+                let win_arc = get_chat_window();
+                let win = win_arc.lock().ok()?;
+                let loaded = win.loaded_chat_session.read().ok()?;
+                let session = loaded.read().ok()?;
+                session.title()
+            })();
+
+            let default_lua =
+                serde_json::to_string(&current_title).unwrap_or_else(|_| "null".into());
+
+            std::thread::spawn(move || {
+                let lua_code = format!(
+                    r#"
+vim.ui.input({{ prompt = 'Rename chat: ', default = {} }}, function(input)
+    resolve({{ response = input }})
+end)
+"#,
+                    default_lua
+                );
+
+                let result = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread_async(&lua_code);
+
+                if let Ok(res) = result
+                    && let Some(response) = res.get("response")
+                    && !response.is_null()
+                {
+                    let new_title: Option<String> = response
+                        .as_str()
+                        .filter(|s| !s.trim().is_empty())
+                        .map(|s| s.trim().to_string());
+
+                    let win_arc = get_chat_window();
+                    if let Ok(win) = win_arc.lock()
+                        && let Ok(loaded) = win.loaded_chat_session.read()
+                        && let Ok(session) = loaded.read()
+                    {
+                        session.set_title(new_title);
+                        win.force_render();
+                    }
+                }
+            });
         }
     })
 }

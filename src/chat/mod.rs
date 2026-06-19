@@ -397,6 +397,12 @@ impl ChatSession {
         self.title_handler.title.read().ok().and_then(|t| t.clone())
     }
 
+    pub fn set_title(&self, title: Option<String>) {
+        if let Ok(mut t) = self.title_handler.title.write() {
+            *t = title;
+        }
+    }
+
     pub fn cancel(&mut self) {
         self.cancel_token.store(true, Ordering::SeqCst);
     }
