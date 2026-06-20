@@ -3,11 +3,11 @@ Ensure documentation is concise and free of redundancy
 
 ## Process
 1. Read the document
-2. Check for redundancy:
+2. Check for redundancy that relates to the goal:
    - Repeated information → consolidate
    - Redundant sections → merge or remove
    - Duplicate explanations → keep clearest version
-3. Check for conciseness:
+3. Check for conciseness that relates to the goal:
    - Remove filler words and phrases
    - Tighten verbose sentences
    - Simplify complex phrasing
