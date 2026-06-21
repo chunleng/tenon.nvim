@@ -117,16 +117,6 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
     );
 
     map.insert(
-        "Edit Prompt Process".into(),
-        Directive {
-            condition: None,
-            source: DirectiveSource::File {
-                paths: vec![directive_path("edit_prompt_process.md")],
-            },
-        },
-    );
-
-    map.insert(
         "No Perfect Solution Attitude".into(),
         Directive {
             condition: None,
