@@ -16,7 +16,10 @@ pub struct StreamUpdate {
 
 enum RenderedLocation {
     Hidden,
-    Shown { line_start: usize, line_end: usize },
+    Shown {
+        line_start: usize,
+        line_count: usize,
+    },
 }
 
 struct RenderedLogEntry {
@@ -92,38 +95,41 @@ impl ChatLogCache {
     ) -> (Option<RenderedLocation>, usize) {
         if let Some(existing) = self.rendered_entries.get_mut(log_index) {
             // At this point, render_location is Shown
-            let (line_start, line_end) = match &existing.render_location {
+            let (line_start, line_count) = match &existing.render_location {
                 RenderedLocation::Shown {
                     line_start,
-                    line_end,
-                } => (*line_start, *line_end),
+                    line_count,
+                } => (*line_start, *line_count),
                 RenderedLocation::Hidden => return (None, current_line),
             };
 
             // Check if separator changed (line count differs for Tool logs)
-            let separator_changed = line_end - line_start != lines.len();
+            let separator_changed = line_count != lines.len();
 
             // Unchanged entry: return position for tracking, but no render needed
-            if log.last_updated_at <= existing.last_updated_at && !separator_changed {
-                return (None, line_end);
+            if Arc::ptr_eq(log, &existing.log)
+                && log.last_updated_at <= existing.last_updated_at
+                && !separator_changed
+            {
+                return (None, line_start + line_count);
             }
 
-            // Changed entry: use stored line_end for replace, then update it
-            let replace_line_end = line_end;
-            let new_line_end = line_start + lines.len();
-
+            existing.log = log.clone();
             existing.render_location = RenderedLocation::Shown {
-                line_start,
-                line_end: new_line_end,
+                line_start: current_line,
+                line_count: lines.len(),
             };
             existing.last_updated_at = log.last_updated_at;
 
             return (
                 Some(RenderedLocation::Shown {
-                    line_start,
-                    line_end: replace_line_end,
+                    line_start: current_line,
+                    line_count: line_count.saturating_sub(current_line.saturating_sub(line_start)),
+                    // This is to ensure that even if the line has shifted because previous
+                    // rendered_entries changes, it will still replace the area that was once
+                    // occupied by the previous render
                 }),
-                new_line_end,
+                current_line + lines.len(),
             );
         }
 
@@ -136,29 +142,26 @@ impl ChatLogCache {
             });
             (Some(RenderedLocation::Hidden), current_line)
         } else {
-            let line_start = current_line;
-            let line_end = current_line + lines.len();
-
             self.rendered_entries.push(RenderedLogEntry {
                 log: log.clone(),
                 render_location: RenderedLocation::Shown {
-                    line_start,
-                    line_end,
+                    line_start: current_line,
+                    line_count: lines.len(),
                 },
                 last_updated_at: log.last_updated_at,
             });
 
             (
                 Some(RenderedLocation::Shown {
-                    line_start,
-                    line_end: line_start, // For new entries, replace from start
+                    line_start: current_line,
+                    line_count: 0, // For new entries, replace from start
                 }),
-                line_end,
+                current_line + lines.len(),
             )
         }
     }
 
-    pub fn poll_render_update(&mut self) -> Vec<StreamUpdate> {
+    pub fn poll_render_update(&mut self) -> (Vec<StreamUpdate>, usize) {
         let check_from = self.check_from_index.load(Ordering::SeqCst);
 
         // Collect new logs while holding the lock
@@ -169,23 +172,31 @@ impl ChatLogCache {
 
             // No new logs to render
             if check_from >= current_count {
-                return Vec::new();
+                return (Vec::new(), 0);
             }
 
             current_count
         } else {
-            return Vec::new();
+            return (Vec::new(), 0);
         };
 
         // Get the line_end of the rendered entry at check_from_index (or 0 if none)
-        let mut current_line = self
-            .rendered_entries
-            .get(check_from.saturating_sub(1))
-            .map(|entry| match &entry.render_location {
-                RenderedLocation::Shown { line_end, .. } => *line_end,
-                RenderedLocation::Hidden => 0, // Hidden entries don't affect line position
-            })
-            .unwrap_or(0);
+        let mut current_line = {
+            if check_from == 0 {
+                0
+            } else {
+                self.rendered_entries
+                    .get(check_from.saturating_sub(1))
+                    .map(|entry| match &entry.render_location {
+                        RenderedLocation::Shown {
+                            line_start,
+                            line_count,
+                        } => line_start + line_count,
+                        RenderedLocation::Hidden => 0, // Hidden entries don't affect line position
+                    })
+                    .unwrap_or(0)
+            }
+        };
 
         // Collect StreamUpdates for new logs
         // First, collect log data while holding the lock
@@ -220,17 +231,17 @@ impl ChatLogCache {
                 current_line = new_current_line;
 
                 // Only create StreamUpdate for Shown entries
-                let (line_start, line_end) = match render_location? {
+                let (line_start, line_count) = match render_location? {
                     RenderedLocation::Shown {
                         line_start,
-                        line_end,
-                    } => (line_start, line_end),
+                        line_count,
+                    } => (line_start, line_count),
                     RenderedLocation::Hidden => return None,
                 };
 
                 Some(StreamUpdate {
                     replace_line_start: line_start,
-                    replace_line_end: line_end,
+                    replace_line_end: line_start + line_count,
                     lines,
                     line_hl_group: log.data.line_hl_group(),
                     sign: log.data.sign(),
@@ -262,7 +273,7 @@ impl ChatLogCache {
         self.check_from_index
             .store(new_check_from, Ordering::SeqCst);
 
-        updates
+        (updates, current_line)
     }
 }
 
@@ -360,15 +371,21 @@ mod tests {
     fn test_poll_render_update_with_check_from_index() {
         let mut cache = init_test_cache();
 
+        let (updates, current_line) = cache.poll_render_update();
         assert!(
-            cache.poll_render_update().is_empty(),
+            updates.is_empty(),
             "should return empty Vec when no new logs"
         );
+        assert_eq!(current_line, 0, "current_line should be 0 when no logs");
 
         add_user_log(&mut cache, "Hello");
 
-        let updates = cache.poll_render_update();
+        let (updates, current_line) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
+        assert_eq!(
+            current_line, 2,
+            "current_line should be 2 after 'Hello' log (2 lines)"
+        );
         assert_eq!(
             updates[0].lines,
             vec!["Hello", ""],
@@ -384,16 +401,22 @@ mod tests {
         assert_eq!(updates[0].replace_line_end, 0);
 
         // Call again - should return empty Vec (check_from_index updated, no new logs)
+        let (updates, current_line) = cache.poll_render_update();
         assert!(
-            cache.poll_render_update().is_empty(),
+            updates.is_empty(),
             "should return empty Vec after check_from_index updated"
         );
+        assert_eq!(current_line, 0, "current_line should be 0 when no updates");
 
         add_user_log(&mut cache, "World");
         add_user_log(&mut cache, "Test");
 
-        let updates = cache.poll_render_update();
+        let (updates, current_line) = cache.poll_render_update();
         assert_eq!(updates.len(), 2);
+        assert_eq!(
+            current_line, 6,
+            "current_line should be 6 after 3 logs (2 lines each)"
+        );
         assert_eq!(
             updates[0].lines,
             vec!["World", ""],
@@ -410,7 +433,7 @@ mod tests {
         assert_eq!(updates[1].replace_line_end, 4);
 
         assert!(
-            cache.poll_render_update().is_empty(),
+            cache.poll_render_update().0.is_empty(),
             "should return empty Vec after all logs consumed"
         );
     }
@@ -423,7 +446,7 @@ mod tests {
         add_tool_log(&mut cache, "tool1", 1);
         add_assistant_reasoning(&mut cache, "Thinking...");
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 3);
         assert_eq!(updates[2].lines, vec!["Thinking...", ""]);
         assert_eq!(updates[2].replace_line_start, 4);
@@ -431,7 +454,7 @@ mod tests {
 
         update_assistant_reasoning(&mut cache, 2, "Thinking...\nMore thoughts");
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].lines, vec!["Thinking...", "More thoughts", ""]);
         assert_eq!(updates[0].replace_line_start, 4);
@@ -439,7 +462,7 @@ mod tests {
 
         add_user_log(&mut cache, "Hello");
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(
             updates.len(),
             2,
@@ -460,8 +483,9 @@ mod tests {
         );
         assert_eq!(updates[1].replace_line_end, 6);
 
+        let (updates, _) = cache.poll_render_update();
         assert!(
-            cache.poll_render_update().is_empty(),
+            updates.is_empty(),
             "check_from_index should progress when last log is not assistant"
         );
     }
@@ -474,7 +498,7 @@ mod tests {
         add_tool_log(&mut cache, "tool1", 1);
         add_tool_log(&mut cache, "tool2", 2);
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 3);
 
         // User log with separator
@@ -500,7 +524,7 @@ mod tests {
 
         add_assistant_reasoning(&mut cache, "Thinking...\nMore thoughts");
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].lines, vec!["Thinking...", "More thoughts", ""]);
         assert_eq!(updates[0].replace_line_start, 0);
@@ -508,7 +532,7 @@ mod tests {
 
         update_assistant_content(&mut cache, 0, "Final answer");
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].lines, vec!["Final answer", ""]);
         assert_eq!(updates[0].replace_line_start, 0);
@@ -516,7 +540,7 @@ mod tests {
 
         add_user_log(&mut cache, "Hello");
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(
             updates.len(),
             1,
@@ -536,7 +560,7 @@ mod tests {
 
         add_user_log(&mut cache, "Line 1\nLine 2\nLine 3");
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(
             updates[0].lines,
@@ -548,7 +572,7 @@ mod tests {
 
         add_user_log(&mut cache, "Second log");
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].lines, vec!["Second log", ""]);
         assert_eq!(updates[0].replace_line_start, 4);
@@ -560,23 +584,25 @@ mod tests {
 
         add_assistant_reasoning(&mut cache, "Thinking...");
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].lines, vec!["Thinking...", ""]);
 
+        let (updates, _) = cache.poll_render_update();
         assert!(
-            cache.poll_render_update().is_empty(),
+            updates.is_empty(),
             "should skip render when log not updated"
         );
 
         update_assistant_reasoning(&mut cache, 0, "Thinking...\nMore thoughts");
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].lines, vec!["Thinking...", "More thoughts", ""]);
 
+        let (updates, _) = cache.poll_render_update();
         assert!(
-            cache.poll_render_update().is_empty(),
+            updates.is_empty(),
             "should skip render after re-render when log not updated again"
         );
     }
@@ -669,7 +695,7 @@ mod tests {
         add_tool_log(&mut cache, "start_workflow", 1);
         add_tool_log(&mut cache, "read_file", 2);
 
-        let updates = cache.poll_render_update();
+        let (updates, _) = cache.poll_render_update();
 
         assert_eq!(
             updates.len(),
@@ -707,5 +733,55 @@ mod tests {
             vec!["... Line 3", "Line 4", "Line 5", ""],
             "Assistant reasoning followed by system tool should be treated as last visible log"
         );
+    }
+
+    #[test]
+    fn test_tool_chain_line_break_updates_on_log_replacement() {
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Hello");
+        add_tool_log(&mut cache, "tool1", 1);
+        add_tool_log(&mut cache, "tool2", 2);
+        add_tool_log(&mut cache, "tool3", 3);
+
+        let (updates, _) = cache.poll_render_update();
+        assert_eq!(updates.len(), 4);
+
+        assert_eq!(updates[0].lines, vec!["Hello", ""]);
+        assert!(updates[1].lines[0].contains("tool1"));
+        assert!(updates[2].lines[0].contains("tool2"));
+        assert!(updates[3].lines[0].contains("tool3"));
+        assert_eq!(updates[3].lines[1], "");
+
+        let (updates, _) = cache.poll_render_update();
+
+        let session = cache.chat_session.write().unwrap();
+        let mut indexer = session.log_indexer.write().unwrap();
+        indexer.logs.remove(3); // Remove tool3
+        indexer.logs.push(crate::chat::log_indexer::IndexedLog {
+            log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+                TenonUserTextMessage("World".to_string()),
+            )))),
+            active: true,
+        });
+        drop(indexer);
+        drop(session);
+
+        assert_eq!(cache.check_from_index.load(Ordering::SeqCst), 1);
+
+        let (updates, _) = cache.poll_render_update();
+        assert_eq!(updates.len(), 2);
+
+        // Tool2: now has separator (became last tool)
+        assert!(updates[0].lines[0].contains("tool2"));
+        assert_eq!(updates[0].lines.len(), 2);
+        assert_eq!(updates[0].lines[1], "");
+        assert_eq!(updates[0].replace_line_start, 3);
+        assert_eq!(updates[0].replace_line_end, 4);
+
+        // User log: ["World", ""]
+        assert_eq!(updates[1].lines, vec!["World", ""]);
+        assert_eq!(updates[1].replace_line_start, 5);
+        assert_eq!(updates[1].replace_line_end, 6);
     }
 }

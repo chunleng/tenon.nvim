@@ -54,11 +54,11 @@ impl ChatLogRenderer {
 
                 let buffer_clone = attached_buffer.clone();
                 let window_clone = attached_window.clone();
-                let updates = {
+                let (updates, current_line) = {
                     if let Ok(mut chat_log) = chat_log_cache.write() {
                         chat_log.poll_render_update()
                     } else {
-                        Vec::new()
+                        (Vec::new(), 0)
                     }
                 };
                 if !updates.is_empty() {
@@ -109,6 +109,21 @@ impl ChatLogRenderer {
                                     }
                                 }
                             }
+
+                            // Remove excess lines at end of buffer
+                            // buffer_line_count - 2 (footer) - current_line = excess lines to remove
+                            let line_count = buffer.line_count().unwrap_or(0) as i64;
+                            let excess_lines = line_count - 2 - current_line as i64;
+                            if excess_lines > 0 {
+                                let remove_start = current_line;
+                                let remove_end = current_line + excess_lines as usize;
+                                let _ = buffer.set_lines(
+                                    remove_start..remove_end,
+                                    false,
+                                    Vec::<&str>::new(),
+                                );
+                            }
+
                             let _ = nvim_oxi::api::set_option_value("modifiable", false, &buf_opts);
 
                             // If cursor was at last line, move to new last line and scroll
