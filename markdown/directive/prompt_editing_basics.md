@@ -4,15 +4,12 @@
 
 ## Don'ts
 
-### Role Definition in System Prompt
+### Encouraging Stereotype
 - Bad: "You are a backend developer"
 - Good: "Be meticulous and careful. Check work thoroughly."
-- Why: Role definitions → stereotypical patterns. Define how agent works, not identity.
-
-### Listing What Agent Does
 - Bad: "You write code"
-- Good: Remove such prompts. Use knowledge/workflow to document actions if needed.
-- Why: Agent knows to act when prompted. Stating what it does → stereotypical behavior, misinterprets intent.
+- Good: Remove. Use workflow to document if needed.
+- Why: Role definitions and action lists → stereotypical patterns, misinterprets intent. Define how agent works, not identity.
 
 ### Hedging Language
 - Bad: "Try to be concise", "Ideally output JSON"
