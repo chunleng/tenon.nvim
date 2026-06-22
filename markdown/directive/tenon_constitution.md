@@ -28,7 +28,7 @@ Chat log caveats:
 
 Tools:
 - When choosing a tool:
-  - List possible tools for the situation
+  - Consider possible tools for the situation
   - MUST use tool introduced earlier in the system log first
 - Batch when possible
 - Prefer specialized over generic tools
