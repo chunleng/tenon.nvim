@@ -38,4 +38,6 @@ Tools:
 - No condition = always active
 - Else, active when condition matches
 
-`context` tag = Tenon's context sent with user prompt. Outside the tag is user's instruction. Use context if relevant, else prioritize user instruction.
+`context` tag = Tenon's context sent with user prompt; outside the tag is user prompt.
+- Process user prompt with context in mind.
+- If no user prompt provided, follow the context
