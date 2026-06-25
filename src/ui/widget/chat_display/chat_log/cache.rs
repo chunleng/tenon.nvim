@@ -80,6 +80,23 @@ impl ChatLogCache {
         }
     }
 
+    /// Returns the log entry that occupies the given 0-based buffer line, or
+    /// `None` if the line doesn't belong to any rendered entry. Hidden entries
+    /// are skipped.
+    pub fn get_log_at_line(&self, line: usize) -> Option<Arc<TenonLog>> {
+        self.rendered_entries
+            .iter()
+            .find_map(|entry| match &entry.render_location {
+                RenderedLocation::Shown {
+                    line_start,
+                    line_count,
+                } if *line_start <= line && line < *line_start + *line_count => {
+                    Some(entry.log.clone())
+                }
+                _ => None,
+            })
+    }
+
     /// Updates an existing rendered entry or inserts a new one.
     /// Returns `(render_location, new_current_line)` where:
     /// - `render_location` is `Some(Shown { line_start, line_end })` when entry changed/new and not System tool (needs render)
@@ -783,5 +800,61 @@ mod tests {
         assert_eq!(updates[1].lines, vec!["World", ""]);
         assert_eq!(updates[1].replace_line_start, 5);
         assert_eq!(updates[1].replace_line_end, 6);
+    }
+
+    #[test]
+    fn test_get_log_at_line() {
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Hello");
+        add_assistant_reasoning(&mut cache, "Thinking...");
+        add_tool_log(&mut cache, "tool1", 1);
+
+        cache.poll_render_update();
+
+        // User log occupies lines [0, 2)
+        assert!(
+            matches!(cache.get_log_at_line(0), Some(log) if matches!(log.data, TenonLogData::User(_)))
+        );
+        assert!(
+            matches!(cache.get_log_at_line(1), Some(log) if matches!(log.data, TenonLogData::User(_)))
+        );
+
+        // Assistant log occupies lines [2, 4)
+        assert!(
+            matches!(cache.get_log_at_line(2), Some(log) if matches!(log.data, TenonLogData::Assistant(_)))
+        );
+        assert!(
+            matches!(cache.get_log_at_line(3), Some(log) if matches!(log.data, TenonLogData::Assistant(_)))
+        );
+
+        // Tool log occupies lines [4, 6)
+        assert!(
+            matches!(cache.get_log_at_line(4), Some(log) if matches!(log.data, TenonLogData::Tool(_)))
+        );
+        assert!(
+            matches!(cache.get_log_at_line(5), Some(log) if matches!(log.data, TenonLogData::Tool(_)))
+        );
+
+        // Out of range
+        assert!(cache.get_log_at_line(100).is_none());
+    }
+
+    #[test]
+    fn test_get_log_at_line_skips_hidden_system_tools() {
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Hello");
+        add_tool_log(&mut cache, "start_workflow", 1);
+
+        cache.poll_render_update();
+
+        // System tool is Hidden; user log still occupies lines [0, 2)
+        assert!(
+            matches!(cache.get_log_at_line(0), Some(log) if matches!(log.data, TenonLogData::User(_)))
+        );
+        assert!(
+            matches!(cache.get_log_at_line(1), Some(log) if matches!(log.data, TenonLogData::User(_)))
+        );
     }
 }

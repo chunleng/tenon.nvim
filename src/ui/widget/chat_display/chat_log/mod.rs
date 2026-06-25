@@ -13,7 +13,6 @@ use nvim_oxi::api::{
 };
 
 use crate::{
-    chat::ChatSession,
     ui::nvim_primitives::{buffer::NvimBuffer, window::NvimWindow},
     utils::GLOBAL_EXECUTION_HANDLER,
 };
@@ -32,12 +31,12 @@ impl ChatLogRenderer {
     pub fn new(
         attached_buffer: Arc<NvimBuffer>,
         attached_window: Arc<NvimWindow>,
-        attached_chat_session: Arc<RwLock<ChatSession>>,
+        chat_log_cache: Arc<RwLock<ChatLogCache>>,
     ) -> Self {
         Self {
             attached_buffer,
             attached_window,
-            chat_log_cache: Arc::new(RwLock::new(ChatLogCache::new(attached_chat_session))),
+            chat_log_cache,
         }
     }
     pub fn spawn_renderer_thread(&self, stop_signal: Arc<AtomicBool>) -> JoinHandle<()> {

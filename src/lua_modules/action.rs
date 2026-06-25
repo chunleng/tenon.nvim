@@ -13,6 +13,8 @@ pub fn create_lua_action_module() -> Dictionary {
     action_dict.insert("insert_selection", Object::from(insert_selection_fn()));
     action_dict.insert("select_chat", Object::from(select_chat_fn()));
     action_dict.insert("continue_chat", Object::from(continue_chat_fn()));
+    action_dict.insert("show_detail", Object::from(show_detail_fn()));
+    action_dict.insert("show_chat", Object::from(show_chat_fn()));
     action_dict
 }
 
@@ -234,6 +236,32 @@ fn continue_chat_fn() -> Function<(), ()> {
         move |()| {
             if let Ok(mut win) = get_chat_window().lock()
                 && let Err(e) = win.continue_chat()
+            {
+                crate::utils::notify(format!("{}", e), LogLevel::Error);
+            }
+        }
+    })
+}
+
+/// Swap the output window from chat display to the detail buffer.
+fn show_detail_fn() -> Function<(), ()> {
+    Function::from_fn({
+        move |()| {
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.show_detail_view()
+            {
+                crate::utils::notify(format!("{}", e), LogLevel::Error);
+            }
+        }
+    })
+}
+
+/// Swap the output window from the detail buffer back to chat display.
+fn show_chat_fn() -> Function<(), ()> {
+    Function::from_fn({
+        move |()| {
+            if let Ok(mut win) = get_chat_window().lock()
+                && let Err(e) = win.show_chat_view()
             {
                 crate::utils::notify(format!("{}", e), LogLevel::Error);
             }

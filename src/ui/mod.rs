@@ -23,13 +23,13 @@ use crate::{
 };
 use crate::{
     chat::history::ChatHistory,
+    chat::log::{TenonLog, TenonLogData, TenonUserMessage, TenonUserTextMessage},
     chat::{CHAT_SESSIONS, ChatSession, get_or_create_chat_session, remove_chat_session},
     ui::{
         nvim_primitives::{
             buffer::{NvimBuffer, NvimBufferOption, NvimKeymap},
             window::{NvimSplitWindowType, NvimWindowType},
         },
-        panels::fixed::{FixedBufferPanel, FixedBufferPanelOption},
         panels::swappable::{SwappableBufferPanel, SwappablePanelOption},
         widget::chat_display::{ChatDisplay, ChatDisplayData},
     },
@@ -37,7 +37,10 @@ use crate::{
 };
 
 pub struct ChatWindow {
-    output_window: Arc<Mutex<Option<FixedBufferPanel<ChatDisplay>>>>,
+    output_window: Arc<Mutex<Option<SwappableBufferPanel>>>,
+    /// Kept clone of the ChatDisplay for accessing ChatDisplay-specific methods
+    /// (switch_chat, render) that are inaccessible through Arc<dyn Widget>.
+    chat_display: Arc<Mutex<Option<ChatDisplay>>>,
     input_window: Arc<Mutex<Option<SwappableBufferPanel>>>,
     /// Shared reference to the currently loaded chat session.
     /// The outer `RwLock` allows swapping the inner `Arc` when loading a different chat,
@@ -54,6 +57,7 @@ impl ChatWindow {
 
         Self {
             output_window: Arc::new(Mutex::new(None)),
+            chat_display: Arc::new(Mutex::new(None)),
             input_window: Arc::new(Mutex::new(None)),
             loaded_chat_session,
             loaded_chat_index: Arc::new(AtomicUsize::new(0)),
@@ -213,10 +217,10 @@ impl ChatWindow {
     /// Safe to call from any thread when the render thread is already running,
     /// since it only sets an atomic flag and resets an RwLock-protected state.
     pub fn force_render(&self) {
-        if let Ok(mut output_win) = self.output_window.lock()
-            && let Some(panel) = output_win.as_mut()
+        if let Ok(mut chat_display) = self.chat_display.lock()
+            && let Some(display) = chat_display.as_mut()
         {
-            let _ = panel.widget.render();
+            let _ = display.render();
         }
     }
 
@@ -318,21 +322,30 @@ impl ChatWindow {
         if let Ok(mut loaded) = self.loaded_chat_session.write() {
             *loaded = get_or_create_chat_session(index);
         }
-        let mut panel = self.get_or_create_output_window()?;
-        panel.widget.switch_chat(ChatDisplayData {
-            chat_session: self
-                .loaded_chat_session
-                .read()
-                .map_err(|_| {
-                    // TODO fix error handling
-                    nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(
-                        "chat can't be read".to_string(),
-                    ))
-                })?
-                .clone(),
-            chat_index: self.loaded_chat_index.load(Ordering::SeqCst),
-        })?;
-        panel.widget.render()?;
+        self.get_or_create_output_window()?;
+        if let Ok(mut output_win) = self.output_window.lock()
+            && let Some(panel) = output_win.as_mut()
+        {
+            panel.swap_to("chat")?;
+        }
+        if let Ok(mut chat_display) = self.chat_display.lock()
+            && let Some(display) = chat_display.as_mut()
+        {
+            display.switch_chat(ChatDisplayData {
+                chat_session: self
+                    .loaded_chat_session
+                    .read()
+                    .map_err(|_| {
+                        // TODO fix error handling
+                        nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(
+                            "chat can't be read".to_string(),
+                        ))
+                    })?
+                    .clone(),
+                chat_index: self.loaded_chat_index.load(Ordering::SeqCst),
+            })?;
+            display.render()?;
+        }
 
         // Swap the input window buffer to the one for this chat session.
         if let Ok(mut input_panel) = self.input_window.lock()
@@ -650,111 +663,25 @@ impl ChatWindow {
         }
     }
 
-    fn get_or_create_output_window(&mut self) -> OxiResult<FixedBufferPanel<ChatDisplay>> {
+    fn get_or_create_output_window(&mut self) -> OxiResult<SwappableBufferPanel> {
         if let Ok(win) = self.output_window.lock()
             && let Some(win) = win.as_ref()
-            && win.widget.buffer().get_buffer().is_some()
+            && win.active_widget().buffer().get_buffer().is_some()
             && win.window.get_window().is_some()
         {
             Ok(win.clone())
         } else {
-            let option = FixedBufferPanelOption {
-                window_option: NvimWindowType::Split {
-                    direction: NvimSplitWindowType::Right,
-                    ratio_wh: 0.4,
-                    edge: true,
-                },
-                modifiable: false,
+            let chat_buffer = NvimBuffer::new(NvimBufferOption {
                 file_type: "markdown".to_string(),
-                buf_keymaps: vec![
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "q".to_string(),
-                        rhs: "<cmd>lua require('tenon').close()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "<c-n>".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.next_chat()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "<c-p>".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.prev_chat()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "<leader>n".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.new_chat()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "<c-q>".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.dismiss_chat()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "<c-c>".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.stop_streaming()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "<tab>".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.toggle_focus()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "ga".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.select_agent()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "gm".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.select_model()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "gt".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.select_tools()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "gh".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.select_history()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "gR".to_string(),
-                        rhs: "<cmd>lua require('tenon').keymap.rename()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                    NvimKeymap {
-                        modes: vec![Mode::Normal],
-                        lhs: "<cr>".to_string(),
-                        rhs: "<cmd>lua require('tenon').action.select_chat()<cr>".to_string(),
-                        opts: SetKeymapOpts::default(),
-                    },
-                ],
+                modifiable: false,
                 undo_levels: -1,
-                sign_column: "yes:3".to_string(),
-                number: false,
-                relative_number: false,
+                buf_keymaps: Self::output_keymaps(
+                    "<cmd>lua require('tenon').action.show_detail()<cr>",
+                ),
                 ..Default::default()
-            };
-            let buffer = NvimBuffer::try_from(&option)?;
-            let widget = ChatDisplay::new(
-                buffer,
+            })?;
+            let chat_display = ChatDisplay::new(
+                chat_buffer,
                 ChatDisplayData {
                     chat_session: self
                         .loaded_chat_session
@@ -764,11 +691,225 @@ impl ChatWindow {
                     chat_index: self.loaded_chat_index.load(Ordering::SeqCst),
                 },
             );
-            let mut win = FixedBufferPanel::new(&option, widget)?;
-            win.widget.render()?;
-            self.output_window = Arc::new(Mutex::new(Some(win.clone())));
+            let mut chat_display_clone = chat_display.clone();
 
-            Ok(win)
+            let detail_buffer = NvimBuffer::new(NvimBufferOption {
+                file_type: "markdown".to_string(),
+                modifiable: false,
+                undo_levels: -1,
+                buf_keymaps: Self::output_keymaps(
+                    "<cmd>lua require('tenon').action.show_chat()<cr>",
+                ),
+                ..Default::default()
+            })?;
+            let detail_widget = BasicWidget::new(detail_buffer);
+
+            let panel_option = SwappablePanelOption {
+                number: false,
+                relative_number: false,
+                sign_column: "yes:3".to_string(),
+                window_option: NvimWindowType::Split {
+                    direction: NvimSplitWindowType::Right,
+                    ratio_wh: 0.4,
+                    edge: true,
+                },
+                ..Default::default()
+            };
+            let mut panel =
+                SwappableBufferPanel::new(&panel_option, "chat", Box::new(chat_display))?;
+            panel.add_widget("detail", Box::new(detail_widget))?;
+
+            chat_display_clone.set_window(panel.window.clone());
+
+            self.output_window = Arc::new(Mutex::new(Some(panel.clone())));
+            self.chat_display = Arc::new(Mutex::new(Some(chat_display_clone)));
+
+            Ok(panel)
         }
+    }
+
+    /// Shared navigational keymaps for both output buffers (chat display and detail).
+    /// Only `<cr>` differs between the two buffers, provided via `cr_rhs`.
+    fn output_keymaps(cr_rhs: &str) -> Vec<NvimKeymap> {
+        vec![
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "q".to_string(),
+                rhs: "<cmd>lua require('tenon').close()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "<c-n>".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.next_chat()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "<c-p>".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.prev_chat()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "<leader>n".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.new_chat()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "<c-q>".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.dismiss_chat()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "<c-c>".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.stop_streaming()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "<tab>".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.toggle_focus()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "ga".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.select_agent()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "gm".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.select_model()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "gt".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.select_tools()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "gh".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.select_history()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "gR".to_string(),
+                rhs: "<cmd>lua require('tenon').keymap.rename()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "<cr>".to_string(),
+                rhs: cr_rhs.to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+        ]
+    }
+
+    pub fn show_detail_view(&mut self) -> OxiResult<()> {
+        let log = if let Ok(chat_display) = self.chat_display.lock()
+            && let Some(display) = chat_display.as_ref()
+        {
+            display.get_log_at_cursor()
+        } else {
+            None
+        };
+
+        let Some(log) = log else {
+            notify("No details to show on this line", LogLevel::Info);
+            return Ok(());
+        };
+
+        let Ok(mut output_win) = self.output_window.lock() else {
+            return Ok(());
+        };
+        let Some(panel) = output_win.as_mut() else {
+            return Ok(());
+        };
+        panel.swap_to("detail")?;
+
+        let detail_widget = panel
+            .widgets
+            .get("detail")
+            .expect("detail widget must exist");
+        let mut buffer = detail_widget.buffer().inner.clone();
+        let buf_opts = api::opts::OptionOpts::builder()
+            .buffer(buffer.clone())
+            .build();
+        api::set_option_value("modifiable", true, &buf_opts)?;
+        let lines = format_log_detail(&log);
+        buffer.set_lines(0.., false, lines)?;
+        api::set_option_value("modifiable", false, &buf_opts)?;
+
+        Ok(())
+    }
+
+    pub fn show_chat_view(&mut self) -> OxiResult<()> {
+        if let Ok(mut output_win) = self.output_window.lock()
+            && let Some(panel) = output_win.as_mut()
+        {
+            panel.swap_to("chat")?;
+        }
+        Ok(())
+    }
+}
+
+fn format_log_detail(log: &TenonLog) -> Vec<String> {
+    // TODO: this should be in TenonLog
+    let local_time = log
+        .last_updated_at
+        .with_timezone(&chrono::Local)
+        .format("%Y-%m-%d %I:%M:%S %p")
+        .to_string();
+    let mut lines = vec![
+        "## Last Updated At".to_string(),
+        String::new(),
+        local_time,
+        String::new(),
+        "## Content".to_string(),
+        String::new(),
+    ];
+
+    match &log.data {
+        TenonLogData::User(TenonUserMessage::Text(TenonUserTextMessage(text))) => {
+            for line in text.lines() {
+                lines.push(line.to_string());
+            }
+        }
+        _ => {
+            lines.push("  (unsupported log type)".to_string());
+        }
+    }
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::log::{TenonLog, TenonLogData, TenonUserMessage, TenonUserTextMessage};
+
+    #[test]
+    fn test_format_log_detail_user_message() {
+        let log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+            TenonUserTextMessage("Generate me a story.\nThe story is about a boy".to_string()),
+        )));
+        let lines = format_log_detail(&log);
+
+        assert_eq!(lines[0], "## Last Updated At");
+        assert_eq!(lines[1], "");
+        // Local time format: YYYY-MM-DD HH:MM:SS AM/PM
+        assert!(lines[2].contains("AM") || lines[2].contains("PM"));
+        assert_eq!(lines[3], "");
+        assert_eq!(lines[4], "## Content");
+        assert_eq!(lines[5], "");
+        assert_eq!(lines[6], "  Generate me a story.");
+        assert_eq!(lines[7], "  The story is about a boy");
     }
 }

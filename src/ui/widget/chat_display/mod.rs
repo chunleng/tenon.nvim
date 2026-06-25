@@ -13,7 +13,7 @@ use std::{
 use nvim_oxi::{Result as OxiResult, api::opts::OptionOpts};
 
 use crate::{
-    chat::ChatSession,
+    chat::{ChatSession, TenonLog},
     ui::{
         nvim_primitives::{buffer::NvimBuffer, window::NvimWindow},
         widget::Widget,
@@ -21,7 +21,7 @@ use crate::{
 };
 
 use chat_footer::ChatFooterRenderer;
-use chat_log::ChatLogRenderer;
+use chat_log::{ChatLogCache, ChatLogRenderer};
 
 #[derive(Clone)]
 pub struct ChatDisplayData {
@@ -32,6 +32,7 @@ pub struct ChatDisplayData {
 struct SharedState {
     running_threads: Vec<Arc<JoinHandle<()>>>,
     stop_signal: Arc<AtomicBool>,
+    chat_log_cache: Option<Arc<RwLock<ChatLogCache>>>,
 }
 
 #[derive(Clone)]
@@ -51,6 +52,7 @@ impl ChatDisplay {
             shared: Arc::new(RwLock::new(SharedState {
                 running_threads: Vec::new(),
                 stop_signal: Arc::new(AtomicBool::new(false)),
+                chat_log_cache: None,
             })),
         }
     }
@@ -60,6 +62,33 @@ impl ChatDisplay {
             *current_chat = chat;
         }
         self.reset_thread()
+    }
+
+    /// Returns the log entry at the cursor position in the attached window, or
+    /// `None` if the cursor is not on a rendered log line.
+    pub fn get_log_at_cursor(&self) -> Option<Arc<TenonLog>> {
+        let Some(window_arc) = self.attached_window.as_ref() else {
+            return None;
+        };
+        let Some(window) = window_arc.get_window() else {
+            return None;
+        };
+        let Ok((cursor_row, _)) = window.get_cursor() else {
+            return None;
+        };
+
+        let line = cursor_row.saturating_sub(1);
+
+        let Ok(shared) = self.shared.read() else {
+            return None;
+        };
+        let Some(cache) = shared.chat_log_cache.as_ref() else {
+            return None;
+        };
+        let Ok(cache) = cache.read() else {
+            return None;
+        };
+        cache.get_log_at_line(line)
     }
 
     fn start_thread(&mut self) -> OxiResult<()> {
@@ -75,11 +104,15 @@ impl ChatDisplay {
         };
 
         if let Ok(chat) = self.attached_chat.read() {
-            let log_renderer = ChatLogRenderer::new(
-                self.inner.clone(),
-                attached_window.clone(),
-                chat.chat_session.clone(),
-            );
+            let chat_log_cache =
+                Arc::new(RwLock::new(ChatLogCache::new(chat.chat_session.clone())));
+            {
+                let mut shared = self.shared.write().unwrap();
+                shared.chat_log_cache = Some(chat_log_cache.clone());
+            }
+
+            let log_renderer =
+                ChatLogRenderer::new(self.inner.clone(), attached_window.clone(), chat_log_cache);
 
             let footer_renderer =
                 ChatFooterRenderer::new(self.inner.clone(), self.attached_chat.clone());

@@ -50,7 +50,7 @@ pub struct ActiveWidget {
 #[derive(Clone)]
 pub struct SwappableBufferPanel {
     pub window: NvimWindow,
-    widgets: HashMap<String, Arc<dyn Widget>>,
+    pub widgets: HashMap<String, Arc<dyn Widget>>,
     active: ActiveWidget,
 }
 
