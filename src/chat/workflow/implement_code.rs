@@ -49,20 +49,12 @@ pub fn workflow() -> Workflow {
                 instruction: Instruction::File {
                     file: workflow_path("implement_code/4_implement.md"),
                 },
-                goto_instructions: vec![
-                    WorkflowGotoInstruction {
-                        to: GotoStep::Step(4),
-                        condition: Some("verification failed".to_string()),
-                        output: "failure details".to_string(),
-                        output_to_workflow_memory: None,
-                    },
-                    WorkflowGotoInstruction {
-                        to: GotoStep::Next,
-                        condition: None,
-                        output: "build result + affected test results".to_string(),
-                        output_to_workflow_memory: None,
-                    },
-                ],
+                goto_instructions: vec![WorkflowGotoInstruction {
+                    to: GotoStep::Next,
+                    condition: None,
+                    output: "build result + affected test results".to_string(),
+                    output_to_workflow_memory: None,
+                }],
             },
             WorkflowStep {
                 title: "Goal Check".to_string(),
