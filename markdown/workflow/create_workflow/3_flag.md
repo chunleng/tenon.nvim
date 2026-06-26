@@ -21,8 +21,8 @@ Review drafted workflow content and flag vague, ambiguous, or problematic lines
 {
   "file": "path/to/file.md",
   "flagged_lines": [
-    {"line": 5, "content": "...", "reason": "..."},
-    {"line": 12, "content": "...", "reason": "..."}
+    {"file": "path/to/file.md", "line": 5, "content": "...", "reason": "..."},
+    {"file": "path/to/file.md", "line": 12, "content": "...", "reason": "..."}
   ]
 }
 ```
