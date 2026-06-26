@@ -15,7 +15,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "list of texts to compact".to_string(),
                     output_to_workflow_memory: Some("goal".to_string()),
                 }],
             },
@@ -27,7 +26,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "compacted versions".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -40,13 +38,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(2),
                         condition: Some("texts can be simpler".to_string()),
-                        output: "texts needing change".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::EndWorkflow,
                         condition: None,
-                        output: "final texts".to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],

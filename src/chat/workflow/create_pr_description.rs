@@ -15,7 +15,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "the diff / list of changes".to_string(),
                     output_to_workflow_memory: Some("diff".to_string()),
                 }],
             },
@@ -27,7 +26,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "structured change analysis".to_string(),
                     output_to_workflow_memory: Some("analysis".to_string()),
                 }],
             },
@@ -39,7 +37,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::EndWorkflow,
                     condition: None,
-                    output: "PR title and description following the output format".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },

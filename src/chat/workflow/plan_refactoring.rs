@@ -15,7 +15,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "refactoring requirement and constraints".to_string(),
                     output_to_workflow_memory: Some("constraints".to_string()),
                 }],
             },
@@ -27,7 +26,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "refactoring plan with changes".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -39,7 +37,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "pruned refactoring plan".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -52,14 +49,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(2),
                         condition: Some("verification failed".to_string()),
-                        output: "issues found in plan".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::EndWorkflow,
                         condition: None,
-                        output: "verified refactoring plan ready for implement_software"
-                            .to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],

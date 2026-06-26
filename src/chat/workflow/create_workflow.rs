@@ -15,7 +15,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "workflow goal and step definitions".to_string(),
                     output_to_workflow_memory: Some("goal".to_string()),
                 }],
             },
@@ -27,7 +26,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "nothing".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -39,7 +37,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "flagged lines with reasons (or none if no issues)".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -51,7 +48,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "pruned workflow".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -64,13 +60,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(2),
                         condition: Some("flow issues found".to_string()),
-                        output: "flow issues description".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "validated workflow".to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],
@@ -84,13 +78,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(2),
                         condition: Some("user requests changes".to_string()),
-                        output: "change requests".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::EndWorkflow,
                         condition: None,
-                        output: "final workflow".to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],

@@ -16,13 +16,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::EndWorkflow,
                         condition: Some("user says stop".to_string()),
-                        output: "summary of completed work".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "incremental goal from user".to_string(),
                         output_to_workflow_memory: Some("goal".to_string()),
                     },
                 ],
@@ -35,7 +33,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "test ready, user confirmed".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -47,7 +44,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Step(1),
                     condition: None,
-                    output: "nothing".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },

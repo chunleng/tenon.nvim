@@ -15,7 +15,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "reference materials and context".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -27,7 +26,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "goal definition and structure".to_string(),
                     output_to_workflow_memory: Some("goal".to_string()),
                 }],
             },
@@ -39,7 +37,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "nothing".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -51,7 +48,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "nothing".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -64,13 +60,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(3),
                         condition: Some("goal not achieved and iteration under 3".to_string()),
-                        output: "gaps identified, iteration count".to_string(),
                         output_to_workflow_memory: Some("gaps".to_string()),
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::EndWorkflow,
                         condition: None,
-                        output: "documentation complete or max iterations reached".to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],

@@ -15,8 +15,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "requirements with acceptance criteria (each with verification method)"
-                        .to_string(),
                     output_to_workflow_memory: Some("goal".to_string()),
                 }],
             },
@@ -28,7 +26,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "next incremental change to make".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -40,7 +37,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "test that fails before change, passes after".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -52,7 +48,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "build result + affected test results".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -65,13 +60,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(2),
                         condition: Some("goal not reached".to_string()),
-                        output: "remaining gap".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "goal reached: true/false with reasoning".to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],
@@ -84,7 +77,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "cleaned codebase".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -97,13 +89,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(2),
                         condition: Some("tests fail".to_string()),
-                        output: "failed tests list".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::EndWorkflow,
                         condition: None,
-                        output: "all tests pass + unverifiable aspects documented".to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],

@@ -15,7 +15,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "requirement with constraints, acceptance criteria".to_string(),
                     output_to_workflow_memory: Some("requirement".to_string()),
                 }],
             },
@@ -28,13 +27,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(1),
                         condition: Some("verification failed".to_string()),
-                        output: "issues found in requirements".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "nothing".to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],
@@ -47,7 +44,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "change candidates with integration points".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -59,7 +55,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "pruned change plan".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -72,14 +67,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(3),
                         condition: Some("verification failed".to_string()),
-                        output: "issues found in plan".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::EndWorkflow,
                         condition: None,
-                        output: "requirement, constraints, acceptance_criteria, changes"
-                            .to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],

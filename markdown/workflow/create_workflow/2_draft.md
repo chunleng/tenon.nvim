@@ -34,7 +34,6 @@ Draft workflow structure and each step's instruction content
 - **GotoInstruction**
   - `to`: "Next" | "Step(n)" | "EndWorkflow"
   - `condition`: string | null (null = always matches)
-  - `output`: string
   - `output_to_workflow_memory`: string | null
 
 ### Advice

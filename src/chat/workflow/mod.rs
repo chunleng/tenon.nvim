@@ -127,7 +127,6 @@ impl GotoStep {
 pub struct WorkflowGotoInstruction {
     pub to: GotoStep,
     pub condition: Option<String>,
-    pub output: String,
     #[serde(default)]
     pub output_to_workflow_memory: Option<String>,
 }

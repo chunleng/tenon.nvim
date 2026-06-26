@@ -60,15 +60,12 @@ fn build_workflow_prompt(
                         .unwrap_or_default();
                     let target_step = instr.to.resolve_step_index(active.step);
                     match target_step {
-                        None => format!("{}end_workflow output:{}", condition, instr.output),
+                        None => format!("{}end_workflow", condition),
                         Some(step) if step > total_steps => {
-                            format!("{}end_workflow output:{}", condition, instr.output)
+                            format!("{}end_workflow", condition)
                         }
                         Some(step) => {
-                            format!(
-                                "{}navigate_workflow step:{} output:{}",
-                                condition, step, instr.output
-                            )
+                            format!("{}navigate_workflow step:{}", condition, step)
                         }
                     }
                 })
@@ -84,7 +81,7 @@ fn build_workflow_prompt(
                     }
                 });
                 if !has_ending_goto {
-                    goto_lines.push("end_workflow output:nothing".to_string());
+                    goto_lines.push("end_workflow".to_string());
                 }
             }
 
@@ -107,7 +104,7 @@ fn build_workflow_prompt(
                     Currently in {} step of {} workflow.\n\
                     Complete \"Process\" section in `instruction` tag. \
                     Upon full completion, never halfway unless explicitly asked, \
-                    follow \"Output\" section to create step output and call tool from `navigate` tag to navigate.\n\
+                    follow \"Output\" section to create step output; if no \"Output\" section, send \"none\". Then call tool from `navigate` tag to navigate.\n\
                     \n\n\
                     <instruction>\n\
                     {}\n\

@@ -15,7 +15,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "list of bug definition".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -28,13 +27,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(1),
                         condition: Some("unable to locate".to_string()),
-                        output: "reason why unable to locate".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "list of files+explanation related to bug".to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],
@@ -48,13 +45,11 @@ pub fn workflow() -> Workflow {
                     WorkflowGotoInstruction {
                         to: GotoStep::Step(1),
                         condition: Some("unable to create test".to_string()),
-                        output: "reason why unable to create test".to_string(),
                         output_to_workflow_memory: None,
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::Next,
                         condition: None,
-                        output: "list of test case".to_string(),
                         output_to_workflow_memory: None,
                     },
                 ],
@@ -67,7 +62,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output: "cleanup done".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -79,7 +73,6 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::EndWorkflow,
                     condition: None,
-                    output: "analysis of the bug".to_string(),
                     output_to_workflow_memory: None,
                 }],
             },
