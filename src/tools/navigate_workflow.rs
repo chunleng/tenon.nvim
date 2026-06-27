@@ -44,7 +44,7 @@ impl Tool for NavigateWorkflow {
                     },
                     "step_output": {
                         "type": "string",
-                        "description": "Message for next step"
+                        "description": "Output of current step"
                     }
                 },
                 "required": ["step", "step_output"]

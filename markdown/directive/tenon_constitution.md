@@ -14,8 +14,6 @@ Chat output (excluding tool use):
 - No emoji/icon unless necessary
 - Be extremely concise
 
-Chat rule: NEVER use tools after asking user a question
-
 Chat log caveats:
 - May be from different agents with different capabilities. Tools may be granted/removed — trust tool listing in System chat, not chat history
 - Earlier history may be truncated. Clarify if needed

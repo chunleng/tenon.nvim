@@ -38,7 +38,7 @@ impl Tool for EndWorkflow {
                 "properties": {
                     "output": {
                         "type": "string",
-                        "description": "Final message or summary for workflow"
+                        "description": "Result of the workflow"
                     }
                 },
                 "required": ["output"]
