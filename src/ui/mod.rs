@@ -23,7 +23,7 @@ use crate::{
 };
 use crate::{
     chat::history::ChatHistory,
-    chat::log::{TenonLog, TenonLogData, TenonUserMessage, TenonUserTextMessage},
+    chat::log::TenonLog,
     chat::{CHAT_SESSIONS, ChatSession, get_or_create_chat_session, remove_chat_session},
     ui::{
         nvim_primitives::{
@@ -862,7 +862,6 @@ impl ChatWindow {
 }
 
 fn format_log_detail(log: &TenonLog) -> Vec<String> {
-    // TODO: this should be in TenonLog
     let local_time = log
         .last_updated_at
         .with_timezone(&chrono::Local)
@@ -877,23 +876,17 @@ fn format_log_detail(log: &TenonLog) -> Vec<String> {
         String::new(),
     ];
 
-    match &log.data {
-        TenonLogData::User(TenonUserMessage::Text(TenonUserTextMessage(text))) => {
-            for line in text.lines() {
-                lines.push(line.to_string());
-            }
-        }
-        _ => {
-            lines.push("  (unsupported log type)".to_string());
-        }
-    }
+    lines.extend(log.data.detail_lines());
     lines
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::log::{TenonLog, TenonLogData, TenonUserMessage, TenonUserTextMessage};
+    use crate::chat::log::{
+        TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData, TenonToolCall,
+        TenonToolLog, TenonToolResult, TenonUserMessage, TenonUserTextMessage, TenonWorkflowLog,
+    };
 
     #[test]
     fn test_format_log_detail_user_message() {
@@ -909,7 +902,101 @@ mod tests {
         assert_eq!(lines[3], "");
         assert_eq!(lines[4], "## Content");
         assert_eq!(lines[5], "");
-        assert_eq!(lines[6], "  Generate me a story.");
-        assert_eq!(lines[7], "  The story is about a boy");
+        assert_eq!(lines[6], "Generate me a story.");
+        assert_eq!(lines[7], "The story is about a boy");
+    }
+
+    #[test]
+    fn test_format_log_detail_assistant() {
+        let log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
+            reasoning: Some("thinking".to_string()),
+            content: vec![TenonAssistantMessageContent::Text("response".to_string())],
+        }));
+        let lines = format_log_detail(&log);
+        let content = lines.join("\n");
+        assert!(
+            content.contains("### Reasoning"),
+            "should use ### header for reasoning"
+        );
+        assert!(content.contains("thinking"), "should contain reasoning");
+        assert!(
+            content.contains("### Text"),
+            "should use ### header for text content"
+        );
+        assert!(content.contains("response"), "should contain content");
+        assert!(
+            !content.contains("unsupported"),
+            "should not show unsupported"
+        );
+    }
+
+    #[test]
+    fn test_format_log_detail_tool() {
+        let log = TenonLog::new(TenonLogData::Tool(TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                name: "read_file".into(),
+                args: serde_json::json!({"path": "test.txt"}),
+            },
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                text: "file content".into(),
+            }))),
+        }));
+        let lines = format_log_detail(&log);
+        let content = lines.join("\n");
+        assert!(
+            content.contains("### Tool"),
+            "should use ### header for tool name"
+        );
+        assert!(
+            content.contains("### Args"),
+            "should use ### header for args"
+        );
+        assert!(
+            content.contains("### Result"),
+            "should use ### header for result"
+        );
+        assert!(content.contains("read_file"), "should contain tool name");
+        assert!(content.contains("file content"), "should contain result");
+        assert!(
+            !content.contains("unsupported"),
+            "should not show unsupported"
+        );
+    }
+
+    #[test]
+    fn test_format_log_detail_workflow() {
+        let log = TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog::new(
+            "my-workflow",
+            "Doing something",
+            Some(1),
+        )));
+        let lines = format_log_detail(&log);
+        let content = lines.join("\n");
+        assert!(
+            content.contains("### ID"),
+            "should use ### header for workflow id"
+        );
+        assert!(
+            content.contains("### Step"),
+            "should use ### header for step"
+        );
+        assert!(
+            content.contains("my-workflow"),
+            "should contain workflow id"
+        );
+        assert!(
+            content.contains("### Workflow Title"),
+            "should use ### header for workflow title"
+        );
+        assert!(
+            content.contains("Doing something"),
+            "should contain content"
+        );
+        assert!(
+            !content.contains("unsupported"),
+            "should not show unsupported"
+        );
     }
 }

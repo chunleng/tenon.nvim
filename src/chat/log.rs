@@ -369,6 +369,90 @@ impl TenonLogData {
         }
     }
 
+    /// Formats this log's content for detail display using level 3 markdown headers
+    /// for categories and plain text for content.
+    pub fn detail_lines(&self) -> Vec<String> {
+        fn plain(text: &str) -> Vec<String> {
+            text.lines().map(|l| l.to_string()).collect()
+        }
+
+        match self {
+            TenonLogData::User(TenonUserMessage::Text(TenonUserTextMessage(text))) => plain(text),
+            TenonLogData::Assistant(msg) => {
+                let mut lines = Vec::new();
+                if let Some(reasoning) = &msg.reasoning {
+                    lines.push("### Reasoning".to_string());
+                    lines.push(String::new());
+                    lines.extend(plain(reasoning));
+                    lines.push(String::new());
+                }
+                lines.push("### Text".to_string());
+                lines.push(String::new());
+                for content in &msg.content {
+                    match content {
+                        TenonAssistantMessageContent::Text(text) => lines.extend(plain(text)),
+                    }
+                }
+                lines
+            }
+            TenonLogData::Tool(log) => {
+                let mut lines = vec![
+                    "### Tool".to_string(),
+                    String::new(),
+                    log.tool_call.name.clone(),
+                ];
+                lines.push(String::new());
+                lines.push("### Args".to_string());
+                lines.push(String::new());
+                lines.extend(plain(&log.tool_call.args.to_string()));
+                lines.push(String::new());
+                match &log.tool_result {
+                    None => {
+                        lines.push("### Result".to_string());
+                        lines.push(String::new());
+                        lines.push("(pending)".to_string());
+                    }
+                    Some(Ok(TenonToolResult::Text(text))) => {
+                        lines.push("### Result".to_string());
+                        lines.push(String::new());
+                        lines.extend(plain(&text.text));
+                    }
+                    Some(Ok(TenonToolResult::Image(_))) => {
+                        lines.push("### Result".to_string());
+                        lines.push(String::new());
+                        lines.push("[Image]".to_string());
+                    }
+                    Some(Err(err)) => {
+                        lines.push("### Error".to_string());
+                        lines.push(String::new());
+                        lines.extend(plain(&err.0));
+                    }
+                }
+                lines
+            }
+            TenonLogData::Workflow(log) => {
+                let step = log
+                    .step
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "(end)".to_string());
+                let mut lines = vec![
+                    "### ID".to_string(),
+                    String::new(),
+                    log.id.clone(),
+                    String::new(),
+                    "### Step".to_string(),
+                    String::new(),
+                    step,
+                    String::new(),
+                ];
+                lines.push("### Workflow Title".to_string());
+                lines.push(String::new());
+                lines.extend(plain(&log.content));
+                lines
+            }
+        }
+    }
+
     fn count_tokens(&self) -> usize {
         match self {
             TenonLogData::User(msg) => match msg {
