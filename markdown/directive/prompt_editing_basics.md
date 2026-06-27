@@ -30,3 +30,8 @@
 - Bad: "Tell me which line the error is on"
 - Good: Reference content directly: "The function `process()`", "See the validation logic"
 - Why: LLMs cannot reliably output line numbers/counts without tools.
+
+### Listing Searchable Examples
+- Bad: In AGENTS.md, defining "Helper" with "We have UserHelper, AuthHelper, OrderHelper, ..."
+- Good: "Helpers follow the `*Helper` naming convention under `src/helpers/`."
+- Why: The list goes stale as files are added/removed. The agent can search the codebase itself.
