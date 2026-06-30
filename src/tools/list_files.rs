@@ -7,6 +7,7 @@ use serde_json::json;
 use std::path::Path;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListFilesArgs {
     pub pattern: String,
     #[serde(default)]

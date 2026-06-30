@@ -14,6 +14,7 @@ fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolError {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StartWorkflowArgs {
     pub workflow_id: String,
 }

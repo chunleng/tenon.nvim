@@ -125,6 +125,7 @@ fn perform_edit(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EditFileArgs {
     pub filepath: String,
     pub search: String,

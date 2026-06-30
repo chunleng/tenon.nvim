@@ -11,6 +11,7 @@ const LINE_TRUNCATION_LIMIT: usize = 300;
 const MATCH_LIMIT: usize = 100;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SearchTextArgs {
     pub pattern: String,
     pub path: Option<String>,

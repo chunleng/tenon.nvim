@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FetchWebpageArgs {
     pub url: String,
     pub prompt: Option<String>,

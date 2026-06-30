@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WebSearchArgs {
     pub query: String,
     pub freshness: Option<String>,

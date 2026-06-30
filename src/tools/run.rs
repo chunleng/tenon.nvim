@@ -15,6 +15,7 @@ use tokio::process::Command;
 const OUTPUT_CAP: usize = 32 * 1024;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunArgs {
     pub command: String,
     pub args: Option<Vec<String>>,

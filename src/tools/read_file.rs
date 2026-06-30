@@ -6,6 +6,7 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReadFileArgs {
     pub filepath: String,
     pub start_line: Option<usize>,

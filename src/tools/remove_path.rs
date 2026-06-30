@@ -7,6 +7,7 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RemovePathArgs {
     pub filepath: String,
 }

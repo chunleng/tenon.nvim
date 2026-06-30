@@ -4,16 +4,19 @@ Tool = unit of capability agent invokes during conversation.
 
 ## 1. Define args struct
 
-Struct with `#[derive(Deserialize)]`. Holds tool parameters.
+Struct with `#[derive(Deserialize)]` **and** `#[serde(deny_unknown_fields)]`. Holds tool parameters.
 Optional fields → `Option<T>`.
 
 ```rust
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MyToolArgs {
     pub filepath: String,
     pub some_option: Option<usize>,
 }
 ```
+
+`deny_unknown_fields` causes deserialization to fail on unexpected parameters instead of silently ignoring them. Always add it to Args structs so invalid tool calls surface as errors.
 
 ## 2. Define tool struct
 

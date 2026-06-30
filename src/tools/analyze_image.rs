@@ -62,6 +62,7 @@ fn rasterize_if_svg(original_bytes: &[u8]) -> Vec<u8> {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AnalyzeImageArgs {
     pub image: String,
     pub prompt: String,

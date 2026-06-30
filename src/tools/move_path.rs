@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 const MAX_MOVED_ENTRIES: usize = 20;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MovePathArgs {
     pub source: String,
     pub destination: String,
