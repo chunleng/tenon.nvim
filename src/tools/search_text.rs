@@ -104,13 +104,13 @@ impl Tool for SearchText {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "search_text".to_string(),
-            description: "Search text under directory. Returns match locations.".to_string(),
+            description: "Search text under directory. Returns match locations".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "Text to find. Literal default. Set is_regex=true → regex"
+                        "description": "Text to find"
                     },
                     "path": {
                         "type": "string",
@@ -118,11 +118,11 @@ impl Tool for SearchText {
                     },
                     "glob": {
                         "type": "string",
-                        "description": "File filter. E.g. '*.rs', '**/*.ts'"
+                        "description": "File filter. E.g. '*.rs', '**/*.ts'. Default='**/*'"
                     },
                     "is_regex": {
                         "type": "boolean",
-                        "description": "Treat pattern as regex. Default=false"
+                        "description": "Treat pattern as regex. Default=false. Turn on when regex is needed. e.g. alternation regex (`a|b`)"
                     },
                     "ignore_case": {
                         "type": "boolean",
