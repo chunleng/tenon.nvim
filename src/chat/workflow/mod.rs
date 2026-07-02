@@ -80,7 +80,7 @@ pub struct Workflow {
     pub id: String,
     pub title: String,
     pub steps: Vec<WorkflowStep>,
-    pub default_condition: String,
+    pub description: String,
 }
 
 impl Workflow {

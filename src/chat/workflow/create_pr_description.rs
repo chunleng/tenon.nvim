@@ -41,7 +41,6 @@ pub fn workflow() -> Workflow {
                 }],
             },
         ],
-        default_condition: "when user wants to generate or create a PR title and description"
-            .to_string(),
+        description: "Generates a PR title and description from code changes".to_string(),
     }
 }

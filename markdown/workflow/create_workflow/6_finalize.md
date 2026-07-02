@@ -14,7 +14,7 @@ Present workflow → user for final review/approval
 ## Presentation Format
 ```
 ## Workflow: {title}
-Trigger: {default_condition}
+Description: {description}
 
 ### Step 1: {step_title}
 {instruction content}

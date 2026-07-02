@@ -59,6 +59,6 @@ pub fn workflow() -> Workflow {
                 ],
             },
         ],
-        default_condition: "when user wants to refactor code".to_string(),
+        description: "Plans code refactoring, does not execute code changes".to_string(),
     }
 }

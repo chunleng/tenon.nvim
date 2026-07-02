@@ -70,6 +70,8 @@ pub fn workflow() -> Workflow {
                 ],
             },
         ],
-        default_condition: "when user wants to create or update documentation (e.g., README.md, files in doc folders, markdown files, or when asked to 'document something')".to_string(),
+        description:
+            "Creates or updates documentation (e.g., README.md, doc folders, markdown files)"
+                .to_string(),
     }
 }

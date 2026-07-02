@@ -48,6 +48,6 @@ pub fn workflow() -> Workflow {
                 ],
             },
         ],
-        default_condition: "when asked to or trying to perform text compaction".to_string(),
+        description: "Compacts and simplifies text while preserving meaning".to_string(),
     }
 }

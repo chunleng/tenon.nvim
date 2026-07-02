@@ -48,8 +48,7 @@ pub fn workflow() -> Workflow {
                 }],
             },
         ],
-        default_condition:
-            "when user says 'work on this together' or similar collaborative coding request"
-                .to_string(),
+        description: "Collaboratively implements code changes with the user turn-by-turn"
+            .to_string(),
     }
 }

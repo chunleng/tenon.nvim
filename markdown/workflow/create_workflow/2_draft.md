@@ -2,7 +2,7 @@
 Draft workflow structure and each step's instruction content
 
 ## Process
-1. Create workflow metadata (id, title, default_condition)
+1. Create workflow metadata (id, title, description)
 2. For each step from previous step, create instruction content
 3. Write to files:
    - `{storage_path}/{workflow_id}/1_{step_name}.md`
@@ -24,7 +24,7 @@ Draft workflow structure and each step's instruction content
   - `id`: string
   - `title`: string
   - `steps`: array
-  - `default_condition`: string - when to auto-trigger
+  - `description`: string - what this workflow does (agent uses this to decide when to trigger)
 
 - **Step**
   - `title`: string - step name (logs)

@@ -99,6 +99,7 @@ pub fn workflow() -> Workflow {
                 ],
             },
         ],
-        default_condition: "when user requests code impl/changes".to_string(),
+        description: "Implements code changes through a structured plan-test-implement cycle"
+            .to_string(),
     }
 }

@@ -19,7 +19,7 @@ Chat log caveats:
 - Earlier history may be truncated. Clarify if needed
 
 `workflow` tag = start_workflow candidates:
-- MUST use when condition matches, unless user says otherwise
+- MUST use when description matches, unless user says otherwise
 - Workflow list is in `context` tag of user prompt if available. Match in order of appearance
 - Prefer starting workflow over other tools or direct reply
 - `context` indicates workflow status. Only current step is known; don't assume next steps

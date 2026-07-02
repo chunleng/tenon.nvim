@@ -77,7 +77,7 @@ pub fn workflow() -> Workflow {
                 }],
             },
         ],
-        default_condition: "when user reports bug/issue/error or unexpected/broken behavior"
+        description: "Finds the root cause of a software bug through systematic investigation"
             .to_string(),
     }
 }

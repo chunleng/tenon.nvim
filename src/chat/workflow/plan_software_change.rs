@@ -77,6 +77,6 @@ pub fn workflow() -> Workflow {
                 ],
             },
         ],
-        default_condition: "user requests add feature or change behavior: \"Let's make this red\" or new greenfield project".to_string(),
+        description: "Plans software changes for new features, behavior modifications, or greenfield projects".to_string(),
     }
 }

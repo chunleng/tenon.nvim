@@ -88,7 +88,6 @@ pub fn workflow() -> Workflow {
                 ],
             },
         ],
-        default_condition: "when user wants to create a workflow (agent-prompting related only)"
-            .to_string(),
+        description: "Creates a new Tenon workflow".to_string(),
     }
 }

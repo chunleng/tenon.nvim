@@ -130,13 +130,13 @@ fn build_workflow_prompt(
         let workflow_info: Vec<String> = workflows
             .iter()
             .filter_map(|w| {
-                let condition = w
-                    .condition
+                let description = w
+                    .description
                     .as_ref()
-                    .or_else(|| registry.get(&w.id).map(|wf| &wf.default_condition))?;
+                    .or_else(|| registry.get(&w.id).map(|wf| &wf.description))?;
                 Some(format!(
-                    "<workflow condition=\"{}\" id=\"{}\" />",
-                    condition, w.id
+                    "<workflow description=\"{}\" id=\"{}\" />",
+                    description, w.id
                 ))
             })
             .collect();
@@ -846,12 +846,14 @@ mod tests {
         // Scenario 2: Agent has workflows but none active - should show "not in workflow" context
         let workflow_configs = vec![WorkflowConfig {
             id: "implement_code".to_string(),
-            condition: Some("when user asks explicitly".to_string()),
+            description: Some("Implement code changes".to_string()),
         }];
         let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &workflow_configs);
         assert!(prompt.contains("<context>Currently not in workflow"));
-        assert!(prompt.contains(
-            "<workflow condition=\"when user asks explicitly\" id=\"implement_code\" />"
-        ));
+        assert!(
+            prompt.contains(
+                "<workflow description=\"Implement code changes\" id=\"implement_code\" />"
+            )
+        );
     }
 }

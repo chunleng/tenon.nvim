@@ -67,7 +67,7 @@ pub struct AnalyzeImageUserConfig {
 pub struct WorkflowConfig {
     pub id: String,
     #[serde(default)]
-    pub condition: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
