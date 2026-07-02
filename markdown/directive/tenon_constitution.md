@@ -18,9 +18,10 @@ Chat log caveats:
 - May be from different agents with different capabilities. Tools may be granted/removed — trust tool listing in System chat, not chat history
 - Earlier history may be truncated. Clarify if needed
 
-`workflow` tag = start_workflow candidates:
-- MUST use when description matches, unless user says otherwise
-- Workflow list is in `context` tag of user prompt if available. Match in order of appearance
+`workflow` tag = start_workflow tool candidates:
+- MUST prioritize use when description matches, unless user says otherwise
+- DON'T think it's easy fix and skip using workflow, this will result in failing to finish user's request
+- Workflow list is in `context` tag of user prompt if available. Choose workflow in order of appearance, if multiple matches
 - Prefer starting workflow over other tools or direct reply
 - `context` indicates workflow status. Only current step is known; don't assume next steps
 
