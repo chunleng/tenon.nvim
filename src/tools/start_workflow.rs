@@ -1,5 +1,5 @@
+use crate::chat::workflow::Workflow;
 use crate::chat::{ActiveWorkflow, ChatLogIndexer, TenonLog, TenonLogData};
-use crate::get_workflow_registry;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
@@ -21,7 +21,7 @@ pub struct StartWorkflowArgs {
 
 #[derive(Clone)]
 pub struct StartWorkflow {
-    pub workflow_ids: Vec<String>,
+    pub workflows: Vec<Arc<Workflow>>,
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
     pub log_indexer: Arc<RwLock<ChatLogIndexer>>,
 }
@@ -50,30 +50,26 @@ impl Tool for StartWorkflow {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        // Check if agent has this workflow configured
-        if !self.workflow_ids.iter().any(|id| id == &args.workflow_id) {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "Workflow '{}' is not available for this agent. Available workflows: {}",
-                    args.workflow_id,
-                    self.workflow_ids.join(", ")
-                ),
-            ))));
-        }
-
-        // Validate workflow exists in registry
-        let registry = get_workflow_registry();
-        let workflow = registry.get(&args.workflow_id).ok_or_else(|| {
-            ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "Workflow '{}' not found in registry. Available workflows: {}",
-                    args.workflow_id,
-                    registry.keys().cloned().collect::<Vec<_>>().join(", ")
-                ),
-            )))
-        })?;
+        // Find the workflow by id from the agent's configured workflows
+        let workflow = self
+            .workflows
+            .iter()
+            .find(|wf| wf.id == args.workflow_id)
+            .ok_or_else(|| {
+                ToolError::ToolCallError(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "Workflow '{}' is not available for this agent. Available workflows: {}",
+                        args.workflow_id,
+                        self.workflows
+                            .iter()
+                            .map(|wf| wf.id.clone())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                )))
+            })?
+            .clone();
 
         // Set active workflow to step 1
         {
@@ -81,7 +77,7 @@ impl Tool for StartWorkflow {
                 .active_workflow
                 .write()
                 .map_err(|e| lock_err(e, "write active_workflow"))?;
-            *active_workflow_guard = Some(ActiveWorkflow::new(workflow.id.clone(), 1));
+            *active_workflow_guard = Some(ActiveWorkflow::new(workflow.clone(), 1));
         }
 
         // Add workflow log for step 1

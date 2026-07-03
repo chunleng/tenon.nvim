@@ -1,5 +1,4 @@
 use crate::chat::{ActiveWorkflow, ChatLogIndexer, TenonLog, TenonLogData};
-use crate::get_workflow_registry;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
@@ -70,21 +69,7 @@ impl Tool for NavigateWorkflow {
             }
         };
 
-        let registry = get_workflow_registry();
-        let workflow = registry
-            .get(&active_workflow.id)
-            .expect("active workflow id must exist in workflow registry");
-
-        // Validate that the active workflow's id matches the workflow definition
-        if active_workflow.id != workflow.id {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "Active workflow id '{}' does not match expected '{}'",
-                    active_workflow.id, workflow.id
-                ),
-            ))));
-        }
+        let workflow = &active_workflow.workflow;
 
         let current_step = active_workflow.step;
         let target_step = args.step;
@@ -167,8 +152,10 @@ mod tests {
             .ok();
 
         // Create workflow with memory
+        let registry = crate::get_workflow_registry();
+        let wf = registry.get("implement_code").unwrap().clone();
         let workflow = Arc::new(RwLock::new(Some(ActiveWorkflow {
-            id: "implement_code".to_string(),
+            workflow: wf,
             step: 1,
             memory: HashMap::new(),
         })));

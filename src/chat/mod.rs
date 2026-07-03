@@ -1,4 +1,5 @@
 use crate::chat::helpers::TitleHandler;
+use crate::chat::workflow::Workflow;
 use crate::directive::directive_path;
 use crate::{
     clients::{ChatAgent, StreamItem, SupportedModels, get_agent},
@@ -37,15 +38,12 @@ use history::save_to_history;
 fn build_workflow_prompt(
     active_workflow: &Arc<RwLock<Option<ActiveWorkflow>>>,
     base_prompt: String,
-    workflows: &[String],
+    workflows: &[Arc<Workflow>],
 ) -> String {
     if let Ok(active_lock) = active_workflow.read()
         && let Some(active) = active_lock.as_ref()
     {
-        let registry = get_workflow_registry();
-        let workflow = registry
-            .get(&active.id)
-            .expect("active workflow id must exist in workflow registry");
+        let workflow = &active.workflow;
         let total_steps = workflow.steps.len();
         if let Some(step) = workflow.steps.get(active.step - 1) {
             let mut goto_lines: Vec<String> = step
@@ -125,15 +123,13 @@ fn build_workflow_prompt(
 
     // If agent has workflows configured but none is active, show context
     if !workflows.is_empty() {
-        let registry = get_workflow_registry();
         let workflow_info: Vec<String> = workflows
             .iter()
-            .filter_map(|id| {
-                let wf = registry.get(id)?;
-                Some(format!(
+            .map(|wf| {
+                format!(
                     "<workflow description=\"{}\" id=\"{}\" />",
-                    wf.description, id
-                ))
+                    wf.description, wf.id
+                )
             })
             .collect();
 
@@ -198,15 +194,15 @@ impl std::ops::Deref for ActiveAgent {
 
 #[derive(Debug, Clone)]
 pub struct ActiveWorkflow {
-    pub id: String,
+    pub workflow: Arc<crate::chat::workflow::Workflow>,
     pub step: usize,
     pub memory: HashMap<String, String>,
 }
 
 impl ActiveWorkflow {
-    pub fn new(id: impl ToString, step: usize) -> Self {
+    pub fn new(workflow: Arc<crate::chat::workflow::Workflow>, step: usize) -> Self {
         Self {
-            id: id.to_string(),
+            workflow,
             step,
             memory: HashMap::new(),
         }
@@ -218,7 +214,7 @@ pub struct TenonAgent {
     pub model: SupportedModels,
     pub directive: Vec<Directive>,
     pub tool_names: Vec<String>,
-    pub workflows: Vec<String>,
+    pub workflows: Vec<Arc<Workflow>>,
 }
 
 impl TenonAgent {
@@ -226,7 +222,7 @@ impl TenonAgent {
         model: SupportedModels,
         directive: Vec<Directive>,
         tools: &[impl AsRef<str>],
-        workflows: Vec<String>,
+        workflows: Vec<Arc<Workflow>>,
     ) -> Self {
         Self {
             model,
@@ -270,7 +266,7 @@ impl TenonAgent {
         } else if !self.workflows.is_empty() {
             use crate::tools::start_workflow::StartWorkflow;
             tools.push(Box::new(StartWorkflow {
-                workflow_ids: self.workflows.clone(),
+                workflows: self.workflows.clone(),
                 active_workflow: workflow_context.clone(),
                 log_indexer: log_indexer.clone(),
             }));
@@ -344,13 +340,16 @@ impl ChatSession {
         // Active workflow is derived from history, not stored directly,
         // because it's constructed from logic (step progression/end), not raw state.
         let active_workflow: Option<ActiveWorkflow> = {
+            let registry = get_workflow_registry();
             let mut wf: Option<ActiveWorkflow> = None;
             for log in &logs {
                 if let TenonLogData::Workflow(wf_log) = log.data() {
                     match wf_log.step {
                         Some(step) => {
                             // Navigate/create: set workflow to this step
-                            wf = Some(ActiveWorkflow::new(&wf_log.id, step));
+                            if let Some(workflow) = registry.get(&wf_log.id) {
+                                wf = Some(ActiveWorkflow::new(workflow.clone(), step));
+                            }
                         }
                         None => {
                             // End: clear active workflow
@@ -783,11 +782,18 @@ mod tests {
 
     #[test]
     fn test_active_workflow_memory() {
-        let workflow = ActiveWorkflow::new("test_workflow", 1);
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().unwrap())
+            .ok();
+        let registry = crate::get_workflow_registry();
+        let wf = registry.get("implement_code").unwrap().clone();
+        let workflow = ActiveWorkflow::new(wf, 1);
         assert!(workflow.memory.is_empty());
 
         // Verify memory field exists and can store values
-        let mut workflow = ActiveWorkflow::new("test_workflow", 1);
+        let registry2 = crate::get_workflow_registry();
+        let wf2 = registry2.get("implement_code").unwrap().clone();
+        let mut workflow = ActiveWorkflow::new(wf2, 1);
         workflow
             .memory
             .insert("key1".to_string(), "value1".to_string());
@@ -808,8 +814,11 @@ mod tests {
             .set(std::env::current_dir().unwrap())
             .ok();
 
+        let registry = crate::get_workflow_registry();
+        let wf = registry.get("implement_code").unwrap().clone();
+
         let workflow = Arc::new(RwLock::new(Some(ActiveWorkflow {
-            id: "implement_code".to_string(),
+            workflow: wf,
             step: 1,
             memory: {
                 let mut m = HashMap::new();
@@ -833,6 +842,8 @@ mod tests {
             .set(std::env::current_dir().unwrap())
             .ok();
 
+        let registry = crate::get_workflow_registry();
+
         // Scenario 1: Agent has no workflows configured - should return base_prompt without context
         let workflow = Arc::new(RwLock::new(None));
         let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &[]);
@@ -840,8 +851,8 @@ mod tests {
         assert!(!prompt.contains("<context>"));
 
         // Scenario 2: Agent has workflows but none active - should show "not in workflow" context
-        let workflow_ids = vec!["implement_code".to_string()];
-        let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &workflow_ids);
+        let workflows = vec![registry.get("implement_code").unwrap().clone()];
+        let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &workflows);
         assert!(prompt.contains("<context>Currently not in workflow"));
         assert!(
             prompt.contains(

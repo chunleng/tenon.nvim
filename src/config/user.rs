@@ -185,6 +185,11 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                                 msg: e.to_string(),
                             })
                         })?;
+                    let workflows: Vec<std::sync::Arc<crate::chat::workflow::Workflow>> = v
+                        .workflows
+                        .into_iter()
+                        .filter_map(|id| crate::get_workflow_registry().get(&id).cloned())
+                        .collect();
                     Ok((
                         k,
                         TenonAgent::new(
@@ -195,7 +200,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                             },
                             directives,
                             &v.tool_names,
-                            v.workflows,
+                            workflows,
                         ),
                     ))
                 })

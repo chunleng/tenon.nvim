@@ -11,7 +11,7 @@ mod plan_software_change;
 use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::chat::TenonWorkflowLog;
 use crate::utils::plugin_path;
@@ -61,21 +61,21 @@ impl Default for Instruction {
     }
 }
 
-pub fn load_system_workflows() -> Vec<Workflow> {
+pub fn load_system_workflows() -> Vec<Arc<Workflow>> {
     vec![
-        find_software_bug_root_cause::workflow(),
-        create_pr_description::workflow(),
-        create_workflow::workflow(),
-        edit_document::workflow(),
-        implement_code::workflow(),
-        plan_refactoring::workflow(),
-        plan_software_change::workflow(),
-        compact_prompt::workflow(),
-        implement_code_together::workflow(),
+        Arc::new(find_software_bug_root_cause::workflow()),
+        Arc::new(create_pr_description::workflow()),
+        Arc::new(create_workflow::workflow()),
+        Arc::new(edit_document::workflow()),
+        Arc::new(implement_code::workflow()),
+        Arc::new(plan_refactoring::workflow()),
+        Arc::new(plan_software_change::workflow()),
+        Arc::new(compact_prompt::workflow()),
+        Arc::new(implement_code_together::workflow()),
     ]
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Workflow {
     pub id: String,
     pub title: String,
@@ -103,7 +103,7 @@ impl Workflow {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub enum GotoStep {
     Next,
     Step(usize),
@@ -123,7 +123,7 @@ impl GotoStep {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct WorkflowGotoInstruction {
     pub to: GotoStep,
     pub condition: Option<String>,
@@ -131,7 +131,7 @@ pub struct WorkflowGotoInstruction {
     pub output_to_workflow_memory: Option<String>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct WorkflowStep {
     pub title: String,
     #[serde(default)]

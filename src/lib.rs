@@ -39,9 +39,9 @@ pub fn get_directive_registry() -> HashMap<String, Directive> {
         .clone()
 }
 
-pub static WORKFLOW_REGISTRY: OnceLock<HashMap<String, Workflow>> = OnceLock::new();
+pub static WORKFLOW_REGISTRY: OnceLock<HashMap<String, Arc<Workflow>>> = OnceLock::new();
 
-pub fn get_workflow_registry() -> HashMap<String, Workflow> {
+pub fn get_workflow_registry() -> HashMap<String, Arc<Workflow>> {
     WORKFLOW_REGISTRY
         .get_or_init(|| {
             chat::workflow::load_system_workflows()
