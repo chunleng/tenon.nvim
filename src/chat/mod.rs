@@ -38,7 +38,6 @@ use history::save_to_history;
 fn build_workflow_prompt(
     active_workflow: &Arc<RwLock<Option<ActiveWorkflow>>>,
     base_prompt: String,
-    workflows: &[Arc<Workflow>],
 ) -> String {
     if let Ok(active_lock) = active_workflow.read()
         && let Some(active) = active_lock.as_ref()
@@ -121,30 +120,7 @@ fn build_workflow_prompt(
         }
     }
 
-    // If agent has workflows configured but none is active, show context
-    if !workflows.is_empty() {
-        let workflow_info: Vec<String> = workflows
-            .iter()
-            .map(|wf| {
-                format!(
-                    "<workflow description=\"{}\" id=\"{}\" />",
-                    wf.description, wf.id
-                )
-            })
-            .collect();
-
-        format!(
-            "<context>Currently not in workflow. Available workflows:\n\
-            {}\n\
-            </context>\n\
-            {}",
-            workflow_info.join(""),
-            base_prompt
-        )
-    } else {
-        // Agent has no workflows - return base_prompt as-is
-        base_prompt
-    }
+    base_prompt
 }
 
 pub static CHAT_SESSIONS: LazyLock<Mutex<Vec<Arc<RwLock<ChatSession>>>>> =
@@ -464,11 +440,7 @@ impl ChatSession {
                         save_next_prompt = false;
                     }
 
-                    let prompt = build_workflow_prompt(
-                        &active_workflow_clone,
-                        next_prompt.clone(),
-                        &agent_clone.workflows,
-                    );
+                    let prompt = build_workflow_prompt(&active_workflow_clone, next_prompt.clone());
                     let mut stream = agent
                         .stream_chat(prompt.clone(), chat_history.clone())
                         .await;
@@ -827,7 +799,7 @@ mod tests {
             },
         })));
 
-        let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &[]);
+        let prompt = build_workflow_prompt(&workflow, "user input".to_string());
 
         // Memory should be included in the prompt
         assert!(prompt.contains("<memory name=\"previous_output\">"));
@@ -842,22 +814,10 @@ mod tests {
             .set(std::env::current_dir().unwrap())
             .ok();
 
-        let registry = crate::get_workflow_registry();
-
-        // Scenario 1: Agent has no workflows configured - should return base_prompt without context
+        // No active workflow - should return base_prompt without context
         let workflow = Arc::new(RwLock::new(None));
-        let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &[]);
+        let prompt = build_workflow_prompt(&workflow, "user input".to_string());
         assert_eq!(prompt, "user input");
         assert!(!prompt.contains("<context>"));
-
-        // Scenario 2: Agent has workflows but none active - should show "not in workflow" context
-        let workflows = vec![registry.get("implement_code").unwrap().clone()];
-        let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &workflows);
-        assert!(prompt.contains("<context>Currently not in workflow"));
-        assert!(
-            prompt.contains(
-                "<workflow description=\"Implements code changes through a structured plan-test-implement cycle\" id=\"implement_code\" />"
-            )
-        );
     }
 }

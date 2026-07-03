@@ -33,15 +33,23 @@ impl Tool for StartWorkflow {
     type Output = String;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
+        let candidate_workflow = self
+            .workflows
+            .iter()
+            .map(|wf| format!("- {} — {}", wf.id, wf.description))
+            .collect::<Vec<_>>()
+            .join("\n");
         ToolDefinition {
             name: "start_workflow".to_string(),
-            description: "Start workflow. Use when request matches workflow condition".to_string(),
+            description: "Start workflow".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "workflow_id": {
                         "type": "string",
-                        "description": "Workflow to start"
+                        "description": format!(
+                            "The workflow ID to start. Pick the workflow description that best matches the user's intent.\nID — description:\n{}", candidate_workflow
+                        ),
                     }
                 },
                 "required": ["workflow_id"]
