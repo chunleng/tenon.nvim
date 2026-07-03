@@ -2,7 +2,6 @@ use crate::chat::helpers::TitleHandler;
 use crate::directive::directive_path;
 use crate::{
     clients::{ChatAgent, StreamItem, SupportedModels, get_agent},
-    config::user::WorkflowConfig,
     directive::{Directive, DirectiveSource},
     get_application_config, get_workflow_registry,
     tools::resolve_tools,
@@ -38,7 +37,7 @@ use history::save_to_history;
 fn build_workflow_prompt(
     active_workflow: &Arc<RwLock<Option<ActiveWorkflow>>>,
     base_prompt: String,
-    workflows: &[WorkflowConfig],
+    workflows: &[String],
 ) -> String {
     if let Ok(active_lock) = active_workflow.read()
         && let Some(active) = active_lock.as_ref()
@@ -129,14 +128,11 @@ fn build_workflow_prompt(
         let registry = get_workflow_registry();
         let workflow_info: Vec<String> = workflows
             .iter()
-            .filter_map(|w| {
-                let description = w
-                    .description
-                    .as_ref()
-                    .or_else(|| registry.get(&w.id).map(|wf| &wf.description))?;
+            .filter_map(|id| {
+                let wf = registry.get(id)?;
                 Some(format!(
                     "<workflow description=\"{}\" id=\"{}\" />",
-                    description, w.id
+                    wf.description, id
                 ))
             })
             .collect();
@@ -222,7 +218,7 @@ pub struct TenonAgent {
     pub model: SupportedModels,
     pub directive: Vec<Directive>,
     pub tool_names: Vec<String>,
-    pub workflows: Vec<WorkflowConfig>,
+    pub workflows: Vec<String>,
 }
 
 impl TenonAgent {
@@ -230,7 +226,7 @@ impl TenonAgent {
         model: SupportedModels,
         directive: Vec<Directive>,
         tools: &[impl AsRef<str>],
-        workflows: Vec<WorkflowConfig>,
+        workflows: Vec<String>,
     ) -> Self {
         Self {
             model,
@@ -274,7 +270,7 @@ impl TenonAgent {
         } else if !self.workflows.is_empty() {
             use crate::tools::start_workflow::StartWorkflow;
             tools.push(Box::new(StartWorkflow {
-                workflow_ids: self.workflows.iter().map(|w| w.id.clone()).collect(),
+                workflow_ids: self.workflows.clone(),
                 active_workflow: workflow_context.clone(),
                 log_indexer: log_indexer.clone(),
             }));
@@ -844,15 +840,12 @@ mod tests {
         assert!(!prompt.contains("<context>"));
 
         // Scenario 2: Agent has workflows but none active - should show "not in workflow" context
-        let workflow_configs = vec![WorkflowConfig {
-            id: "implement_code".to_string(),
-            description: Some("Implement code changes".to_string()),
-        }];
-        let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &workflow_configs);
+        let workflow_ids = vec!["implement_code".to_string()];
+        let prompt = build_workflow_prompt(&workflow, "user input".to_string(), &workflow_ids);
         assert!(prompt.contains("<context>Currently not in workflow"));
         assert!(
             prompt.contains(
-                "<workflow description=\"Implement code changes\" id=\"implement_code\" />"
+                "<workflow description=\"Implements code changes through a structured plan-test-implement cycle\" id=\"implement_code\" />"
             )
         );
     }

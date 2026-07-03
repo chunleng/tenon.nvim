@@ -64,13 +64,6 @@ pub struct AnalyzeImageUserConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct WorkflowConfig {
-    pub id: String,
-    #[serde(default)]
-    pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct TenonAgentConfig {
     model: ModelConfig,
     #[serde(default)]
@@ -80,7 +73,7 @@ pub struct TenonAgentConfig {
     #[serde(default)]
     default: bool,
     #[serde(default)]
-    workflows: Vec<WorkflowConfig>,
+    workflows: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
