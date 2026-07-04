@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use super::SessionUsage;
 use super::log::TenonLog;
-use super::log_indexer::ChatLogIndexer;
+use super::log::indexer::ChatLogIndexer;
 
 fn session_datetime_now() -> DateTime<Local> {
     Local::now()

@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use crate::chat::log::TenonLogData;
-use crate::chat::log_indexer::ChatLogIndexer;
+use crate::chat::log::indexer::ChatLogIndexer;
 use crate::clients::get_agent;
 use crate::directive::{Directive, DirectiveSource};
 use crate::get_application_config;

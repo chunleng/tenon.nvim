@@ -4,7 +4,7 @@ use crate::rag::RagContext;
 use crate::tools::{ToolClassification, get_tool_classification};
 use rig::{OneOrMany, completion::Message, message::UserContent};
 
-use super::log::{TenonLog, TenonLogData};
+use super::{TenonLog, TenonLogData};
 
 /// Wrapper around TenonLog for indexing purposes.
 #[derive(Clone)]
@@ -64,7 +64,7 @@ impl ChatLogIndexer {
     /// Returns active messages that will be sent to LLM as chat context.
     /// Active logs are those with active=true.
     /// Each TenonLog is converted to Vec<Message> (some logs produce multiple messages).
-    pub fn active_messages(&self) -> Vec<Message> {
+    fn active_messages(&self) -> Vec<Message> {
         self.logs
             .iter()
             .filter(|indexed| indexed.active)
@@ -86,7 +86,7 @@ impl ChatLogIndexer {
 
     /// Returns inactive logs that will go through RAG filter.
     /// These are logs that have been excluded from active context (active=false).
-    pub fn inactive_log(&self) -> Vec<Arc<TenonLog>> {
+    fn inactive_log(&self) -> Vec<Arc<TenonLog>> {
         self.logs
             .iter()
             .filter(|indexed| !indexed.active)
@@ -104,14 +104,6 @@ impl ChatLogIndexer {
     /// Returns true if the log entry is a workflow log.
     fn is_workflow_log(log: &TenonLog) -> bool {
         matches!(log.data(), TenonLogData::Workflow(_))
-    }
-
-    /// Returns true if the log entry is a user or assistant message (chat message).
-    fn is_chat_log(log: &TenonLog) -> bool {
-        matches!(
-            log.data(),
-            TenonLogData::User(_) | TenonLogData::Assistant(_)
-        )
     }
 
     /// Returns the tool classification for a tool log.
@@ -138,7 +130,7 @@ impl ChatLogIndexer {
     }
 
     /// Determines if a log at the given index is "in workflow" relative to a slice.
-    pub fn is_log_in_workflow_in_slice(log_idx: usize, logs: &[IndexedLog]) -> bool {
+    fn is_log_in_workflow_in_slice(log_idx: usize, logs: &[IndexedLog]) -> bool {
         logs[..log_idx]
             .iter()
             .rev()
@@ -149,7 +141,7 @@ impl ChatLogIndexer {
 
     /// Finds the last checkpoint index in a slice of logs.
     /// Returns the index relative to the slice.
-    pub fn find_last_checkpoint_in(logs: &[IndexedLog]) -> Option<usize> {
+    fn find_last_checkpoint_in(logs: &[IndexedLog]) -> Option<usize> {
         if logs.is_empty() {
             return None;
         }
@@ -177,8 +169,6 @@ impl ChatLogIndexer {
             .sum()
     }
 
-    // --- Context management ---
-
     /// Applies context truncation if token count exceeds max_active_context_tokens.
     /// Marks logs as inactive (removed from active context but kept for display/RAG).
     ///
@@ -194,7 +184,7 @@ impl ChatLogIndexer {
     ///   - Phase 5 (idempotent tools region 3)
     /// - Workflow logs are never removed
     /// - First user message is always preserved
-    pub fn apply_context_truncation(&mut self) {
+    fn apply_context_truncation(&mut self) {
         // Early return if under threshold
         let total = self.active_context_token_count();
         if total <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
@@ -294,7 +284,13 @@ impl ChatLogIndexer {
                     break;
                 }
                 let indexed = &self.logs[idx];
-                if indexed.active && Self::is_chat_log(&indexed.log) && !is_first_user(idx) {
+                if indexed.active
+                    && matches!(
+                        &indexed.log.data(),
+                        TenonLogData::User(_) | TenonLogData::Assistant(_)
+                    )
+                    && !is_first_user(idx)
+                {
                     remaining_to_remove =
                         remaining_to_remove.saturating_sub(indexed.log.token_count());
                     self.logs[idx].active = false;
@@ -353,7 +349,7 @@ impl ChatLogIndexer {
     /// Builds a history message from RAG context using inactive logs.
     /// Returns empty Vec if no user message provided, no inactive logs, or no relevant context found.
     /// Returns a Vec with one Message::User with <chat-history> wrapped context when found.
-    pub fn get_relevant_context(&self, user_message: &str) -> Vec<Message> {
+    fn get_relevant_context(&self, user_message: &str) -> Vec<Message> {
         if user_message.is_empty() {
             return Vec::new();
         }

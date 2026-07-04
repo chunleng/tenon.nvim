@@ -1,3 +1,6 @@
+pub mod handler;
+pub mod indexer;
+
 use chrono::{DateTime, TimeZone, Utc};
 use rig::{
     OneOrMany,

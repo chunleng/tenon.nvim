@@ -20,16 +20,17 @@ use std::{
 pub mod helpers;
 pub mod history;
 pub mod log;
-pub mod log_indexer;
+
 pub mod usage;
 pub mod workflow;
 
+pub use log::handler::ChatLogHandler;
+pub use log::indexer::ChatLogIndexer;
 pub use log::{
     TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData, TenonToolCall,
     TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage, TenonUserTextMessage,
     TenonWorkflowLog,
 };
-pub use log_indexer::ChatLogIndexer;
 pub use usage::SessionUsage;
 
 use history::save_to_history;
@@ -254,7 +255,7 @@ impl TenonAgent {
 
 pub struct ChatSession {
     pub id: String,
-    pub log_indexer: Arc<RwLock<ChatLogIndexer>>,
+    pub log_handler: ChatLogHandler,
     pub usage: Arc<RwLock<SessionUsage>>,
     pub active_agent: ActiveAgent,
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
@@ -274,7 +275,9 @@ impl ChatSession {
         let log_indexer = Arc::new(RwLock::new(ChatLogIndexer::new()));
         Ok(Self {
             id: generate_chat_id(),
-            log_indexer: log_indexer.clone(),
+            log_handler: ChatLogHandler {
+                indexer: log_indexer.clone(),
+            },
             usage: Arc::new(RwLock::new(SessionUsage::default())),
             active_agent: ActiveAgent {
                 name: agent_name.to_string(),
@@ -342,7 +345,9 @@ impl ChatSession {
 
         let session = Self {
             id: history.id,
-            log_indexer: log_indexer_arc.clone(),
+            log_handler: ChatLogHandler {
+                indexer: log_indexer_arc.clone(),
+            },
             usage: Arc::new(RwLock::new(SessionUsage {
                 accumulated: history.usage,
                 last_exchange: Usage::new(),
@@ -401,7 +406,7 @@ impl ChatSession {
 
         self.prune_incomplete_messages();
 
-        let log_indexer_clone = self.log_indexer.clone();
+        let log_indexer_clone = self.log_handler.indexer.clone();
         let usage_clone = Arc::clone(&self.usage);
         let agent_clone = self.active_agent.clone();
         let chat_id = self.id.clone();
@@ -431,7 +436,7 @@ impl ChatSession {
 
                     // Add user message if provided
                     if save_next_prompt && let Ok(mut indexer) = log_indexer_clone.write() {
-                        indexer.logs.push(crate::chat::log_indexer::IndexedLog {
+                        indexer.logs.push(crate::chat::log::indexer::IndexedLog {
                             log: Arc::new(TenonLog::new(TenonLogData::User(
                                 TenonUserMessage::Text(TenonUserTextMessage(next_prompt.clone())),
                             ))),
@@ -535,7 +540,7 @@ impl ChatSession {
                                     }
 
                                     if !updated {
-                                        indexer.logs.push(crate::chat::log_indexer::IndexedLog {
+                                        indexer.logs.push(crate::chat::log::indexer::IndexedLog {
                                             log: Arc::new(TenonLog::new(TenonLogData::Assistant(
                                                 TenonAssistantMessage {
                                                     reasoning: Some(reasoning),
@@ -556,7 +561,7 @@ impl ChatSession {
                                     }
 
                                     if !updated {
-                                        indexer.logs.push(crate::chat::log_indexer::IndexedLog {
+                                        indexer.logs.push(crate::chat::log::indexer::IndexedLog {
                                             log: Arc::new(TenonLog::new(TenonLogData::Assistant(
                                                 TenonAssistantMessage {
                                                     reasoning: None,
@@ -575,7 +580,7 @@ impl ChatSession {
                                 internal_call_id,
                             }) => {
                                 if let Ok(mut indexer) = log_indexer_clone.write() {
-                                    indexer.logs.push(crate::chat::log_indexer::IndexedLog {
+                                    indexer.logs.push(crate::chat::log::indexer::IndexedLog {
                                         log: Arc::new(TenonLog::new(TenonLogData::Tool(
                                             TenonToolLog {
                                                 tool_call: TenonToolCall {
@@ -648,7 +653,7 @@ impl ChatSession {
     /// Prunes trailing incomplete messages (e.g., tool calls without results)
     /// from the session logs to prevent sending broken history to the LLM.
     pub fn prune_incomplete_messages(&self) {
-        let Ok(mut indexer) = self.log_indexer.write() else {
+        let Ok(mut indexer) = self.log_handler.indexer.write() else {
             return;
         };
 
@@ -696,8 +701,8 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
-    fn create_user_log(text: &str) -> super::log_indexer::IndexedLog {
-        super::log_indexer::IndexedLog {
+    fn create_user_log(text: &str) -> super::log::indexer::IndexedLog {
+        super::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
                 TenonUserTextMessage(text.to_string()),
             )))),
@@ -705,7 +710,7 @@ mod tests {
         }
     }
 
-    fn create_tool_log(name: &str, result: bool) -> super::log_indexer::IndexedLog {
+    fn create_tool_log(name: &str, result: bool) -> super::log::indexer::IndexedLog {
         let tool_call = TenonToolCall {
             id: "1".into(),
             internal_call_id: "1".into(),
@@ -719,7 +724,7 @@ mod tests {
         } else {
             None
         };
-        super::log_indexer::IndexedLog {
+        super::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::Tool(TenonToolLog {
                 tool_call,
                 tool_result,
@@ -732,7 +737,7 @@ mod tests {
     fn test_prune_incomplete_messages() {
         let session = ChatSession::new();
         {
-            let mut indexer = session.log_indexer.write().unwrap();
+            let mut indexer = session.log_handler.indexer.write().unwrap();
             indexer.logs = vec![
                 create_user_log("Hello"),
                 create_tool_log("tool1", false), // Incomplete
@@ -743,7 +748,7 @@ mod tests {
 
         session.prune_incomplete_messages();
 
-        let indexer = session.log_indexer.read().unwrap();
+        let indexer = session.log_handler.indexer.read().unwrap();
         assert_eq!(indexer.logs.len(), 2);
         assert!(matches!(indexer.logs[0].log.data(), TenonLogData::User(_)));
         assert!(matches!(indexer.logs[1].log.data(), TenonLogData::Tool(_)));
