@@ -43,6 +43,7 @@ pub fn save_to_history(
     history_directory: &str,
 ) {
     let logs_vec: Vec<TenonLog> = log_indexer
+        .log_window
         .logs
         .iter()
         .map(|indexed| (*indexed.log).clone())

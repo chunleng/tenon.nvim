@@ -50,7 +50,7 @@ impl TitleHandler {
         }
 
         let first_message = match self.log_indexer.read() {
-            Ok(indexer) => indexer.logs.iter().find_map(|indexed| {
+            Ok(indexer) => indexer.log_window.logs.iter().find_map(|indexed| {
                 if let TenonLogData::User(crate::chat::TenonUserMessage::Text(msg)) =
                     indexed.log.data()
                 {

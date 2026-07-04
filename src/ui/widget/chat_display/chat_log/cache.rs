@@ -185,7 +185,7 @@ impl ChatLogCache {
         let current_count = if let Ok(chat_session) = self.chat_session.read()
             && let Ok(indexer) = chat_session.log_handler.indexer.read()
         {
-            let current_count = indexer.logs.len();
+            let current_count = indexer.log_window.logs.len();
 
             // No new logs to render
             if check_from >= current_count {
@@ -221,12 +221,12 @@ impl ChatLogCache {
             let chat_session = self.chat_session.read().unwrap();
             let indexer = chat_session.log_handler.indexer.read().unwrap();
 
-            indexer.logs[check_from..current_count]
+            indexer.log_window.logs[check_from..current_count]
                 .iter()
                 .enumerate()
                 .map(|(offset, indexed_log)| {
                     // Find next visible log (skip system tools)
-                    let next_log = indexer.logs[check_from + offset + 1..]
+                    let next_log = indexer.log_window.logs[check_from + offset + 1..]
                         .iter()
                         .find(|n| !n.log.data.is_system_tool())
                         .map(|n| &n.log.data);
@@ -313,32 +313,38 @@ mod tests {
     fn add_user_log(cache: &mut ChatLogCache, text: &str) {
         let session = cache.chat_session.write().unwrap();
         let mut indexer = session.log_handler.indexer.write().unwrap();
-        indexer.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                TenonUserTextMessage(text.to_string()),
-            )))),
-            active: true,
-        });
+        indexer
+            .log_window
+            .logs
+            .push(crate::chat::log::indexer::IndexedLog {
+                log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+                    TenonUserTextMessage(text.to_string()),
+                )))),
+                active: true,
+            });
     }
 
     fn add_assistant_reasoning(cache: &mut ChatLogCache, reasoning: &str) {
         let session = cache.chat_session.write().unwrap();
         let mut indexer = session.log_handler.indexer.write().unwrap();
-        indexer.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Assistant(
-                TenonAssistantMessage {
-                    reasoning: Some(reasoning.to_string()),
-                    content: vec![],
-                },
-            ))),
-            active: true,
-        });
+        indexer
+            .log_window
+            .logs
+            .push(crate::chat::log::indexer::IndexedLog {
+                log: Arc::new(TenonLog::new(TenonLogData::Assistant(
+                    TenonAssistantMessage {
+                        reasoning: Some(reasoning.to_string()),
+                        content: vec![],
+                    },
+                ))),
+                active: true,
+            });
     }
 
     fn update_assistant_reasoning(cache: &mut ChatLogCache, index: usize, reasoning: &str) {
         let session = cache.chat_session.write().unwrap();
         let mut indexer = session.log_handler.indexer.write().unwrap();
-        indexer.logs[index] = crate::chat::log::indexer::IndexedLog {
+        indexer.log_window.logs[index] = crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::Assistant(
                 TenonAssistantMessage {
                     reasoning: Some(reasoning.to_string()),
@@ -352,7 +358,7 @@ mod tests {
     fn update_assistant_content(cache: &mut ChatLogCache, index: usize, content: &str) {
         let session = cache.chat_session.write().unwrap();
         let mut indexer = session.log_handler.indexer.write().unwrap();
-        indexer.logs[index] = crate::chat::log::indexer::IndexedLog {
+        indexer.log_window.logs[index] = crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::Assistant(
                 TenonAssistantMessage {
                     reasoning: None,
@@ -368,20 +374,23 @@ mod tests {
     fn add_tool_log(cache: &mut ChatLogCache, name: &str, id: usize) {
         let session = cache.chat_session.write().unwrap();
         let mut indexer = session.log_handler.indexer.write().unwrap();
-        indexer.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Tool(
-                crate::chat::log::TenonToolLog {
-                    tool_call: crate::chat::log::TenonToolCall {
-                        id: id.to_string(),
-                        internal_call_id: id.to_string(),
-                        name: name.to_string(),
-                        args: serde_json::json!({}),
+        indexer
+            .log_window
+            .logs
+            .push(crate::chat::log::indexer::IndexedLog {
+                log: Arc::new(TenonLog::new(TenonLogData::Tool(
+                    crate::chat::log::TenonToolLog {
+                        tool_call: crate::chat::log::TenonToolCall {
+                            id: id.to_string(),
+                            internal_call_id: id.to_string(),
+                            name: name.to_string(),
+                            args: serde_json::json!({}),
+                        },
+                        tool_result: None,
                     },
-                    tool_result: None,
-                },
-            ))),
-            active: true,
-        });
+                ))),
+                active: true,
+            });
     }
 
     #[test]
@@ -774,13 +783,16 @@ mod tests {
 
         let session = cache.chat_session.write().unwrap();
         let mut indexer = session.log_handler.indexer.write().unwrap();
-        indexer.logs.remove(3); // Remove tool3
-        indexer.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                TenonUserTextMessage("World".to_string()),
-            )))),
-            active: true,
-        });
+        indexer.log_window.logs.remove(3); // Remove tool3
+        indexer
+            .log_window
+            .logs
+            .push(crate::chat::log::indexer::IndexedLog {
+                log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+                    TenonUserTextMessage("World".to_string()),
+                )))),
+                active: true,
+            });
         drop(indexer);
         drop(session);
 

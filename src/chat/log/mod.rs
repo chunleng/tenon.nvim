@@ -1,5 +1,6 @@
 pub mod handler;
 pub mod indexer;
+pub mod window;
 
 use chrono::{DateTime, TimeZone, Utc};
 use rig::{

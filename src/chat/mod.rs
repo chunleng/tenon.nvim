@@ -436,12 +436,17 @@ impl ChatSession {
 
                     // Add user message if provided
                     if save_next_prompt && let Ok(mut indexer) = log_indexer_clone.write() {
-                        indexer.logs.push(crate::chat::log::indexer::IndexedLog {
-                            log: Arc::new(TenonLog::new(TenonLogData::User(
-                                TenonUserMessage::Text(TenonUserTextMessage(next_prompt.clone())),
-                            ))),
-                            active: true,
-                        });
+                        indexer
+                            .log_window
+                            .logs
+                            .push(crate::chat::log::indexer::IndexedLog {
+                                log: Arc::new(TenonLog::new(TenonLogData::User(
+                                    TenonUserMessage::Text(TenonUserTextMessage(
+                                        next_prompt.clone(),
+                                    )),
+                                ))),
+                                active: true,
+                            });
                         save_next_prompt = false;
                     }
 
@@ -460,14 +465,16 @@ impl ChatSession {
                                 internal_call_id,
                             }) => {
                                 if let Ok(mut indexer) = log_indexer_clone.write()
-                                    && let Some(log) = indexer.logs.iter_mut().find_map(|x| {
-                                        if let TenonLogData::Tool(tool) = x.log.data()
-                                            && tool.tool_call.internal_call_id == internal_call_id
-                                        {
-                                            return Some(x);
-                                        }
-                                        None
-                                    })
+                                    && let Some(log) =
+                                        indexer.log_window.logs.iter_mut().find_map(|x| {
+                                            if let TenonLogData::Tool(tool) = x.log.data()
+                                                && tool.tool_call.internal_call_id
+                                                    == internal_call_id
+                                            {
+                                                return Some(x);
+                                            }
+                                            None
+                                        })
                                 {
                                     let log = Arc::make_mut(&mut log.log);
                                     let tool_result = tool_result.content.first();
@@ -534,44 +541,54 @@ impl ChatSession {
                             Ok(StreamItem::ReasoningDelta { reasoning }) => {
                                 if let Ok(mut indexer) = log_indexer_clone.write() {
                                     let mut updated = false;
-                                    if let Some(indexed_log) = indexer.logs.last_mut() {
+                                    if let Some(indexed_log) = indexer.log_window.logs.last_mut() {
                                         let log = Arc::make_mut(&mut indexed_log.log);
                                         updated = log.append_reasoning(&reasoning);
                                     }
 
                                     if !updated {
-                                        indexer.logs.push(crate::chat::log::indexer::IndexedLog {
-                                            log: Arc::new(TenonLog::new(TenonLogData::Assistant(
-                                                TenonAssistantMessage {
-                                                    reasoning: Some(reasoning),
-                                                    content: vec![],
-                                                },
-                                            ))),
-                                            active: true,
-                                        });
+                                        indexer.log_window.logs.push(
+                                            crate::chat::log::indexer::IndexedLog {
+                                                log: Arc::new(TenonLog::new(
+                                                    TenonLogData::Assistant(
+                                                        TenonAssistantMessage {
+                                                            reasoning: Some(reasoning),
+                                                            content: vec![],
+                                                        },
+                                                    ),
+                                                )),
+                                                active: true,
+                                            },
+                                        );
                                     }
                                 }
                             }
                             Ok(StreamItem::Text { text }) => {
                                 if let Ok(mut indexer) = log_indexer_clone.write() {
                                     let mut updated = false;
-                                    if let Some(indexed_log) = indexer.logs.last_mut() {
+                                    if let Some(indexed_log) = indexer.log_window.logs.last_mut() {
                                         let log = Arc::make_mut(&mut indexed_log.log);
                                         updated = log.append_text(&text);
                                     }
 
                                     if !updated {
-                                        indexer.logs.push(crate::chat::log::indexer::IndexedLog {
-                                            log: Arc::new(TenonLog::new(TenonLogData::Assistant(
-                                                TenonAssistantMessage {
-                                                    reasoning: None,
-                                                    content: vec![
-                                                        TenonAssistantMessageContent::Text(text),
-                                                    ],
-                                                },
-                                            ))),
-                                            active: true,
-                                        });
+                                        indexer.log_window.logs.push(
+                                            crate::chat::log::indexer::IndexedLog {
+                                                log: Arc::new(TenonLog::new(
+                                                    TenonLogData::Assistant(
+                                                        TenonAssistantMessage {
+                                                            reasoning: None,
+                                                            content: vec![
+                                                                TenonAssistantMessageContent::Text(
+                                                                    text,
+                                                                ),
+                                                            ],
+                                                        },
+                                                    ),
+                                                )),
+                                                active: true,
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -580,20 +597,22 @@ impl ChatSession {
                                 internal_call_id,
                             }) => {
                                 if let Ok(mut indexer) = log_indexer_clone.write() {
-                                    indexer.logs.push(crate::chat::log::indexer::IndexedLog {
-                                        log: Arc::new(TenonLog::new(TenonLogData::Tool(
-                                            TenonToolLog {
-                                                tool_call: TenonToolCall {
-                                                    id: tool_call.id,
-                                                    internal_call_id,
-                                                    name: tool_call.function.name,
-                                                    args: tool_call.function.arguments,
+                                    indexer.log_window.logs.push(
+                                        crate::chat::log::indexer::IndexedLog {
+                                            log: Arc::new(TenonLog::new(TenonLogData::Tool(
+                                                TenonToolLog {
+                                                    tool_call: TenonToolCall {
+                                                        id: tool_call.id,
+                                                        internal_call_id,
+                                                        name: tool_call.function.name,
+                                                        args: tool_call.function.arguments,
+                                                    },
+                                                    tool_result: None,
                                                 },
-                                                tool_result: None,
-                                            },
-                                        ))),
-                                        active: true,
-                                    });
+                                            ))),
+                                            active: true,
+                                        },
+                                    );
                                 }
                             }
                             Ok(StreamItem::Final { token_usage }) => {
@@ -657,7 +676,7 @@ impl ChatSession {
             return;
         };
 
-        let logs = &indexer.logs;
+        let logs = &indexer.log_window.logs;
         let last_non_tool_index = logs
             .iter()
             .enumerate()
@@ -674,10 +693,10 @@ impl ChatSession {
                     new_logs.push(log.clone());
                 }
             }
-            indexer.logs = new_logs;
+            indexer.log_window.logs = new_logs;
         } else {
             // If all messages are tools, we only keep the ones with results
-            indexer.logs = logs
+            indexer.log_window.logs = logs
                 .iter()
                 .filter(|log| {
                     if let TenonLogData::Tool(tool_log) = log.log.data() {
@@ -738,7 +757,7 @@ mod tests {
         let session = ChatSession::new();
         {
             let mut indexer = session.log_handler.indexer.write().unwrap();
-            indexer.logs = vec![
+            indexer.log_window.logs = vec![
                 create_user_log("Hello"),
                 create_tool_log("tool1", false), // Incomplete
                 create_tool_log("tool2", true),  // Complete
@@ -749,10 +768,16 @@ mod tests {
         session.prune_incomplete_messages();
 
         let indexer = session.log_handler.indexer.read().unwrap();
-        assert_eq!(indexer.logs.len(), 2);
-        assert!(matches!(indexer.logs[0].log.data(), TenonLogData::User(_)));
-        assert!(matches!(indexer.logs[1].log.data(), TenonLogData::Tool(_)));
-        if let TenonLogData::Tool(tl) = &indexer.logs[1].log.data() {
+        assert_eq!(indexer.log_window.logs.len(), 2);
+        assert!(matches!(
+            indexer.log_window.logs[0].log.data(),
+            TenonLogData::User(_)
+        ));
+        assert!(matches!(
+            indexer.log_window.logs[1].log.data(),
+            TenonLogData::Tool(_)
+        ));
+        if let TenonLogData::Tool(tl) = &indexer.log_window.logs[1].log.data() {
             assert!(tl.tool_result.is_some());
         }
     }

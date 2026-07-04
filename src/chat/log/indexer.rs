@@ -4,6 +4,7 @@ use crate::rag::RagContext;
 use crate::tools::{ToolClassification, get_tool_classification};
 use rig::{OneOrMany, completion::Message, message::UserContent};
 
+use super::window::LogWindow;
 use super::{TenonLog, TenonLogData};
 
 /// Wrapper around TenonLog for indexing purposes.
@@ -16,7 +17,7 @@ pub struct IndexedLog {
 /// Manages chat logs with context truncation and RAG support.
 /// Encapsulates log storage, resume position tracking, and RAG context management.
 pub struct ChatLogIndexer {
-    pub logs: Vec<IndexedLog>,
+    pub log_window: LogWindow,
     pub rag_context: RagContext,
 }
 
@@ -36,7 +37,7 @@ impl ChatLogIndexer {
     /// Creates a new empty ChatLogIndexer.
     pub fn new() -> Self {
         Self {
-            logs: Vec::new(),
+            log_window: LogWindow { logs: Vec::new() },
             rag_context: RagContext::new(),
         }
     }
@@ -45,13 +46,15 @@ impl ChatLogIndexer {
     /// All logs are initialized as active by default.
     pub fn from_logs(logs: Vec<TenonLog>) -> Self {
         let mut s = Self {
-            logs: logs
-                .into_iter()
-                .map(|log| IndexedLog {
-                    log: Arc::new(log),
-                    active: true,
-                })
-                .collect(),
+            log_window: LogWindow {
+                logs: logs
+                    .into_iter()
+                    .map(|log| IndexedLog {
+                        log: Arc::new(log),
+                        active: true,
+                    })
+                    .collect(),
+            },
             rag_context: RagContext::new(),
         };
 
@@ -59,24 +62,11 @@ impl ChatLogIndexer {
         s
     }
 
-    // --- Log access ---
-
-    /// Returns active messages that will be sent to LLM as chat context.
-    /// Active logs are those with active=true.
-    /// Each TenonLog is converted to Vec<Message> (some logs produce multiple messages).
-    fn active_messages(&self) -> Vec<Message> {
-        self.logs
-            .iter()
-            .filter(|indexed| indexed.active)
-            .flat_map(|indexed| Vec::<Message>::from(TenonLog::clone(&indexed.log)))
-            .collect()
-    }
-
     /// Builds the chat history for an LLM request:
     /// applies context truncation, collects active messages, and prepends RAG context.
     pub fn retrieve_chatlog_with_context(&mut self, user_message: &str) -> Vec<Message> {
         self.apply_context_truncation();
-        let mut chat_history = self.active_messages();
+        let mut chat_history = self.log_window.active_messages();
         let history_messages = self.get_relevant_context(user_message);
         for msg in history_messages.into_iter().rev() {
             chat_history.insert(0, msg);
@@ -84,27 +74,7 @@ impl ChatLogIndexer {
         chat_history
     }
 
-    /// Returns inactive logs that will go through RAG filter.
-    /// These are logs that have been excluded from active context (active=false).
-    fn inactive_log(&self) -> Vec<Arc<TenonLog>> {
-        self.logs
-            .iter()
-            .filter(|indexed| !indexed.active)
-            .map(|indexed| indexed.log.clone())
-            .collect()
-    }
-
     // --- Query ---
-
-    /// Returns true if the log entry is a user message.
-    fn is_user_log(log: &TenonLog) -> bool {
-        matches!(log.data(), TenonLogData::User(_))
-    }
-
-    /// Returns true if the log entry is a workflow log.
-    fn is_workflow_log(log: &TenonLog) -> bool {
-        matches!(log.data(), TenonLogData::Workflow(_))
-    }
 
     /// Returns the tool classification for a tool log.
     /// Returns None for non-tool logs.
@@ -115,54 +85,12 @@ impl ChatLogIndexer {
         }
     }
 
-    /// Returns true if the workflow log indicates workflow start/navigate (step: Some).
-    fn is_active_workflow(log: &TenonLog) -> bool {
-        match log.data() {
-            TenonLogData::Workflow(wf) => wf.step.is_some(),
-            _ => false,
-        }
-    }
-
-    /// Finds the index of the first user message in the entire log.
-    fn find_first_user_index(logs: &[IndexedLog]) -> Option<usize> {
-        logs.iter()
-            .position(|indexed| Self::is_user_log(&indexed.log))
-    }
-
-    /// Determines if a log at the given index is "in workflow" relative to a slice.
-    fn is_log_in_workflow_in_slice(log_idx: usize, logs: &[IndexedLog]) -> bool {
-        logs[..log_idx]
-            .iter()
-            .rev()
-            .find(|indexed| Self::is_workflow_log(&indexed.log))
-            .map(|indexed| Self::is_active_workflow(&indexed.log))
-            .unwrap_or(false)
-    }
-
-    /// Finds the last checkpoint index in a slice of logs.
-    /// Returns the index relative to the slice.
-    fn find_last_checkpoint_in(logs: &[IndexedLog]) -> Option<usize> {
-        if logs.is_empty() {
-            return None;
-        }
-
-        let last_idx = logs.len().saturating_sub(1);
-        if Self::is_log_in_workflow_in_slice(last_idx, logs) {
-            // In workflow: checkpoint is the last workflow tool
-            logs.iter()
-                .rposition(|indexed| Self::is_active_workflow(&indexed.log))
-        } else {
-            // Not in workflow: checkpoint is the last user message
-            logs.iter()
-                .rposition(|indexed| Self::is_user_log(&indexed.log))
-        }
-    }
-
     // --- Token management ---
 
     /// Returns the total token count of active chat logs.
     pub fn active_context_token_count(&self) -> usize {
-        self.logs
+        self.log_window
+            .logs
             .iter()
             .filter(|indexed| indexed.active)
             .map(|indexed| indexed.log.token_count())
@@ -195,17 +123,20 @@ impl ChatLogIndexer {
         // Region 1: before second checkpoint (older logs)
         // Region 2: between first and second checkpoint (middle logs)
         // Region 3: after first checkpoint (newer logs)
-        let first_checkpoint = Self::find_last_checkpoint_in(&self.logs);
+        let first_checkpoint = self.log_window.find_last_checkpoint();
         let second_checkpoint = first_checkpoint.and_then(|fc| {
             if fc > 0 {
-                Self::find_last_checkpoint_in(&self.logs[..fc])
+                LogWindow {
+                    logs: self.log_window.logs[..fc].to_vec(),
+                }
+                .find_last_checkpoint()
             } else {
                 None
             }
         });
 
         // Find the first user message index (must never be removed)
-        let first_user_idx = Self::find_first_user_index(&self.logs);
+        let first_user_idx = self.log_window.find_first_user_index();
 
         // Helper to check if index is first user
         let is_first_user = |idx: usize| first_user_idx == Some(idx);
@@ -243,10 +174,10 @@ impl ChatLogIndexer {
             if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
                 break;
             }
-            let indexed = &self.logs[idx];
+            let indexed = &self.log_window.logs[idx];
             if indexed.active && is_idempotent_tool(&indexed.log) {
                 total_tokens -= indexed.log.token_count();
-                self.logs[idx].active = false;
+                self.log_window.logs[idx].active = false;
             }
         }
 
@@ -255,10 +186,10 @@ impl ChatLogIndexer {
             if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
                 break;
             }
-            let indexed = &self.logs[idx];
+            let indexed = &self.log_window.logs[idx];
             if indexed.active && is_idempotent_tool(&indexed.log) {
                 total_tokens -= indexed.log.token_count();
-                self.logs[idx].active = false;
+                self.log_window.logs[idx].active = false;
             }
         }
 
@@ -267,10 +198,10 @@ impl ChatLogIndexer {
             if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
                 break;
             }
-            let indexed = &self.logs[idx];
+            let indexed = &self.log_window.logs[idx];
             if indexed.active && is_non_idempotent_tool(&indexed.log) {
                 total_tokens -= indexed.log.token_count();
-                self.logs[idx].active = false;
+                self.log_window.logs[idx].active = false;
             }
         }
 
@@ -283,7 +214,7 @@ impl ChatLogIndexer {
                 if remaining_to_remove == 0 {
                     break;
                 }
-                let indexed = &self.logs[idx];
+                let indexed = &self.log_window.logs[idx];
                 if indexed.active
                     && matches!(
                         &indexed.log.data(),
@@ -293,7 +224,7 @@ impl ChatLogIndexer {
                 {
                     remaining_to_remove =
                         remaining_to_remove.saturating_sub(indexed.log.token_count());
-                    self.logs[idx].active = false;
+                    self.log_window.logs[idx].active = false;
                 }
             }
 
@@ -302,11 +233,11 @@ impl ChatLogIndexer {
                 if remaining_to_remove == 0 {
                     break;
                 }
-                let indexed = &self.logs[idx];
+                let indexed = &self.log_window.logs[idx];
                 if indexed.active && is_system_tool(&indexed.log) {
                     remaining_to_remove =
                         remaining_to_remove.saturating_sub(indexed.log.token_count());
-                    self.logs[idx].active = false;
+                    self.log_window.logs[idx].active = false;
                 }
             }
         }
@@ -319,11 +250,11 @@ impl ChatLogIndexer {
                 if remaining_to_remove == 0 {
                     break;
                 }
-                let indexed = &self.logs[idx];
+                let indexed = &self.log_window.logs[idx];
                 if indexed.active && is_non_idempotent_tool(&indexed.log) {
                     remaining_to_remove =
                         remaining_to_remove.saturating_sub(indexed.log.token_count());
-                    self.logs[idx].active = false;
+                    self.log_window.logs[idx].active = false;
                 }
             }
         }
@@ -332,15 +263,15 @@ impl ChatLogIndexer {
         if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
             let mut remaining_to_remove = total_tokens - Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS;
 
-            for idx in region2_end..self.logs.len() {
+            for idx in region2_end..self.log_window.logs.len() {
                 if remaining_to_remove == 0 {
                     break;
                 }
-                let indexed = &self.logs[idx];
+                let indexed = &self.log_window.logs[idx];
                 if indexed.active && is_idempotent_tool(&indexed.log) {
                     remaining_to_remove =
                         remaining_to_remove.saturating_sub(indexed.log.token_count());
-                    self.logs[idx].active = false;
+                    self.log_window.logs[idx].active = false;
                 }
             }
         }
@@ -354,7 +285,7 @@ impl ChatLogIndexer {
             return Vec::new();
         }
         // TODO we might want to produce 3 history log instead of one in the future
-        let inactive_logs = self.inactive_log();
+        let inactive_logs = self.log_window.inactive_log();
         self.rag_context
             .build_context(&inactive_logs, user_message)
             .map(|ctx| Message::User {
@@ -392,19 +323,6 @@ mod tests {
         log
     }
 
-    fn create_workflow_log(id: &str, step: Option<usize>) -> TenonLog {
-        use crate::chat::TenonWorkflowLog;
-        TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog::new(
-            id,
-            if step.is_some() {
-                "workflow step"
-            } else {
-                "Workflow ended"
-            },
-            step,
-        )))
-    }
-
     fn create_tool_log(name: &str, token_count: usize) -> TenonLog {
         use crate::chat::TenonToolCall;
         let mut log = TenonLog::new(TenonLogData::Tool(crate::chat::log::TenonToolLog {
@@ -423,31 +341,6 @@ mod tests {
     }
 
     #[test]
-    fn test_log_indexer_new_creates_empty() {
-        let indexer = super::ChatLogIndexer::new();
-        assert_eq!(indexer.logs.len(), 0);
-    }
-
-    #[test]
-    fn test_log_indexer_from_logs() {
-        let logs = vec![create_user_log(1), create_user_log(1)];
-        let indexer = super::ChatLogIndexer::from_logs(logs);
-        assert_eq!(indexer.logs.len(), 2);
-        // All logs should start as active
-        assert!(indexer.logs.iter().all(|l| l.active));
-    }
-
-    #[test]
-    fn test_push_adds_log() {
-        let mut indexer = super::ChatLogIndexer::new();
-        indexer.logs.push(super::IndexedLog {
-            log: std::sync::Arc::new(create_user_log(1)),
-            active: true,
-        });
-        assert_eq!(indexer.logs.len(), 1);
-    }
-
-    #[test]
     fn test_active_context_token_count_empty() {
         let indexer = super::ChatLogIndexer::new();
         assert_eq!(indexer.active_context_token_count(), 0);
@@ -458,42 +351,6 @@ mod tests {
         let logs = vec![create_user_log(5), create_user_log(5)];
         let indexer = super::ChatLogIndexer::from_logs(logs);
         assert_eq!(indexer.active_context_token_count(), 10);
-    }
-
-    #[test]
-    fn test_active_messages_returns_all_when_no_truncation() {
-        let logs = vec![create_user_log(1), create_user_log(1), create_user_log(1)];
-        let indexer = super::ChatLogIndexer::from_logs(logs);
-        let active = indexer.active_messages();
-        assert_eq!(active.len(), 3);
-    }
-
-    #[test]
-    fn test_active_messages_returns_subset_after_truncation() {
-        let logs = vec![create_user_log(1), create_user_log(1), create_user_log(1)];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        // Simulate inactivity by setting active=false on first log
-        indexer.logs[0].active = false;
-        let active = indexer.active_messages();
-        assert_eq!(active.len(), 2);
-    }
-
-    #[test]
-    fn test_inactive_log_returns_empty_when_no_truncation() {
-        let logs = vec![create_user_log(1), create_user_log(1), create_user_log(1)];
-        let indexer = super::ChatLogIndexer::from_logs(logs);
-        let inactive = indexer.inactive_log();
-        assert_eq!(inactive.len(), 0);
-    }
-
-    #[test]
-    fn test_inactive_log_returns_inactive_logs() {
-        let logs = vec![create_user_log(1), create_user_log(1), create_user_log(1)];
-        let mut indexer = super::ChatLogIndexer::from_logs(logs);
-        // Simulate inactivity by setting active=false on first log
-        indexer.logs[0].active = false;
-        let inactive = indexer.inactive_log();
-        assert_eq!(inactive.len(), 1);
     }
 
     #[test]
@@ -516,92 +373,13 @@ mod tests {
         let logs = vec![create_user_log(1), create_user_log(1)];
         let mut indexer = super::ChatLogIndexer::from_logs(logs);
         // Set active flag to false to create inactive logs
-        indexer.logs[0].active = false;
+        indexer.log_window.logs[0].active = false;
 
         // RAG context should return None for empty/irrelevant context
         let result = indexer.get_relevant_context("test message");
         // This might return empty vec or vec with message depending on RAG implementation
         // For now, we test that the method exists and doesn't panic
         let _ = result;
-    }
-
-    // --- Workflow-aware checkpoint tests ---
-
-    #[test]
-    fn test_is_log_in_workflow() {
-        // Single setup covering all conditions
-        let logs = vec![
-            create_user_log(1),                 // 0: no workflow before
-            create_workflow_log("wf", Some(1)), // 1: workflow start
-            create_user_log(1),                 // 2: in workflow
-            create_workflow_log("wf", None),    // 3: workflow end
-            create_user_log(1),                 // 4: after workflow ended
-        ];
-        let indexer = super::ChatLogIndexer::from_logs(logs);
-        assert!(!super::ChatLogIndexer::is_log_in_workflow_in_slice(
-            0,
-            &indexer.logs
-        )); // before workflow
-        assert!(super::ChatLogIndexer::is_log_in_workflow_in_slice(
-            2,
-            &indexer.logs
-        )); // in workflow
-        assert!(!super::ChatLogIndexer::is_log_in_workflow_in_slice(
-            4,
-            &indexer.logs
-        )); // after workflow ended
-    }
-
-    #[test]
-    fn test_find_last_checkpoint_in_workflow_uses_workflow_tool() {
-        // In workflow: checkpoint is the last workflow tool
-        let logs = vec![
-            create_user_log(1),
-            create_workflow_log("test_workflow", Some(1)), // start
-            create_user_log(1),
-            create_workflow_log("test_workflow", Some(2)), // navigate to step 2
-            create_user_log(1),
-        ];
-        let indexer = super::ChatLogIndexer::from_logs(logs);
-        // Last checkpoint should be index 3 (navigate_workflow to step 2)
-        assert_eq!(
-            super::ChatLogIndexer::find_last_checkpoint_in(&indexer.logs),
-            Some(3)
-        );
-    }
-
-    #[test]
-    fn test_find_last_checkpoint_not_in_workflow_uses_user_message() {
-        // Not in workflow: checkpoint is the last user message
-        let logs = vec![
-            create_user_log(1),
-            create_assistant_log(1),
-            create_user_log(1),
-            create_assistant_log(1),
-        ];
-        let indexer = super::ChatLogIndexer::from_logs(logs);
-        // Last checkpoint should be index 2 (last user message)
-        assert_eq!(
-            super::ChatLogIndexer::find_last_checkpoint_in(&indexer.logs),
-            Some(2)
-        );
-    }
-
-    #[test]
-    fn test_find_last_checkpoint_after_workflow_ends() {
-        // After workflow ends: checkpoint is last user message
-        let logs = vec![
-            create_workflow_log("test_workflow", Some(1)),
-            create_user_log(1),
-            create_workflow_log("test_workflow", None), // end
-            create_user_log(1),
-        ];
-        let indexer = super::ChatLogIndexer::from_logs(logs);
-        // Last checkpoint should be index 3 (user message after workflow ended)
-        assert_eq!(
-            super::ChatLogIndexer::find_last_checkpoint_in(&indexer.logs),
-            Some(3)
-        );
     }
 
     // --- Tool classification-aware truncation tests (new behavior) ---
@@ -628,7 +406,7 @@ mod tests {
         let indexer = super::ChatLogIndexer::from_logs(logs);
 
         // All logs should remain active
-        assert!(indexer.logs.iter().all(|l| l.active));
+        assert!(indexer.log_window.logs.iter().all(|l| l.active));
     }
 
     #[test]
@@ -652,21 +430,27 @@ mod tests {
         // read_file at index 1 (Region 1) should be removed
         // web_search at index 2 (Region 1) should be preserved (non-idempotent)
         // read_file at index 4 (Region 2) should be removed
-        assert!(indexer.logs[0].active, "first user preserved");
+        assert!(indexer.log_window.logs[0].active, "first user preserved");
         assert!(
-            !indexer.logs[1].active,
+            !indexer.log_window.logs[1].active,
             "idempotent tool removed (Region 1)"
         );
         assert!(
-            indexer.logs[2].active,
+            indexer.log_window.logs[2].active,
             "non-idempotent tool preserved (Region 1)"
         );
-        assert!(indexer.logs[3].active, "user preserved (checkpoint 2x)");
         assert!(
-            !indexer.logs[4].active,
+            indexer.log_window.logs[3].active,
+            "user preserved (checkpoint 2x)"
+        );
+        assert!(
+            !indexer.log_window.logs[4].active,
             "idempotent tool removed (Region 2)"
         );
-        assert!(indexer.logs[5].active, "user preserved (checkpoint 1x)");
+        assert!(
+            indexer.log_window.logs[5].active,
+            "user preserved (checkpoint 1x)"
+        );
     }
 
     #[test]
@@ -684,17 +468,23 @@ mod tests {
         let indexer = super::ChatLogIndexer::from_logs(logs);
 
         // Phase 2: non-idempotent tool in region 1 is removed
-        assert!(indexer.logs[0].active, "first user preserved");
+        assert!(indexer.log_window.logs[0].active, "first user preserved");
         assert!(
-            !indexer.logs[1].active,
+            !indexer.log_window.logs[1].active,
             "web_search in region 1 removed (Phase 2)"
         );
-        assert!(indexer.logs[2].active, "user (checkpoint 2x) preserved");
         assert!(
-            indexer.logs[3].active,
+            indexer.log_window.logs[2].active,
+            "user (checkpoint 2x) preserved"
+        );
+        assert!(
+            indexer.log_window.logs[3].active,
             "web_search in region 2 preserved (Phase 2 only touches region 1)"
         );
-        assert!(indexer.logs[4].active, "user (checkpoint 1x) preserved");
+        assert!(
+            indexer.log_window.logs[4].active,
+            "user (checkpoint 1x) preserved"
+        );
     }
 
     #[test]
@@ -712,10 +502,19 @@ mod tests {
 
         // Assistant (chat log) should be removed in Phase 3
         // First user at index 1 should be preserved (never remove first user)
-        assert!(indexer.logs[0].active, "first user_preserved");
-        assert!(!indexer.logs[1].active, "assistant removed (Region 1)");
-        assert!(indexer.logs[2].active, "user preserved (checkpoint 2x)");
-        assert!(indexer.logs[3].active, "user preserved (checkpoint 1x)");
+        assert!(indexer.log_window.logs[0].active, "first user_preserved");
+        assert!(
+            !indexer.log_window.logs[1].active,
+            "assistant removed (Region 1)"
+        );
+        assert!(
+            indexer.log_window.logs[2].active,
+            "user preserved (checkpoint 2x)"
+        );
+        assert!(
+            indexer.log_window.logs[3].active,
+            "user preserved (checkpoint 1x)"
+        );
     }
 
     #[test]
@@ -731,13 +530,19 @@ mod tests {
         let indexer = super::ChatLogIndexer::from_logs(logs);
 
         // Non-idempotent tool in region 2 should be removed in Phase 4
-        assert!(indexer.logs[0].active, "first user preserved");
-        assert!(indexer.logs[1].active, "user preserved (checkpoint 2x)");
+        assert!(indexer.log_window.logs[0].active, "first user preserved");
         assert!(
-            !indexer.logs[2].active,
+            indexer.log_window.logs[1].active,
+            "user preserved (checkpoint 2x)"
+        );
+        assert!(
+            !indexer.log_window.logs[2].active,
             "non-idempotent tool removed (Region 2)"
         );
-        assert!(indexer.logs[3].active, "user preserved (checkpoint 1x)");
+        assert!(
+            indexer.log_window.logs[3].active,
+            "user preserved (checkpoint 1x)"
+        );
     }
 
     #[test]
@@ -753,11 +558,17 @@ mod tests {
         let indexer = super::ChatLogIndexer::from_logs(logs);
 
         // Idempotent tool in region 3 should be removed in Phase 5
-        assert!(indexer.logs[0].active, "first user preserved");
-        assert!(indexer.logs[1].active, "user preserved (checkpoint 2x)");
-        assert!(indexer.logs[2].active, "user preserved (checkpoint 1x)");
+        assert!(indexer.log_window.logs[0].active, "first user preserved");
         assert!(
-            !indexer.logs[3].active,
+            indexer.log_window.logs[1].active,
+            "user preserved (checkpoint 2x)"
+        );
+        assert!(
+            indexer.log_window.logs[2].active,
+            "user preserved (checkpoint 1x)"
+        );
+        assert!(
+            !indexer.log_window.logs[3].active,
             "idempotent tool removed (Region 3)"
         );
     }
@@ -776,9 +587,12 @@ mod tests {
 
         // First user must always be preserved regardless of token pressure
         assert!(
-            indexer.logs[0].active,
+            indexer.log_window.logs[0].active,
             "first user ALWAYS preserved (invariant)"
         );
-        assert!(!indexer.logs[1].active, "second got removed instead");
+        assert!(
+            !indexer.log_window.logs[1].active,
+            "second got removed instead"
+        );
     }
 }
