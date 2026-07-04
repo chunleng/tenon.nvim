@@ -146,11 +146,15 @@ impl ChatLogIndexer {
             Self::get_log_tool_classification(log) == Some(ToolClassification::Idempotent)
         };
 
-        // Helper to check if log is non-idempotent (non-mutating or mutating) tool
+        // Helper to check if log is non-idempotent (non-mutating, mutating or unknown) tool
         let is_non_idempotent_tool = |log: &TenonLog| {
             matches!(
                 Self::get_log_tool_classification(log),
-                Some(ToolClassification::NonMutating | ToolClassification::Mutating)
+                Some(
+                    ToolClassification::NonMutating
+                        | ToolClassification::Mutating
+                        | ToolClassification::Unknown
+                )
             )
         };
 
