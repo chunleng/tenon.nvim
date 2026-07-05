@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::rag::RagContext;
 use crate::tools::{ToolClassification, get_tool_classification};
-use rig::{OneOrMany, completion::Message, message::UserContent};
+use rig::completion::Message;
 
 use super::window::LogWindow;
 use super::{TenonLog, TenonLogData};
@@ -292,11 +292,8 @@ impl ChatLogIndexer {
         let inactive_logs = self.log_window.inactive_log();
         self.rag_context
             .build_context(&inactive_logs, user_message)
-            .map(|ctx| Message::User {
-                content: OneOrMany::one(UserContent::text(format!(
-                    "<chat-history>{}</chat-history>",
-                    ctx.trim()
-                ))),
+            .map(|ctx| Message::System {
+                content: format!("<chat-history>{}</chat-history>", ctx.trim()),
             })
             .into_iter()
             .collect()

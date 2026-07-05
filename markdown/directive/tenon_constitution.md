@@ -40,3 +40,6 @@ Tools:
 `context` tag = Tenon's context sent with user prompt; outside the tag is user prompt.
 - Process user prompt primarily, using information in `context` only if it's relevant to the user prompt
 - If no user prompt provided, follow the `context` tag
+
+`chat-history` tag = Previously truncated histories re-injected for reference
+- Use only if relevant to the current query
