@@ -260,9 +260,9 @@ pub struct ChatSession {
     pub active_agent: ActiveAgent,
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
     pub session_datetime: DateTime<Local>,
+    pub title_handler: TitleHandler,
     cancel_token: Arc<AtomicBool>,
     active_thread: Option<std::thread::JoinHandle<()>>,
-    title_handler: TitleHandler,
 }
 
 impl ChatSession {
@@ -362,16 +362,6 @@ impl ChatSession {
         };
 
         Ok(session)
-    }
-
-    pub fn title(&self) -> Option<String> {
-        self.title_handler.title.read().ok().and_then(|t| t.clone())
-    }
-
-    pub fn set_title(&self, title: Option<String>) {
-        if let Ok(mut t) = self.title_handler.title.write() {
-            *t = title;
-        }
     }
 
     pub fn cancel(&mut self) {

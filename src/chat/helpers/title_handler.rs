@@ -34,6 +34,10 @@ impl TitleHandler {
         }
     }
 
+    pub fn title(&self) -> Option<String> {
+        self.title.read().ok().and_then(|t| t.clone())
+    }
+
     pub fn is_generating(&self) -> bool {
         self.thread.as_ref().is_some_and(|t| !t.is_finished())
     }

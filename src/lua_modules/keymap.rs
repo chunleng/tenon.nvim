@@ -253,7 +253,7 @@ fn rename_fn() -> Function<(), ()> {
                 let win = win_arc.lock().ok()?;
                 let loaded = win.loaded_chat_session.read().ok()?;
                 let session = loaded.read().ok()?;
-                session.title()
+                session.title_handler.title()
             })();
 
             let default_lua =
@@ -285,7 +285,9 @@ end)
                         && let Ok(loaded) = win.loaded_chat_session.read()
                         && let Ok(session) = loaded.read()
                     {
-                        session.set_title(new_title);
+                        if let Ok(mut title) = session.title_handler.title.write() {
+                            *title = new_title;
+                        }
                         win.force_render();
                     }
                 }
