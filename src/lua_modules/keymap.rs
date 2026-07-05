@@ -317,9 +317,16 @@ fn select_history_fn() -> Function<(), ()> {
                                 .map(|(dt, _)| dt.replace('T', " "))
                                 .unwrap_or_else(|| h.id.clone());
                         let title = h.title.as_deref().unwrap_or("Untitled");
+                        let messages = h
+                            .logs
+                            .iter()
+                            .filter(|log| {
+                                matches!(log.data, crate::chat::log::TenonLogData::User(_))
+                            })
+                            .count();
                         format!(
-                            "{} | {} | agent: {} | {}",
-                            datetime, title, h.agent_name, h.model_display
+                            "{} | {} | {} messages | agent: {} | {}",
+                            datetime, title, messages, h.agent_name, h.model_display
                         )
                     })
                     .collect();
