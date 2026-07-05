@@ -2,6 +2,27 @@ use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
+
+/// Minimum gap between the end of one web_search and the start of the next,
+/// shared across all chat sessions.
+const SEARCH_MIN_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Serializes web_search calls and stores when the most recent search finished.
+///
+/// The lock is held across each HTTP request so searches run one at a time;
+/// the recorded completion time then enforces `SEARCH_MIN_INTERVAL` between the
+/// end of one search and the start of the next. A tokio (async) mutex is
+/// required because the guard is held across `.await` points.
+static LAST_SEARCH_DONE: LazyLock<tokio::sync::Mutex<Instant>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(Instant::now() - SEARCH_MIN_INTERVAL));
+
+/// How long to wait before starting a search so at least `SEARCH_MIN_INTERVAL`
+/// has elapsed since the previous search completed.
+fn throttle_wait(last_done: Instant) -> Duration {
+    SEARCH_MIN_INTERVAL.saturating_sub(last_done.elapsed())
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,6 +111,11 @@ impl Tool for WebSearch {
             body["freshness"] = json!(freshness);
         }
 
+        // Serialize calls and enforce the completion-based interval: hold the
+        // lock across the request so only one search runs at a time.
+        let mut last_done = LAST_SEARCH_DONE.lock().await;
+        tokio::time::sleep(throttle_wait(*last_done)).await;
+
         let client = reqwest::Client::new();
         let resp = client
             .post("https://api.langsearch.com/v1/web-search")
@@ -104,6 +130,11 @@ impl Tool for WebSearch {
                     e
                 ))))
             })?;
+
+        // Search finished — stamp the completion time and release the lock so
+        // the next call can proceed (it waits out the remainder of the interval).
+        *last_done = Instant::now();
+        drop(last_done);
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -140,5 +171,36 @@ impl Tool for WebSearch {
 
         Ok(serde_json::to_string(&results)
             .unwrap_or_else(|e| format!("{{\"error\": \"Serialize failed: {}\"}}", e)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_wait_when_interval_elapsed_since_completion() {
+        let last = Instant::now() - SEARCH_MIN_INTERVAL * 2;
+        assert_eq!(throttle_wait(last), Duration::ZERO);
+    }
+
+    #[test]
+    fn waits_remaining_time_within_interval() {
+        let last = Instant::now() - Duration::from_millis(400);
+        let wait = throttle_wait(last);
+        assert!(
+            (wait.as_millis() as i64 - 600).abs() < 50,
+            "expected ~600ms remaining after 400ms, got {wait:?}"
+        );
+    }
+
+    #[test]
+    fn waits_full_interval_right_after_completion() {
+        let last = Instant::now();
+        let wait = throttle_wait(last);
+        assert!(
+            wait >= SEARCH_MIN_INTERVAL - Duration::from_millis(50),
+            "expected ~1s wait right after completion, got {wait:?}"
+        );
     }
 }
