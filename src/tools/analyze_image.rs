@@ -137,7 +137,7 @@ impl Tool for AnalyzeImage {
         let worker = SimpleTenonWorkerAgent::new(
             config.tools.analyze_image.model.clone(),
             "Answer based on the image content. No preamble or hedge.",
-            false,
+            true,
         )
         .map_err(|e| ToolError::ToolCallError(Box::new(e)))?;
 
