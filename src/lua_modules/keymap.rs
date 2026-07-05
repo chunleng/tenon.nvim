@@ -2,6 +2,7 @@ use nvim_oxi::{Dictionary, Function, Object, api::types::LogLevel};
 
 use crate::{
     chat::ActiveAgent,
+    chat::history::{SessionMetadata, save_to_history},
     get_application_config, get_chat_window,
     tools::all_tool_names,
     ui::picker::{pick, pick_multi},
@@ -286,8 +287,25 @@ end)
                         && let Ok(session) = loaded.read()
                     {
                         if let Ok(mut title) = session.title_handler.title.write() {
-                            *title = new_title;
+                            *title = new_title.clone();
                         }
+
+                        let history_dir = get_application_config().history.directory;
+                        if let Ok(log_window) = session.log_handler.log_window.read() {
+                            save_to_history(
+                                SessionMetadata {
+                                    id: &session.id,
+                                    title: new_title.as_deref(),
+                                    agent_name: &session.active_agent.name,
+                                    model_display: &session.active_agent.inner.model.display_name(),
+                                    session_datetime: session.session_datetime,
+                                },
+                                &log_window,
+                                &session.usage,
+                                &history_dir,
+                            );
+                        }
+
                         win.force_render();
                     }
                 }
