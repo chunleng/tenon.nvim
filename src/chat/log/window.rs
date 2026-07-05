@@ -60,6 +60,43 @@ impl LogWindow {
             .unwrap_or(false)
     }
 
+    /// Prunes trailing incomplete tool calls (those without results) from the logs
+    /// to prevent sending broken history to the LLM.
+    pub fn prune_incomplete_messages(&mut self) {
+        let logs = &self.logs;
+        let last_non_tool_index = logs
+            .iter()
+            .enumerate()
+            .rfind(|(_, log)| !matches!(log.log.data(), TenonLogData::Tool(_)));
+
+        if let Some((index, _)) = last_non_tool_index {
+            let mut new_logs = Vec::with_capacity(logs.len());
+            new_logs.extend_from_slice(&logs[..=index]);
+
+            for log in &logs[index + 1..] {
+                if let TenonLogData::Tool(tool_log) = log.log.data()
+                    && tool_log.tool_result.is_some()
+                {
+                    new_logs.push(log.clone());
+                }
+            }
+            self.logs = new_logs;
+        } else {
+            // If all messages are tools, we only keep the ones with results
+            self.logs = logs
+                .iter()
+                .filter(|log| {
+                    if let TenonLogData::Tool(tool_log) = log.log.data() {
+                        tool_log.tool_result.is_some()
+                    } else {
+                        true
+                    }
+                })
+                .cloned()
+                .collect();
+        }
+    }
+
     /// Finds the last checkpoint index in the log.
     pub fn find_last_checkpoint(&self, before: Option<usize>) -> Option<usize> {
         let end = before.unwrap_or(self.logs.len());
@@ -89,7 +126,10 @@ mod tests {
     use super::*;
     use crate::chat::{
         TenonWorkflowLog,
-        log::{TenonLog, TenonLogData, TenonUserMessage, TenonUserTextMessage},
+        log::{
+            TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonToolResult, TenonUserMessage,
+            TenonUserTextMessage,
+        },
     };
 
     fn create_user_log(token_count: usize) -> TenonLog {
@@ -198,5 +238,64 @@ mod tests {
         let log_window = create_log_window(logs);
         assert_eq!(log_window.find_last_checkpoint(None), Some(3));
         assert_eq!(log_window.find_last_checkpoint(Some(3)), Some(2));
+    }
+
+    fn create_tool_indexed_log(name: &str, has_result: bool) -> IndexedLog {
+        let tool_call = TenonToolCall {
+            id: "1".into(),
+            internal_call_id: "1".into(),
+            name: name.into(),
+            args: serde_json::json!({}),
+        };
+        let tool_result = if has_result {
+            Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                text: "ok".into(),
+            })))
+        } else {
+            None
+        };
+        IndexedLog {
+            log: Arc::new(TenonLog::new(TenonLogData::Tool(TenonToolLog {
+                tool_call,
+                tool_result,
+            }))),
+            active: true,
+        }
+    }
+
+    fn create_user_indexed_log(text: &str) -> IndexedLog {
+        IndexedLog {
+            log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+                TenonUserTextMessage(text.to_string()),
+            )))),
+            active: true,
+        }
+    }
+
+    #[test]
+    fn test_prune_incomplete_messages() {
+        let mut log_window = LogWindow {
+            logs: vec![
+                create_user_indexed_log("Hello"),
+                create_tool_indexed_log("tool1", false), // Incomplete
+                create_tool_indexed_log("tool2", true),  // Complete
+                create_tool_indexed_log("tool3", false), // Incomplete
+            ],
+        };
+
+        log_window.prune_incomplete_messages();
+
+        assert_eq!(log_window.logs.len(), 2);
+        assert!(matches!(
+            log_window.logs[0].log.data(),
+            TenonLogData::User(_)
+        ));
+        assert!(matches!(
+            log_window.logs[1].log.data(),
+            TenonLogData::Tool(_)
+        ));
+        if let TenonLogData::Tool(tl) = &log_window.logs[1].log.data() {
+            assert!(tl.tool_result.is_some());
+        }
     }
 }

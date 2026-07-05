@@ -402,7 +402,9 @@ impl ChatSession {
             self.title_handler.generate_title();
         }
 
-        self.prune_incomplete_messages();
+        if let Ok(mut log_window) = self.log_handler.log_window.write() {
+            log_window.prune_incomplete_messages();
+        };
 
         let mut log_handler = self.log_handler.clone();
         let usage_clone = Arc::clone(&self.usage);
@@ -653,119 +655,11 @@ impl ChatSession {
     pub fn send_message(&mut self, message: String) {
         self.send_chat_request(message.clone(), true);
     }
-
-    /// Prunes trailing incomplete messages (e.g., tool calls without results)
-    /// from the session logs to prevent sending broken history to the LLM.
-    pub fn prune_incomplete_messages(&self) {
-        let Ok(mut log_window) = self.log_handler.log_window.write() else {
-            return;
-        };
-
-        let logs = &log_window.logs;
-        let last_non_tool_index = logs
-            .iter()
-            .enumerate()
-            .rfind(|(_, log)| !matches!(log.log.data(), TenonLogData::Tool(_)));
-
-        if let Some((index, _)) = last_non_tool_index {
-            let mut new_logs = Vec::with_capacity(logs.len());
-            new_logs.extend_from_slice(&logs[..=index]);
-
-            for log in &logs[index + 1..] {
-                if let TenonLogData::Tool(tool_log) = log.log.data()
-                    && tool_log.tool_result.is_some()
-                {
-                    new_logs.push(log.clone());
-                }
-            }
-            log_window.logs = new_logs;
-        } else {
-            // If all messages are tools, we only keep the ones with results
-            log_window.logs = logs
-                .iter()
-                .filter(|log| {
-                    if let TenonLogData::Tool(tool_log) = log.log.data() {
-                        tool_log.tool_result.is_some()
-                    } else {
-                        true
-                    }
-                })
-                .cloned()
-                .collect();
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::log::{
-        TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonUserMessage, TenonUserTextMessage,
-    };
-    use serde_json::json;
-    use std::sync::Arc;
-
-    fn create_user_log(text: &str) -> super::log::indexer::IndexedLog {
-        super::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                TenonUserTextMessage(text.to_string()),
-            )))),
-            active: true,
-        }
-    }
-
-    fn create_tool_log(name: &str, result: bool) -> super::log::indexer::IndexedLog {
-        let tool_call = TenonToolCall {
-            id: "1".into(),
-            internal_call_id: "1".into(),
-            name: name.into(),
-            args: json!({}),
-        };
-        let tool_result = if result {
-            Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                text: "ok".into(),
-            })))
-        } else {
-            None
-        };
-        super::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Tool(TenonToolLog {
-                tool_call,
-                tool_result,
-            }))),
-            active: true,
-        }
-    }
-
-    #[test]
-    fn test_prune_incomplete_messages() {
-        let session = ChatSession::new();
-        {
-            let mut log_window = session.log_handler.log_window.write().unwrap();
-            log_window.logs = vec![
-                create_user_log("Hello"),
-                create_tool_log("tool1", false), // Incomplete
-                create_tool_log("tool2", true),  // Complete
-                create_tool_log("tool3", false), // Incomplete
-            ];
-        }
-
-        session.prune_incomplete_messages();
-
-        let log_window = session.log_handler.log_window.read().unwrap();
-        assert_eq!(log_window.logs.len(), 2);
-        assert!(matches!(
-            log_window.logs[0].log.data(),
-            TenonLogData::User(_)
-        ));
-        assert!(matches!(
-            log_window.logs[1].log.data(),
-            TenonLogData::Tool(_)
-        ));
-        if let TenonLogData::Tool(tl) = &log_window.logs[1].log.data() {
-            assert!(tl.tool_result.is_some());
-        }
-    }
 
     #[test]
     fn test_active_workflow_memory() {
