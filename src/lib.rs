@@ -52,6 +52,7 @@ pub fn get_workflow_registry() -> HashMap<String, Arc<Workflow>> {
         .clone()
 }
 
+mod agent;
 mod chat;
 mod clients;
 mod config;

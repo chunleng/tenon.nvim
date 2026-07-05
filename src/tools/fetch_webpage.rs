@@ -1,5 +1,4 @@
-use crate::clients::get_agent;
-use crate::directive::{Directive, DirectiveSource};
+use crate::agent::worker::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use html_to_markdown_rs::{ConversionOptions, PreprocessingOptions, PreprocessingPreset};
 use rig::completion::ToolDefinition;
@@ -86,31 +85,18 @@ impl Tool for FetchWebpage {
 
 async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, ToolError> {
     let config = get_application_config();
-    let model = match &config.tools.fetch_webpage.model {
-        Some(m) => m.clone(),
-        None => {
-            let agent_config = config.agents.get(&config.default_agent).ok_or_else(|| {
-                ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "No default agent",
-                )))
-            })?;
-            agent_config.model.clone()
-        }
-    };
-
-    let directive = Directive {
-        condition: None,
-        source: DirectiveSource::Text {
-            value: "Webpage content only. No preamble/hedge/commentary/source refs. Preserve format: code→code blocks, steps→numbered lists, comparisons→tables, items→bullets".to_string(),
-        },
-    };
-
-    let agent = get_agent(model, vec![directive], vec![], true);
+    let worker = SimpleTenonWorkerAgent::new(
+        config.tools.fetch_webpage.model.clone(),
+        "Webpage content only. No preamble/hedge/commentary/source refs. Preserve format: code→code blocks, steps→numbered lists, comparisons→tables, items→bullets",
+        true,
+    )
+    .map_err(|e| {
+        ToolError::ToolCallError(Box::new(e))
+    })?;
 
     let user_message = format!("{}\n\nWebpage content:\n\n{}", prompt, markdown);
 
-    let response = agent.chat(user_message).await.map_err(|e| {
+    let response = worker.chat(user_message).await.map_err(|e| {
         ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
             "Agent fail to run prompt: {}",
             e

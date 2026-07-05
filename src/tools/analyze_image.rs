@@ -1,5 +1,4 @@
-use crate::clients::get_agent;
-use crate::directive::{Directive, DirectiveSource};
+use crate::agent::worker::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rig::OneOrMany;
@@ -135,29 +134,14 @@ impl Tool for AnalyzeImage {
         let message = Message::User { content };
 
         let config = get_application_config();
-        let model = match &config.tools.analyze_image.model {
-            Some(m) => m.clone(),
-            None => {
-                let agent_config = config.agents.get(&config.default_agent).ok_or_else(|| {
-                    ToolError::ToolCallError(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "No default agent",
-                    )))
-                })?;
-                agent_config.model.clone()
-            }
-        };
+        let worker = SimpleTenonWorkerAgent::new(
+            config.tools.analyze_image.model.clone(),
+            "Answer based on the image content. No preamble or hedge.",
+            false,
+        )
+        .map_err(|e| ToolError::ToolCallError(Box::new(e)))?;
 
-        let directive = Directive {
-            condition: None,
-            source: DirectiveSource::Text {
-                value: "Answer based on the image content. No preamble or hedge.".to_string(),
-            },
-        };
-
-        let agent = get_agent(model, vec![directive], vec![], false);
-
-        let response = agent.chat(message).await.map_err(|e| {
+        let response = worker.chat(message).await.map_err(|e| {
             ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
                 "Agent failed to analyze image: {}",
                 e

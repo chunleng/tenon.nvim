@@ -1,9 +1,8 @@
 use std::sync::{Arc, RwLock};
 
+use crate::agent::worker::SimpleTenonWorkerAgent;
 use crate::chat::log::TenonLogData;
 use crate::chat::log::window::LogWindow;
-use crate::clients::get_agent;
-use crate::directive::{Directive, DirectiveSource};
 use crate::get_application_config;
 
 /// Handles title generation for chat sessions.
@@ -90,11 +89,8 @@ impl TitleHandler {
         self.thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async move {
-                let directive = vec![Directive {
-                    condition: None,
-                    source: DirectiveSource::Text {
-                        value: config.title.prompt.clone().unwrap_or_else(|| {
-                            "Title generation\n
+                let directive_text = config.title.prompt.clone().unwrap_or_else(|| {
+                    "Title generation\n
                             - Output title only\n
                             - 2-6 words\n
                             - Output \"Untitled\" when not enough context to form meaningful title\n\n
@@ -107,14 +103,15 @@ impl TitleHandler {
                               reply: Untitled\n
                             - prompt: X\n
                               reply: Untitled\n"
-                                .to_string()
-                        }),
-                    },
-                }];
+                        .to_string()
+                });
 
-                let agent = get_agent(model, directive, vec![], false);
+                let worker = match SimpleTenonWorkerAgent::new(Some(model), &directive_text, false) {
+                    Ok(w) => w,
+                    Err(_) => return,
+                };
 
-                match agent
+                match worker
                     .chat(format!("Generate title:\n```\n{}\n```", first_message))
                     .await
                 {

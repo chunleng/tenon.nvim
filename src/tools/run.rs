@@ -1,5 +1,4 @@
-use crate::clients::get_agent;
-use crate::directive::{Directive, DirectiveSource};
+use crate::agent::worker::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use futures::stream::{self, StreamExt};
 use rig::completion::ToolDefinition;
@@ -127,10 +126,9 @@ async fn check_command_safety_with_llm(
     command: &str,
     model: &crate::clients::SupportedModels,
 ) -> Result<(bool, Option<String>), ToolError> {
-    let safety_checker_directive = Directive {
-        condition: None,
-        source: DirectiveSource::Text {
-            value: r#"Judge command safety. Output JSON only.
+    let worker = SimpleTenonWorkerAgent::new(
+        Some(model.clone()),
+        r#"Judge command safety. Output JSON only.
 
 DENY patterns:
 - Secrets: env vars (*KEY*, *SECRET*, *TOKEN*, *API*), files (.env, id_rsa, credentials, .pem)
@@ -153,16 +151,16 @@ Judge by similarity to patterns above. Commands matching DENY patterns → deny.
 
 Output:
 {"decision": "allow"}
-{"decision": "deny", "reason": "..."}"#
-                .to_string(),
-        },
-    };
-
-    let agent = get_agent(model.clone(), vec![safety_checker_directive], vec![], true);
+{"decision": "deny", "reason": "..."}"#,
+        true,
+    )
+    .map_err(|e| {
+        ToolError::ToolCallError(Box::new(e))
+    })?;
 
     let user_message = format!("Command: {}", command);
 
-    let response = agent.chat(user_message).await.map_err(|e| {
+    let response = worker.chat(user_message).await.map_err(|e| {
         ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
             "LLM safety check failed: {}",
             e
