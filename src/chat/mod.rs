@@ -255,7 +255,12 @@ impl ChatSession {
 
                     let next_prompt = log_handler.get_user_prompt();
                     let chat_history = log_handler.get_chat_history(&next_prompt);
-                    let prompt = build_workflow_prompt(&active_workflow_clone, next_prompt.clone());
+                    let prompt = build_workflow_prompt(
+                        &active_workflow_clone,
+                        &agent_clone,
+                        next_prompt.clone(),
+                    )
+                    .await;
                     let mut stream = agent
                         .stream_chat(prompt.clone(), chat_history.clone())
                         .await;

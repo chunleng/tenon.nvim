@@ -42,6 +42,6 @@ impl SimpleTenonWorkerAgent {
         &self,
         message: impl Into<Message> + Send,
     ) -> Result<String, rig::agent::StreamingError> {
-        self.agent.chat(message).await
+        self.agent.chat(message).await.map(|x| x.trim().to_string())
     }
 }
