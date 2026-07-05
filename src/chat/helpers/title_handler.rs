@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use crate::chat::log::TenonLogData;
-use crate::chat::log::indexer::ChatLogIndexer;
+use crate::chat::log::window::LogWindow;
 use crate::clients::get_agent;
 use crate::directive::{Directive, DirectiveSource};
 use crate::get_application_config;
@@ -13,23 +13,23 @@ use crate::get_application_config;
 /// guarded by checking `is_generating()` and whether a title exists.
 pub struct TitleHandler {
     pub title: Arc<RwLock<Option<String>>>,
-    log_indexer: Arc<RwLock<ChatLogIndexer>>,
+    log_window: Arc<RwLock<LogWindow>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl TitleHandler {
-    pub fn new(log_indexer: Arc<RwLock<ChatLogIndexer>>) -> Self {
+    pub fn new(log_window: Arc<RwLock<LogWindow>>) -> Self {
         Self {
             title: Arc::new(RwLock::new(None)),
-            log_indexer,
+            log_window,
             thread: None,
         }
     }
 
-    pub fn from_history(title: Option<String>, log_indexer: Arc<RwLock<ChatLogIndexer>>) -> Self {
+    pub fn from_history(title: Option<String>, log_window: Arc<RwLock<LogWindow>>) -> Self {
         Self {
             title: Arc::new(RwLock::new(title)),
-            log_indexer,
+            log_window,
             thread: None,
         }
     }
@@ -49,8 +49,8 @@ impl TitleHandler {
             return;
         }
 
-        let first_message = match self.log_indexer.read() {
-            Ok(indexer) => indexer.log_window.logs.iter().find_map(|indexed| {
+        let first_message = match self.log_window.read() {
+            Ok(log_window) => log_window.logs.iter().find_map(|indexed| {
                 if let TenonLogData::User(crate::chat::TenonUserMessage::Text(msg)) =
                     indexed.log.data()
                 {

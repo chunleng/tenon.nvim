@@ -10,6 +10,15 @@ pub struct LogWindow {
 }
 
 impl LogWindow {
+    /// Returns the total token count of active chat logs.
+    pub fn active_context_token_count(&self) -> usize {
+        self.logs
+            .iter()
+            .filter(|indexed| indexed.active)
+            .map(|indexed| indexed.log.token_count())
+            .sum()
+    }
+
     /// Returns active messages that will be sent to LLM as chat context.
     /// Active logs are those with active=true.
     /// Each TenonLog is converted to Vec<Message> (some logs produce multiple messages).

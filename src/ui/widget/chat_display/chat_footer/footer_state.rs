@@ -65,10 +65,10 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
 
             let context_tokens = session
                 .log_handler
-                .indexer
+                .log_window
                 .read()
                 .ok()
-                .map(|idx| idx.active_context_token_count())
+                .map(|log_window| log_window.active_context_token_count())
                 .unwrap_or(0);
 
             return Self {

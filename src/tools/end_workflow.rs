@@ -1,4 +1,4 @@
-use crate::chat::{ActiveWorkflow, ChatLogIndexer, TenonLog, TenonLogData, TenonWorkflowLog};
+use crate::chat::{ActiveWorkflow, LogWindow, TenonLog, TenonLogData, TenonWorkflowLog};
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
@@ -21,7 +21,7 @@ pub struct EndWorkflowArgs {
 #[derive(Clone)]
 pub struct EndWorkflow {
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub log_indexer: Arc<RwLock<ChatLogIndexer>>,
+    pub log_window: Arc<RwLock<LogWindow>>,
 }
 
 impl Tool for EndWorkflow {
@@ -58,23 +58,18 @@ impl Tool for EndWorkflow {
             match active_workflow_guard.take() {
                 Some(active_wf) => {
                     // Add end workflow log
-                    let mut indexer = self
-                        .log_indexer
-                        .write()
-                        .map_err(|e| lock_err(e, "write log_indexer"))?;
-                    indexer
+                    let mut log_window = self
                         .log_window
-                        .logs
-                        .push(crate::chat::log::indexer::IndexedLog {
-                            log: Arc::new(TenonLog::new(TenonLogData::Workflow(
-                                TenonWorkflowLog {
-                                    id: active_wf.workflow.id.clone(),
-                                    content: "Workflow ended".to_string(),
-                                    step: None,
-                                },
-                            ))),
-                            active: true,
-                        });
+                        .write()
+                        .map_err(|e| lock_err(e, "write log_window"))?;
+                    log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                        log: Arc::new(TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog {
+                            id: active_wf.workflow.id.clone(),
+                            content: "Workflow ended".to_string(),
+                            step: None,
+                        }))),
+                        active: true,
+                    });
                 }
                 None => {
                     return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(

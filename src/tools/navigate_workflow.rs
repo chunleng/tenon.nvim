@@ -1,4 +1,4 @@
-use crate::chat::{ActiveWorkflow, ChatLogIndexer, TenonLog, TenonLogData};
+use crate::chat::{ActiveWorkflow, LogWindow, TenonLog, TenonLogData};
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
@@ -22,7 +22,7 @@ pub struct NavigateWorkflowArgs {
 #[derive(Clone)]
 pub struct NavigateWorkflow {
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub log_indexer: Arc<RwLock<ChatLogIndexer>>,
+    pub log_window: Arc<RwLock<LogWindow>>,
 }
 
 impl Tool for NavigateWorkflow {
@@ -119,18 +119,15 @@ impl Tool for NavigateWorkflow {
 
         // Add workflow log for the target step
         {
-            let mut indexer = self
-                .log_indexer
+            let mut log_window = self
+                .log_window
                 .write()
-                .map_err(|e| lock_err(e, "write log_indexer"))?;
+                .map_err(|e| lock_err(e, "write log_window"))?;
             if let Ok(workflow_log) = workflow.generate_log(target_step) {
-                indexer
-                    .log_window
-                    .logs
-                    .push(crate::chat::log::indexer::IndexedLog {
-                        log: Arc::new(TenonLog::new(TenonLogData::Workflow(workflow_log))),
-                        active: true,
-                    });
+                log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                    log: Arc::new(TenonLog::new(TenonLogData::Workflow(workflow_log))),
+                    active: true,
+                });
             }
         }
 
@@ -144,7 +141,7 @@ impl Tool for NavigateWorkflow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::log::indexer::ChatLogIndexer;
+    use crate::chat::log::window::LogWindow;
     use std::collections::HashMap;
 
     #[test]
@@ -163,11 +160,11 @@ mod tests {
             memory: HashMap::new(),
         })));
 
-        let log_indexer = Arc::new(RwLock::new(ChatLogIndexer::new()));
+        let log_window = Arc::new(RwLock::new(LogWindow { logs: Vec::new() }));
 
         let tool = NavigateWorkflow {
             active_workflow: Arc::clone(&workflow),
-            log_indexer,
+            log_window,
         };
 
         // Navigate to step 2 with output

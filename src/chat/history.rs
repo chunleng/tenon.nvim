@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use super::SessionUsage;
 use super::log::TenonLog;
-use super::log::indexer::ChatLogIndexer;
+use super::log::window::LogWindow;
 
 fn session_datetime_now() -> DateTime<Local> {
     Local::now()
@@ -38,12 +38,11 @@ pub struct SessionMetadata<'a> {
 
 pub fn save_to_history(
     metadata: SessionMetadata<'_>,
-    log_indexer: &ChatLogIndexer,
+    log_window: &LogWindow,
     usage: &Arc<RwLock<SessionUsage>>,
     history_directory: &str,
 ) {
-    let logs_vec: Vec<TenonLog> = log_indexer
-        .log_window
+    let logs_vec: Vec<TenonLog> = log_window
         .logs
         .iter()
         .map(|indexed| (*indexed.log).clone())

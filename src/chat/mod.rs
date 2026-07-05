@@ -25,7 +25,7 @@ pub mod usage;
 pub mod workflow;
 
 pub use log::handler::ChatLogHandler;
-pub use log::indexer::ChatLogIndexer;
+pub use log::window::LogWindow;
 pub use log::{
     TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData, TenonToolCall,
     TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage, TenonUserTextMessage,
@@ -212,7 +212,7 @@ impl TenonAgent {
     pub fn build_chat_adapter(
         &self,
         workflow_context: Arc<RwLock<Option<ActiveWorkflow>>>,
-        log_indexer: Arc<RwLock<ChatLogIndexer>>,
+        log_window: Arc<RwLock<LogWindow>>,
     ) -> ChatAgent {
         let mut combined = vec![Directive {
             condition: None,
@@ -234,18 +234,18 @@ impl TenonAgent {
             use crate::tools::navigate_workflow::NavigateWorkflow;
             tools.push(Box::new(NavigateWorkflow {
                 active_workflow: workflow_context.clone(),
-                log_indexer: log_indexer.clone(),
+                log_window: log_window.clone(),
             }));
             tools.push(Box::new(EndWorkflow {
                 active_workflow: workflow_context,
-                log_indexer,
+                log_window,
             }));
         } else if !self.workflows.is_empty() {
             use crate::tools::start_workflow::StartWorkflow;
             tools.push(Box::new(StartWorkflow {
                 workflows: self.workflows.clone(),
                 active_workflow: workflow_context.clone(),
-                log_indexer: log_indexer.clone(),
+                log_window: log_window.clone(),
             }));
         }
 
@@ -272,12 +272,10 @@ impl ChatSession {
     }
 
     pub fn with_agent_name(agent_name: String) -> OxiResult<Self> {
-        let log_indexer = Arc::new(RwLock::new(ChatLogIndexer::new()));
+        let log_handler = ChatLogHandler::new();
         Ok(Self {
             id: generate_chat_id(),
-            log_handler: ChatLogHandler {
-                indexer: log_indexer.clone(),
-            },
+            log_handler: log_handler.clone(),
             usage: Arc::new(RwLock::new(SessionUsage::default())),
             active_agent: ActiveAgent {
                 name: agent_name.to_string(),
@@ -291,7 +289,7 @@ impl ChatSession {
             session_datetime: Local::now(),
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
-            title_handler: TitleHandler::new(log_indexer),
+            title_handler: TitleHandler::new(log_handler.log_window.clone()),
         })
     }
 
@@ -340,14 +338,11 @@ impl ChatSession {
             wf
         };
 
-        let log_indexer = ChatLogIndexer::from_logs(logs);
-        let log_indexer_arc = Arc::new(RwLock::new(log_indexer));
+        let log_handler = ChatLogHandler::from_logs(logs);
 
         let session = Self {
             id: history.id,
-            log_handler: ChatLogHandler {
-                indexer: log_indexer_arc.clone(),
-            },
+            log_handler: log_handler.clone(),
             usage: Arc::new(RwLock::new(SessionUsage {
                 accumulated: history.usage,
                 last_exchange: Usage::new(),
@@ -360,7 +355,10 @@ impl ChatSession {
             session_datetime: history.session_datetime,
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
-            title_handler: TitleHandler::from_history(history.title, log_indexer_arc),
+            title_handler: TitleHandler::from_history(
+                history.title,
+                log_handler.log_window.clone(),
+            ),
         };
 
         Ok(session)
@@ -407,6 +405,7 @@ impl ChatSession {
         self.prune_incomplete_messages();
 
         let log_indexer_clone = self.log_handler.indexer.clone();
+        let log_window_clone = self.log_handler.log_window.clone();
         let usage_clone = Arc::clone(&self.usage);
         let agent_clone = self.active_agent.clone();
         let chat_id = self.id.clone();
@@ -425,28 +424,25 @@ impl ChatSession {
                     let mut should_continue = false;
                     let agent = agent_clone.build_chat_adapter(
                         active_workflow_clone.clone(),
-                        log_indexer_clone.clone(),
+                        log_window_clone.clone(),
                     );
 
-                    let chat_history = if let Ok(mut indexer) = log_indexer_clone.write() {
-                        indexer.retrieve_chatlog_with_context(&next_prompt)
+                    let chat_history = if let Ok(indexer) = log_indexer_clone.read()
+                        && let Ok(mut log_window) = log_window_clone.write()
+                    {
+                        indexer.retrieve_chatlog_with_context(&mut log_window, &next_prompt)
                     } else {
                         Vec::new()
                     };
 
                     // Add user message if provided
-                    if save_next_prompt && let Ok(mut indexer) = log_indexer_clone.write() {
-                        indexer
-                            .log_window
-                            .logs
-                            .push(crate::chat::log::indexer::IndexedLog {
-                                log: Arc::new(TenonLog::new(TenonLogData::User(
-                                    TenonUserMessage::Text(TenonUserTextMessage(
-                                        next_prompt.clone(),
-                                    )),
-                                ))),
-                                active: true,
-                            });
+                    if save_next_prompt && let Ok(mut log_window) = log_window_clone.write() {
+                        log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                            log: Arc::new(TenonLog::new(TenonLogData::User(
+                                TenonUserMessage::Text(TenonUserTextMessage(next_prompt.clone())),
+                            ))),
+                            active: true,
+                        });
                         save_next_prompt = false;
                     }
 
@@ -464,17 +460,15 @@ impl ChatSession {
                                 tool_result,
                                 internal_call_id,
                             }) => {
-                                if let Ok(mut indexer) = log_indexer_clone.write()
-                                    && let Some(log) =
-                                        indexer.log_window.logs.iter_mut().find_map(|x| {
-                                            if let TenonLogData::Tool(tool) = x.log.data()
-                                                && tool.tool_call.internal_call_id
-                                                    == internal_call_id
-                                            {
-                                                return Some(x);
-                                            }
-                                            None
-                                        })
+                                if let Ok(mut log_window) = log_window_clone.write()
+                                    && let Some(log) = log_window.logs.iter_mut().find_map(|x| {
+                                        if let TenonLogData::Tool(tool) = x.log.data()
+                                            && tool.tool_call.internal_call_id == internal_call_id
+                                        {
+                                            return Some(x);
+                                        }
+                                        None
+                                    })
                                 {
                                     let log = Arc::make_mut(&mut log.log);
                                     let tool_result = tool_result.content.first();
@@ -539,15 +533,15 @@ impl ChatSession {
                                 }
                             }
                             Ok(StreamItem::ReasoningDelta { reasoning }) => {
-                                if let Ok(mut indexer) = log_indexer_clone.write() {
+                                if let Ok(mut log_window) = log_window_clone.write() {
                                     let mut updated = false;
-                                    if let Some(indexed_log) = indexer.log_window.logs.last_mut() {
+                                    if let Some(indexed_log) = log_window.logs.last_mut() {
                                         let log = Arc::make_mut(&mut indexed_log.log);
                                         updated = log.append_reasoning(&reasoning);
                                     }
 
                                     if !updated {
-                                        indexer.log_window.logs.push(
+                                        log_window.logs.push(
                                             crate::chat::log::indexer::IndexedLog {
                                                 log: Arc::new(TenonLog::new(
                                                     TenonLogData::Assistant(
@@ -564,15 +558,15 @@ impl ChatSession {
                                 }
                             }
                             Ok(StreamItem::Text { text }) => {
-                                if let Ok(mut indexer) = log_indexer_clone.write() {
+                                if let Ok(mut log_window) = log_window_clone.write() {
                                     let mut updated = false;
-                                    if let Some(indexed_log) = indexer.log_window.logs.last_mut() {
+                                    if let Some(indexed_log) = log_window.logs.last_mut() {
                                         let log = Arc::make_mut(&mut indexed_log.log);
                                         updated = log.append_text(&text);
                                     }
 
                                     if !updated {
-                                        indexer.log_window.logs.push(
+                                        log_window.logs.push(
                                             crate::chat::log::indexer::IndexedLog {
                                                 log: Arc::new(TenonLog::new(
                                                     TenonLogData::Assistant(
@@ -596,23 +590,21 @@ impl ChatSession {
                                 tool_call,
                                 internal_call_id,
                             }) => {
-                                if let Ok(mut indexer) = log_indexer_clone.write() {
-                                    indexer.log_window.logs.push(
-                                        crate::chat::log::indexer::IndexedLog {
-                                            log: Arc::new(TenonLog::new(TenonLogData::Tool(
-                                                TenonToolLog {
-                                                    tool_call: TenonToolCall {
-                                                        id: tool_call.id,
-                                                        internal_call_id,
-                                                        name: tool_call.function.name,
-                                                        args: tool_call.function.arguments,
-                                                    },
-                                                    tool_result: None,
+                                if let Ok(mut log_window) = log_window_clone.write() {
+                                    log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                                        log: Arc::new(TenonLog::new(TenonLogData::Tool(
+                                            TenonToolLog {
+                                                tool_call: TenonToolCall {
+                                                    id: tool_call.id,
+                                                    internal_call_id,
+                                                    name: tool_call.function.name,
+                                                    args: tool_call.function.arguments,
                                                 },
-                                            ))),
-                                            active: true,
-                                        },
-                                    );
+                                                tool_result: None,
+                                            },
+                                        ))),
+                                        active: true,
+                                    });
                                 }
                             }
                             Ok(StreamItem::Final { token_usage }) => {
@@ -623,7 +615,7 @@ impl ChatSession {
                                 }
                                 let history_dir = get_application_config().history.directory;
                                 let title_val = title_clone.read().ok().and_then(|t| t.clone());
-                                if let Ok(indexer) = log_indexer_clone.read() {
+                                if let Ok(log_window) = log_window_clone.read() {
                                     save_to_history(
                                         history::SessionMetadata {
                                             id: &chat_id,
@@ -632,7 +624,7 @@ impl ChatSession {
                                             model_display: &agent_clone.inner.model.display_name(),
                                             session_datetime,
                                         },
-                                        &indexer,
+                                        &log_window,
                                         &usage_clone,
                                         &history_dir,
                                     );
@@ -672,11 +664,11 @@ impl ChatSession {
     /// Prunes trailing incomplete messages (e.g., tool calls without results)
     /// from the session logs to prevent sending broken history to the LLM.
     pub fn prune_incomplete_messages(&self) {
-        let Ok(mut indexer) = self.log_handler.indexer.write() else {
+        let Ok(mut log_window) = self.log_handler.log_window.write() else {
             return;
         };
 
-        let logs = &indexer.log_window.logs;
+        let logs = &log_window.logs;
         let last_non_tool_index = logs
             .iter()
             .enumerate()
@@ -693,10 +685,10 @@ impl ChatSession {
                     new_logs.push(log.clone());
                 }
             }
-            indexer.log_window.logs = new_logs;
+            log_window.logs = new_logs;
         } else {
             // If all messages are tools, we only keep the ones with results
-            indexer.log_window.logs = logs
+            log_window.logs = logs
                 .iter()
                 .filter(|log| {
                     if let TenonLogData::Tool(tool_log) = log.log.data() {
@@ -756,8 +748,8 @@ mod tests {
     fn test_prune_incomplete_messages() {
         let session = ChatSession::new();
         {
-            let mut indexer = session.log_handler.indexer.write().unwrap();
-            indexer.log_window.logs = vec![
+            let mut log_window = session.log_handler.log_window.write().unwrap();
+            log_window.logs = vec![
                 create_user_log("Hello"),
                 create_tool_log("tool1", false), // Incomplete
                 create_tool_log("tool2", true),  // Complete
@@ -767,17 +759,17 @@ mod tests {
 
         session.prune_incomplete_messages();
 
-        let indexer = session.log_handler.indexer.read().unwrap();
-        assert_eq!(indexer.log_window.logs.len(), 2);
+        let log_window = session.log_handler.log_window.read().unwrap();
+        assert_eq!(log_window.logs.len(), 2);
         assert!(matches!(
-            indexer.log_window.logs[0].log.data(),
+            log_window.logs[0].log.data(),
             TenonLogData::User(_)
         ));
         assert!(matches!(
-            indexer.log_window.logs[1].log.data(),
+            log_window.logs[1].log.data(),
             TenonLogData::Tool(_)
         ));
-        if let TenonLogData::Tool(tl) = &indexer.log_window.logs[1].log.data() {
+        if let TenonLogData::Tool(tl) = &log_window.logs[1].log.data() {
             assert!(tl.tool_result.is_some());
         }
     }
