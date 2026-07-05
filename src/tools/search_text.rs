@@ -118,7 +118,7 @@ impl Tool for SearchText {
                     },
                     "glob": {
                         "type": "string",
-                        "description": "File filter. E.g. '*.rs', '**/*.ts'. Default='**/*'"
+                        "description": "File filter. E.g. '*.rs' (non-recursive), '**/*.ts' (recurse into directory). Default='**/*'"
                     },
                     "is_regex": {
                         "type": "boolean",
