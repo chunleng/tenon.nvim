@@ -44,12 +44,11 @@ impl ChatLogIndexer {
     /// applies context truncation, collects active messages, and prepends RAG context.
     pub fn retrieve_chatlog_with_context(
         &self,
-        log_window: &mut LogWindow,
+        log_window: LogWindow,
         user_message: &str,
     ) -> Vec<Message> {
-        self.apply_context_truncation(log_window);
         let mut chat_history = log_window.active_messages();
-        let history_messages = self.get_relevant_context(log_window, user_message);
+        let history_messages = self.get_relevant_context(&log_window, user_message);
         for msg in history_messages.into_iter().rev() {
             chat_history.insert(0, msg);
         }

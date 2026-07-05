@@ -1,5 +1,7 @@
 use std::sync::{Arc, RwLock};
 
+use rig::completion::Message;
+
 use super::TenonLog;
 use super::indexer::{ChatLogIndexer, IndexedLog};
 use super::window::LogWindow;
@@ -38,6 +40,21 @@ impl ChatLogHandler {
         Self {
             indexer: Arc::new(RwLock::new(indexer)),
             log_window: Arc::new(RwLock::new(log_window)),
+        }
+    }
+
+    pub fn get_chat_history(&mut self, user_message: &str) -> Vec<Message> {
+        if let Ok(indexer) = self.indexer.read() {
+            let mut log_window = match self.log_window.write() {
+                Ok(x) => x,
+                Err(_) => return Vec::new(),
+            };
+            indexer.apply_context_truncation(&mut log_window);
+            let log_window_clone = log_window.clone();
+            drop(log_window);
+            indexer.retrieve_chatlog_with_context(log_window_clone, &user_message)
+        } else {
+            Vec::new()
         }
     }
 }
