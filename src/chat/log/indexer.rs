@@ -123,17 +123,9 @@ impl ChatLogIndexer {
         // Region 1: before second checkpoint (older logs)
         // Region 2: between first and second checkpoint (middle logs)
         // Region 3: after first checkpoint (newer logs)
-        let first_checkpoint = self.log_window.find_last_checkpoint();
-        let second_checkpoint = first_checkpoint.and_then(|fc| {
-            if fc > 0 {
-                LogWindow {
-                    logs: self.log_window.logs[..fc].to_vec(),
-                }
-                .find_last_checkpoint()
-            } else {
-                None
-            }
-        });
+        let first_checkpoint = self.log_window.find_last_checkpoint(None);
+        let second_checkpoint =
+            first_checkpoint.and_then(|fc| self.log_window.find_last_checkpoint(Some(fc)));
 
         // Find the first user message index (must never be removed)
         let first_user_idx = self.log_window.find_first_user_index();

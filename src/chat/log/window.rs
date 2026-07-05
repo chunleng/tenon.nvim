@@ -52,21 +52,23 @@ impl LogWindow {
     }
 
     /// Finds the last checkpoint index in the log.
-    pub fn find_last_checkpoint(&self) -> Option<usize> {
-        if self.logs.is_empty() {
+    pub fn find_last_checkpoint(&self, before: Option<usize>) -> Option<usize> {
+        let end = before.unwrap_or(self.logs.len());
+        if end == 0 {
             return None;
         }
 
-        let last_idx = self.logs.len().saturating_sub(1);
+        let last_idx = end - 1;
+        let log_to_search = &self.logs[..end];
         if self.is_log_in_workflow(last_idx) {
-            self.logs
+            log_to_search
                 .iter()
                 .rposition(|indexed| match indexed.log.data() {
                     TenonLogData::Workflow(wf) => wf.step.is_some(),
                     _ => false,
                 })
         } else {
-            self.logs
+            log_to_search
                 .iter()
                 .rposition(|indexed| matches!(indexed.log.data(), TenonLogData::User(_)))
         }
@@ -138,7 +140,7 @@ mod tests {
             create_user_log(1),
         ];
         let log_window = create_log_window(logs);
-        assert_eq!(log_window.find_last_checkpoint(), Some(3));
+        assert_eq!(log_window.find_last_checkpoint(None), Some(3));
     }
 
     #[test]
@@ -161,7 +163,7 @@ mod tests {
             create_assistant_log(1),
         ];
         let log_window = create_log_window(logs);
-        assert_eq!(log_window.find_last_checkpoint(), Some(2));
+        assert_eq!(log_window.find_last_checkpoint(None), Some(2));
     }
 
     #[test]
@@ -173,6 +175,19 @@ mod tests {
             create_user_log(1),
         ];
         let log_window = create_log_window(logs);
-        assert_eq!(log_window.find_last_checkpoint(), Some(3));
+        assert_eq!(log_window.find_last_checkpoint(None), Some(3));
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_with_before() {
+        let logs = vec![
+            create_user_log(1), // 0
+            create_user_log(1), // 1
+            create_user_log(1), // 2
+            create_user_log(1), // 3
+        ];
+        let log_window = create_log_window(logs);
+        assert_eq!(log_window.find_last_checkpoint(None), Some(3));
+        assert_eq!(log_window.find_last_checkpoint(Some(3)), Some(2));
     }
 }
