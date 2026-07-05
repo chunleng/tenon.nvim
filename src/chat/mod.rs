@@ -380,21 +380,15 @@ impl ChatSession {
     }
 
     /// Internal method to send a chat request.
-    /// If save_prompt is true, it will be added to logs before sending.
+    /// The user message must be added to the log handler before calling this.
     /// RAG context is computed inside the spawned thread to avoid blocking.
-    fn send_chat_request(&mut self, prompt: String, save_prompt: bool) {
+    fn send_chat_request(&mut self) {
         // Cancel previous thread
         self.cancel_token.store(true, Ordering::SeqCst);
         self.cancel_token = Arc::new(AtomicBool::new(false));
 
-        // Generate title if this is a new user message
-        if save_prompt {
-            self.title_handler.generate_title();
-        }
-
-        if let Ok(mut log_window) = self.log_handler.log_window.write() {
-            log_window.prune_incomplete_messages();
-        };
+        // Generate title for the chat
+        self.title_handler.generate_title();
 
         let mut log_handler = self.log_handler.clone();
         let usage_clone = Arc::clone(&self.usage);
@@ -409,8 +403,6 @@ impl ChatSession {
             let rt = tokio::runtime::Runtime::new().unwrap();
 
             rt.block_on(async {
-                let mut next_prompt = prompt;
-                let mut save_next_prompt = save_prompt;
                 loop {
                     let mut should_continue = false;
                     let agent = agent_clone.build_chat_adapter(
@@ -418,19 +410,8 @@ impl ChatSession {
                         log_handler.log_window.clone(),
                     );
 
+                    let next_prompt = log_handler.get_user_prompt();
                     let chat_history = log_handler.get_chat_history(&next_prompt);
-
-                    // Add user message if provided
-                    if save_next_prompt && let Ok(mut log_window) = log_handler.log_window.write() {
-                        log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                            log: Arc::new(TenonLog::new(TenonLogData::User(
-                                TenonUserMessage::Text(TenonUserTextMessage(next_prompt.clone())),
-                            ))),
-                            active: true,
-                        });
-                        save_next_prompt = false;
-                    }
-
                     let prompt = build_workflow_prompt(&active_workflow_clone, next_prompt.clone());
                     let mut stream = agent
                         .stream_chat(prompt.clone(), chat_history.clone())
@@ -474,45 +455,12 @@ impl ChatSession {
 
                                     // Handle workflow tool results
                                     if let TenonLogData::Tool(tool_log) = log.data() {
-                                        match tool_log.tool_call.name.as_str() {
-                                            "start_workflow" if result.is_ok() => {
-                                                // Continue to first workflow step
-                                                should_continue = true;
-                                                next_prompt = "".to_string();
-                                                break;
-                                            }
-                                            "navigate_workflow" if result.is_ok() => {
-                                                // Extract step_output for continuation
-                                                if let Some(args_obj) =
-                                                    tool_log.tool_call.args.as_object()
-                                                    && let Some(serde_json::Value::String(
-                                                        step_output,
-                                                    )) = args_obj.get("step_output")
-                                                {
-                                                    should_continue = true;
-                                                    next_prompt = format!(
-                                                        "The previous step output: {}",
-                                                        step_output
-                                                    );
-                                                    break;
-                                                }
-                                            }
-                                            "end_workflow" if result.is_ok() => {
-                                                // Extract output for continuation
-                                                if let Some(args_obj) =
-                                                    tool_log.tool_call.args.as_object()
-                                                    && let Some(serde_json::Value::String(output)) =
-                                                        args_obj.get("output")
-                                                {
-                                                    should_continue = true;
-                                                    next_prompt = format!(
-                                                        "Workflow ended with output: {}",
-                                                        output
-                                                    );
-                                                    break;
-                                                }
-                                            }
-                                            _ => {}
+                                        if ["start_workflow", "navigate_workflow", "end_workflow"]
+                                            .contains(&tool_log.tool_call.name.as_str())
+                                            && result.is_ok()
+                                        {
+                                            should_continue = true;
+                                            break;
                                         }
                                     }
                                 }
@@ -639,11 +587,12 @@ impl ChatSession {
     /// Continue the chat without adding a new user message.
     /// Useful for prompting the LLM to continue from where it left off.
     pub fn continue_chat(&mut self) {
-        self.send_chat_request("".to_string(), false);
+        self.send_chat_request();
     }
 
     pub fn send_message(&mut self, message: String) {
-        self.send_chat_request(message.clone(), true);
+        self.log_handler.add_user_message(message);
+        self.send_chat_request();
     }
 }
 

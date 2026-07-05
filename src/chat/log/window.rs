@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use super::indexer::IndexedLog;
 use super::{TenonLog, TenonLogData};
-use rig::completion::Message;
 
 #[derive(Clone)]
 pub struct LogWindow {
@@ -21,12 +20,31 @@ impl LogWindow {
 
     /// Returns active messages that will be sent to LLM as chat context.
     /// Active logs are those with active=true.
-    /// Each TenonLog is converted to Vec<Message> (some logs produce multiple messages).
-    pub fn active_messages(&self) -> Vec<Message> {
-        self.logs
+    /// Excludes the last item if it's a user message (the current prompt is
+    /// passed separately to the LLM, not as part of history).
+    pub fn active_history_log(&self) -> Vec<Arc<TenonLog>> {
+        let active: Vec<Arc<TenonLog>> = self
+            .logs
             .iter()
             .filter(|indexed| indexed.active)
-            .flat_map(|indexed| Vec::<Message>::from(TenonLog::clone(&indexed.log)))
+            .map(|indexed| indexed.log.clone())
+            .collect();
+        let len = active.len();
+        if len > 0 && matches!(active[len - 1].data(), TenonLogData::User(_)) {
+            active[..len - 1].to_vec()
+        } else {
+            active
+        }
+    }
+
+    /// Returns all logs, excluding the last item if it's a user message.
+    pub fn history_log(&self) -> Vec<Arc<TenonLog>> {
+        let len = self.logs.len();
+        let skip_last = len > 0 && matches!(self.logs[len - 1].log.data(), TenonLogData::User(_));
+        self.logs
+            .iter()
+            .take(if skip_last { len - 1 } else { len })
+            .map(|indexed| indexed.log.clone())
             .collect()
     }
 
@@ -98,25 +116,28 @@ impl LogWindow {
     }
 
     /// Finds the last checkpoint index in the log.
+    /// Uses history_log() so the last user message is excluded from the search
+    /// (it's the current prompt, not part of history to search for checkpoints).
     pub fn find_last_checkpoint(&self, before: Option<usize>) -> Option<usize> {
-        let end = before.unwrap_or(self.logs.len());
+        let logs = self.history_log();
+        let end = before.unwrap_or(logs.len());
         if end == 0 {
             return None;
         }
 
         let last_idx = end - 1;
-        let log_to_search = &self.logs[..end];
+        let log_to_search = &logs[..end];
         if self.is_log_in_workflow(last_idx) {
             log_to_search
                 .iter()
-                .rposition(|indexed| match indexed.log.data() {
+                .rposition(|indexed| match indexed.data() {
                     TenonLogData::Workflow(wf) => wf.step.is_some(),
                     _ => false,
                 })
         } else {
             log_to_search
                 .iter()
-                .rposition(|indexed| matches!(indexed.log.data(), TenonLogData::User(_)))
+                .rposition(|indexed| matches!(indexed.data(), TenonLogData::User(_)))
         }
     }
 }
@@ -125,7 +146,7 @@ impl LogWindow {
 mod tests {
     use super::*;
     use crate::chat::{
-        TenonWorkflowLog,
+        TenonAssistantMessage, TenonAssistantMessageContent, TenonWorkflowLog,
         log::{
             TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonToolResult, TenonUserMessage,
             TenonUserTextMessage,
@@ -136,6 +157,15 @@ mod tests {
         let mut log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
             TenonUserTextMessage("x".repeat(token_count)),
         )));
+        log.token_count = token_count;
+        log
+    }
+
+    fn create_assistant_log(token_count: usize) -> TenonLog {
+        let mut log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
+            content: vec![TenonAssistantMessageContent::Text("x".repeat(token_count))],
+            reasoning: None,
+        }));
         log.token_count = token_count;
         log
     }
@@ -224,7 +254,7 @@ mod tests {
             create_user_log(1),
         ];
         let log_window = create_log_window(logs);
-        assert_eq!(log_window.find_last_checkpoint(None), Some(3));
+        assert_eq!(log_window.find_last_checkpoint(None), Some(0));
     }
 
     #[test]
@@ -236,7 +266,7 @@ mod tests {
             create_user_log(1), // 3
         ];
         let log_window = create_log_window(logs);
-        assert_eq!(log_window.find_last_checkpoint(None), Some(3));
+        assert_eq!(log_window.find_last_checkpoint(None), Some(2));
         assert_eq!(log_window.find_last_checkpoint(Some(3)), Some(2));
     }
 
@@ -270,6 +300,65 @@ mod tests {
             )))),
             active: true,
         }
+    }
+
+    #[test]
+    fn test_history_log_excludes_last_user_message() {
+        let logs = vec![
+            create_user_log(1),
+            create_assistant_log(1),
+            create_user_log(1),
+        ];
+        let log_window = create_log_window(logs);
+
+        // Last item is user → excluded
+        let history = log_window.history_log();
+        assert_eq!(history.len(), 2);
+        assert!(matches!(history[0].data(), TenonLogData::User(_)));
+        assert!(matches!(history[1].data(), TenonLogData::Assistant(_)));
+
+        // Last item is not user → all included
+        let logs = vec![create_user_log(1), create_assistant_log(1)];
+        let log_window = create_log_window(logs);
+        let history = log_window.history_log();
+        assert_eq!(history.len(), 2);
+    }
+
+    #[test]
+    fn test_active_history_log_excludes_last_user_message() {
+        let logs = vec![
+            create_user_log(1),
+            create_assistant_log(1),
+            create_user_log(1),
+        ];
+        let log_window = create_log_window(logs);
+
+        // Last active item is user → excluded
+        let history = log_window.active_history_log();
+        assert_eq!(history.len(), 2);
+        assert!(matches!(history[0].data(), TenonLogData::User(_)));
+        assert!(matches!(history[1].data(), TenonLogData::Assistant(_)));
+
+        // With inactive logs: only active items, excluding last user
+        let mut log_window = create_log_window(vec![
+            create_user_log(1),      // 0 - inactive
+            create_assistant_log(1), // 1 - inactive
+            create_user_log(1),      // 2 - active
+            create_assistant_log(1), // 3 - active
+            create_user_log(1),      // 4 - active (last, excluded)
+        ]);
+        log_window.logs[0].active = false;
+        log_window.logs[1].active = false;
+
+        let history = log_window.active_history_log();
+        assert_eq!(history.len(), 2);
+        assert!(matches!(history[0].data(), TenonLogData::User(_)));
+        assert!(matches!(history[1].data(), TenonLogData::Assistant(_)));
+
+        // Last item is not user → all active included
+        let log_window = create_log_window(vec![create_user_log(1), create_assistant_log(1)]);
+        let history = log_window.active_history_log();
+        assert_eq!(history.len(), 2);
     }
 
     #[test]

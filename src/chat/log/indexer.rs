@@ -47,7 +47,11 @@ impl ChatLogIndexer {
         log_window: LogWindow,
         user_message: &str,
     ) -> Vec<Message> {
-        let mut chat_history = log_window.active_messages();
+        let mut chat_history = log_window
+            .active_history_log()
+            .iter()
+            .flat_map(|indexed| Vec::<Message>::from(TenonLog::clone(indexed)))
+            .collect::<Vec<_>>();
         let history_messages = self.get_relevant_context(&log_window, user_message);
         for msg in history_messages.into_iter().rev() {
             chat_history.insert(0, msg);
@@ -378,6 +382,7 @@ mod tests {
             create_user_log(6),
             create_tool_log("read_file", 1),
             create_user_log(2),
+            create_assistant_log(0),
         ];
         let handler = ChatLogHandler::from_logs(logs);
         let log_window = handler.log_window.read().unwrap();
@@ -414,6 +419,7 @@ mod tests {
             create_user_log(10),
             create_tool_log("web_search", 1),
             create_user_log(1),
+            create_assistant_log(0),
         ];
         let handler = ChatLogHandler::from_logs(logs);
         let log_window = handler.log_window.read().unwrap();
@@ -442,6 +448,7 @@ mod tests {
             create_assistant_log(18), // 1 - assistant (Region 1, chat log)
             create_user_log(1),       // 2 - user (checkpoint 2x, Region 1)
             create_user_log(1),       // 3 - user (checkpoint 1x, Region 2)
+            create_assistant_log(0),  // 4 - assistant (preserves last-user exclusion semantics)
         ];
         let handler = ChatLogHandler::from_logs(logs);
         let log_window = handler.log_window.read().unwrap();
@@ -463,6 +470,7 @@ mod tests {
             create_user_log(1),               // 1 - user (checkpoint 2x)
             create_tool_log("web_search", 1), // 2 - non-idempotent tool (Region 2)
             create_user_log(18),              // 3 - user (checkpoint 1x)
+            create_assistant_log(0), // 4 - assistant (preserves last-user exclusion semantics)
         ];
         let handler = ChatLogHandler::from_logs(logs);
         let log_window = handler.log_window.read().unwrap();
@@ -505,10 +513,11 @@ mod tests {
         // First user message is never removed across all phases
         // This is a fundamental invariant
         let logs = vec![
-            create_user_log(10), // 0 - first user (MUST be preserved)
-            create_user_log(20), // 1 - random user log in the middle gets removed instead
-            create_user_log(20), // 2 - user (checkpoint 2x)
-            create_user_log(1),  // 3 - user (checkpoint 1x)
+            create_user_log(10),     // 0 - first user (MUST be preserved)
+            create_user_log(20),     // 1 - random user log in the middle gets removed instead
+            create_user_log(20),     // 2 - user (checkpoint 2x)
+            create_user_log(1),      // 3 - user (checkpoint 1x)
+            create_assistant_log(0), // 4 - assistant (preserves last-user exclusion semantics)
         ];
         let handler = ChatLogHandler::from_logs(logs);
         let log_window = handler.log_window.read().unwrap();
