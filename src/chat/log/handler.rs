@@ -67,7 +67,7 @@ impl ChatLogHandler {
                 return text_msg.0.clone();
             }
         }
-        String::new()
+        "<context></context>".to_string()
     }
 
     pub fn get_chat_history(&mut self, user_message: &str) -> Vec<Message> {
