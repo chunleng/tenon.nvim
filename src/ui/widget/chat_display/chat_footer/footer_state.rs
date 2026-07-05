@@ -2,19 +2,9 @@ use std::sync::{Arc, RwLock};
 
 use crate::chat::chat_session_count;
 use crate::get_application_config;
+use crate::tools::resolve_tool_names;
 use crate::ui::widget::chat_display::ChatDisplayData;
 use crate::utils::format_token_with_delta;
-
-#[cfg(not(test))]
-use crate::tools::resolve_tool_names;
-
-// Test mock: returns tool names as-is without resolving MCP tools.
-// The real implementation calls McpHubCaller::from_mcp_tools() which requires
-// a Neovim context (GLOBAL_EXECUTION_HANDLER), causing panics in unit tests.
-#[cfg(test)]
-fn resolve_tool_names(names: &[impl AsRef<str>]) -> Vec<String> {
-    names.iter().map(|x| x.as_ref().to_string()).collect()
-}
 
 #[derive(Clone)]
 pub struct FooterValues {

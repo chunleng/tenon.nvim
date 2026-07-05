@@ -779,7 +779,7 @@ mod tests {
         assert!(updates[3].lines[0].contains("tool3"));
         assert_eq!(updates[3].lines[1], "");
 
-        let (updates, _) = cache.poll_render_update();
+        cache.poll_render_update();
 
         let session = cache.chat_session.write().unwrap();
         let mut indexer = session.log_handler.indexer.write().unwrap();

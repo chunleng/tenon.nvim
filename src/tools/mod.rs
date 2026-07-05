@@ -188,12 +188,21 @@ pub fn tool_matches_selectors(name: &str, selectors: &[&str]) -> bool {
 ///
 /// Applies the same matching rules as [`resolve_tools`] but returns just the
 /// names, without instantiating tool objects. Useful for comparison / display.
+#[cfg(not(test))]
 pub fn resolve_tool_names(names: &[impl AsRef<str>]) -> Vec<String> {
     let selectors: Vec<&str> = names.iter().map(|n| n.as_ref()).collect();
     all_tool_names()
         .into_iter()
         .filter(|name| tool_matches_selectors(name, &selectors))
         .collect()
+}
+
+// Test mock: returns tool names as-is without resolving MCP tools.
+// The real implementation calls McpHubCaller::from_mcp_tools() which requires
+// a Neovim context (GLOBAL_EXECUTION_HANDLER), causing panics in unit tests.
+#[cfg(test)]
+pub fn resolve_tool_names(names: &[impl AsRef<str>]) -> Vec<String> {
+    names.iter().map(|x| x.as_ref().to_string()).collect()
 }
 
 /// Resolve a list of tool name strings into concrete `Box<dyn ToolDyn>` instances.
