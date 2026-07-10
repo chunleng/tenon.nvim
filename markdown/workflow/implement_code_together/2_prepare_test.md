@@ -50,44 +50,30 @@ Ensure test verifies incremental change. Tests only — no implementation
 - Adding password complexity check → Create `test_password_complexity` (fails for different reason: missing special character, not length)
 
 ## Output
-```json
-[
-  {
-    "test_file": "path/to/test/file",
-    "test_name": "test function name",
-    "status": "failing|passing",
-    "purpose": "why this test is crucial for verifying the change"
-  }
-]
+```yaml
+- test_file: "path/to/test/file"
+  test_name: "test function name"
+  status: "failing|passing"
+  purpose: "why this test is crucial for verifying the change"
 ```
 
 ## Example
 **Code change:**
-```json
-[
-  {
-    "test_file": "src/auth/tests/validation_test.rs",
-    "test_name": "test_empty_password_validation",
-    "status": "failing",
-    "purpose": "Confirms password validation rejects empty strings"
-  }
-]
+```yaml
+- test_file: "src/auth/tests/validation_test.rs"
+  test_name: "test_empty_password_validation"
+  status: "failing"
+  purpose: "Confirms password validation rejects empty strings"
 ```
 
 **Refactor change:**
-```json
-[
-  {
-    "test_file": "src/utils/parser_test.rs",
-    "test_name": "test_parse_config",
-    "status": "passing",
-    "purpose": "Ensures config parsing logic remains correct after extracting parse logic into separate module"
-  },
-  {
-    "test_file": "src/utils/parser_test.rs",
-    "test_name": "test_parse_edge_cases",
-    "status": "passing",
-    "purpose": "Covers edge cases that must remain working after refactoring"
-  }
-]
+```yaml
+- test_file: "src/utils/parser_test.rs"
+  test_name: "test_parse_config"
+  status: "passing"
+  purpose: "Ensures config parsing logic remains correct after extracting parse logic into separate module"
+- test_file: "src/utils/parser_test.rs"
+  test_name: "test_parse_edge_cases"
+  status: "passing"
+  purpose: "Covers edge cases that must remain working after refactoring"
 ```

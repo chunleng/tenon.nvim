@@ -10,39 +10,23 @@ Remove out-of-scope or unnecessary changes
 3. Document rationale for each removal
 
 ## Output
-```json
-{
-  "changes": [
-    {
-      "target": "file or component",
-      "description": "what to do",
-      "rationale": "why this change"
-    }
-  ],
-  "removed": [
-    {
-      "change": "removed change description",
-      "reason": "why removed"
-    }
-  ]
-}
+```yaml
+changes:
+  - target: "file or component"
+    description: "what to do"
+    rationale: "why this change"
+removed:
+  - change: "removed change description"
+    reason: "why removed"
 ```
 
 ## Example
-```json
-{
-  "changes": [
-    {
-      "target": "src/rate_limiter.rs",
-      "description": "create token bucket rate limiter",
-      "rationale": "encapsulates rate limiting logic"
-    }
-  ],
-  "removed": [
-    {
-      "change": "add rate limit configuration UI",
-      "reason": "not in scope - requirement only mentions backend rate limiting"
-    }
-  ]
-}
+```yaml
+changes:
+  - target: "src/rate_limiter.rs"
+    description: "create token bucket rate limiter"
+    rationale: "encapsulates rate limiting logic"
+removed:
+  - change: "add rate limit configuration UI"
+    reason: "not in scope - requirement only mentions backend rate limiting"
 ```

@@ -9,14 +9,9 @@ Check input source:
 List each target text with source location (file path, distinctive text snippet)
 
 ## Output
-```json
-{
-  "targets": [
-    {
-      "source": "file path or 'inline'",
-      "context": "text snippet identifying section (e.g. '## Purpose', 'fn process()')",
-      "text": "original text"
-    }
-  ]
-}
+```yaml
+targets:
+  - source: "file path or 'inline'"
+    context: "text snippet identifying section (e.g. '## Purpose', 'fn process()')"
+    text: "original text"
 ```

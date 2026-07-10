@@ -17,14 +17,20 @@ Review drafted workflow content and flag vague, ambiguous, or problematic lines
 - **Contradictory**: Two instructions that conflict
 
 ## Output
-```json
-{
-  "file": "path/to/file.md",
-  "flagged_lines": [
-    {"file": "path/to/file.md", "line": 5, "content": "...", "reason": "..."},
-    {"file": "path/to/file.md", "line": 12, "content": "...", "reason": "..."}
-  ]
-}
+```yaml
+file: "path/to/file.md"
+flagged_lines:
+  - file: "path/to/file.md"
+    line: 5
+    content: "..."
+    reason: "..."
+  - file: "path/to/file.md"
+    line: 12
+    content: "..."
+    reason: "..."
 ```
 
-If no issues: `{"flagged_lines": []}`
+If no issues:
+```yaml
+flagged_lines: []
+```

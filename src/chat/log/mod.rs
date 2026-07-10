@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use skimtoken::estimate_tokens;
 
+use crate::utils::format_yaml_block_scalars;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonUserTextMessage(pub String);
 
@@ -408,7 +410,9 @@ impl TenonLogData {
                 lines.push(String::new());
                 lines.push("### Args".to_string());
                 lines.push(String::new());
-                lines.extend(plain(&log.tool_call.args.to_string()));
+                let args_yaml = serde_yaml::to_string(&log.tool_call.args)
+                    .unwrap_or_else(|_| log.tool_call.args.to_string());
+                lines.extend(plain(&format_yaml_block_scalars(&args_yaml)));
                 lines.push(String::new());
                 match &log.tool_result {
                     None => {

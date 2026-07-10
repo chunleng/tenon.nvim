@@ -19,21 +19,20 @@ Find next incremental step:
 - Avoid large refactors (break into smaller steps)
 
 ## Output
-```json
-{
-  "next_step": "description of the change",
-  "files": ["path/to/file1", "path/to/file2"],
-  "change_details": "specific modification to make",
-  "verification": "how to verify this step works"
-}
+```yaml
+next_step: "description of the change"
+files:
+  - "path/to/file1"
+  - "path/to/file2"
+change_details: "specific modification to make"
+verification: "how to verify this step works"
 ```
 
 ## Example
-```json
-{
-  "next_step": "Add empty string check in validate_password function",
-  "files": ["src/auth/validation.rs"],
-  "change_details": "Add if password.is_empty() check at start of validate_password()",
-  "verification": "test_empty_password_validation should pass after this change"
-}
+```yaml
+next_step: "Add empty string check in validate_password function"
+files:
+  - "src/auth/validation.rs"
+change_details: "Add if password.is_empty() check at start of validate_password()"
+verification: "test_empty_password_validation should pass after this change"
 ```

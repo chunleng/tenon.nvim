@@ -16,37 +16,27 @@ Verify plan addresses requirement without unintended side effects
 
 ## Output
 When verification fails (issues found):
-```json
-{
-  "status": "verification failed",
-  "issues": [
-    {
-      "issue": "description of problem",
-      "type": "missing" | "side_effect" | "gap",
-      "suggestion": "how to fix"
-    }
-  ]
-}
+```yaml
+status: "verification failed"
+issues:
+  - issue: "description of problem"
+    type: "missing | side_effect | gap"
+    suggestion: "how to fix"
 ```
 
 When verification passes:
-```json
-{
-  "requirement": "what user wants to achieve",
-  "constraints": ["constraint 1", "constraint 2"],
-  "acceptance_criteria": [
-    {
-      "criteria": "measurable outcome",
-      "verification": "how to verify"
-    }
-  ],
-  "changes": [
-    {
-      "target": "file or component",
-      "description": "what to do",
-      "rationale": "why this change",
-      "integration_points": ["where it connects"]
-    }
-  ]
-}
+```yaml
+requirement: "what user wants to achieve"
+constraints:
+  - "constraint 1"
+  - "constraint 2"
+acceptance_criteria:
+  - criteria: "measurable outcome"
+    verification: "how to verify"
+changes:
+  - target: "file or component"
+    description: "what to do"
+    rationale: "why this change"
+    integration_points:
+      - "where it connects"
 ```

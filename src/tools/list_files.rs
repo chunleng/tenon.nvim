@@ -30,7 +30,7 @@ impl Tool for ListFiles {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "list_files".to_string(),
-            description: "List files matching glob. JSON: files[] + metadata.".to_string(),
+            description: "List files matching glob. YAML: files[] + metadata.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -119,11 +119,13 @@ impl Tool for ListFiles {
 
         let truncated = total_matched > max_count;
 
-        Ok(serde_json::to_string(&json!({
-            "files": files,
-            "total_matched": total_matched,
-            "truncated": truncated,
-        }))
-        .unwrap_or_else(|_| "{\"files\":[],\"total_matched\":0,\"truncated\":false}".to_string()))
+        Ok(crate::utils::format_yaml_block_scalars(
+            &serde_yaml::to_string(&json!({
+                "files": files,
+                "total_matched": total_matched,
+                "truncated": truncated,
+            }))
+            .unwrap_or_else(|_| "files: []\ntotal_matched: 0\ntruncated: false".to_string()),
+        ))
     }
 }

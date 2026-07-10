@@ -8,39 +8,25 @@ Remove out-of-scope items from refactoring plan
    - Are unrelated to user's requirement
 
 ## Output
-```json
-{
-  "changes": [
-    {
-      "description": "specific change to make",
-      "rationale": "why this improves code",
-      "files": ["affected files"]
-    }
-  ],
-  "removed": [
-    {
-      "description": "removed change",
-      "reason": "why it was removed"
-    }
-  ]
-}
+```yaml
+changes:
+  - description: "specific change to make"
+    rationale: "why this improves code"
+    files:
+      - "affected files"
+removed:
+  - description: "removed change"
+    reason: "why it was removed"
 ```
 
 ## Example
-```json
-{
-  "changes": [
-    {
-      "description": "Extract length validation into separate function",
-      "rationale": "reduces validate_password complexity",
-      "files": ["src/auth/validation.rs"]
-    }
-  ],
-  "removed": [
-    {
-      "description": "Add validation_result struct for error details",
-      "reason": "violates constraint to preserve public interface"
-    }
-  ]
-}
+```yaml
+changes:
+  - description: "Extract length validation into separate function"
+    rationale: "reduces validate_password complexity"
+    files:
+      - "src/auth/validation.rs"
+removed:
+  - description: "Add validation_result struct for error details"
+    reason: "violates constraint to preserve public interface"
 ```

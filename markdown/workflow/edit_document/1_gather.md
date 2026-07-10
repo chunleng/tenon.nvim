@@ -15,19 +15,13 @@ Collect relevant information to inform documentation goal and structure
    - File location conventions (README = project overview, docs/ = detailed guides)
 
 ## Output
-```json
-{
-  "target_file": "path/to/file.md",
-  "action": "create" | "update",
-  "context": {
-    "existing_content": "current file content for update operations; null for create operations",
-    "references": [
-      {
-        "path": "file/path",
-        "relevance": "what information this file provides to the document"
-      }
-    ],
-    "purpose": "what the documentation should achieve"
-  }
-}
+```yaml
+target_file: "path/to/file.md"
+action: "create | update"
+context:
+  existing_content: "current file content for update operations; null for create operations"
+  references:
+    - path: "file/path"
+      relevance: "what information this file provides to the document"
+  purpose: "what the documentation should achieve"
 ```

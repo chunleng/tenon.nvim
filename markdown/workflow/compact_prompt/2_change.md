@@ -50,15 +50,10 @@ text
 ```
 
 ## Output
-```json
-{
-  "compactions": [
-    {
-      "source": "file path or 'inline'",
-      "context": "text snippet identifying section (e.g. '## Purpose', 'fn process()')",
-      "original": "original text",
-      "compacted": "compacted text"
-    }
-  ]
-}
+```yaml
+compactions:
+  - source: "file path or 'inline'"
+    context: "text snippet identifying section (e.g. '## Purpose', 'fn process()')"
+    original: "original text"
+    compacted: "compacted text"
 ```

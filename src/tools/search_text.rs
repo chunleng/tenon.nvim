@@ -1,3 +1,4 @@
+use crate::utils::format_yaml_block_scalars;
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
@@ -246,10 +247,12 @@ impl Tool for SearchText {
 
         let result = perform_search(files, is_regex, &re, context_lines, max_files);
 
-        Ok(serde_json::to_string(&result).unwrap_or_else(|_| {
-            r#"{"files":[],"total_matches":0,"files_with_matches":0,"files_searched":0,"truncated_files":0}"#
-                .to_string()
-        }))
+        Ok(format_yaml_block_scalars(
+            &serde_yaml::to_string(&result).unwrap_or_else(|_| {
+                "files: []\ntotal_matches: 0\nfiles_with_matches: 0\nfiles_searched: 0\ntruncated_files: 0\n"
+                    .to_string()
+            }),
+        ))
     }
 }
 

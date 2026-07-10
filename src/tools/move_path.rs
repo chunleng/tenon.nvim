@@ -1,4 +1,5 @@
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
+use crate::utils::format_yaml_block_scalars;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
@@ -198,8 +199,9 @@ impl Tool for MovePath {
             truncated,
         };
 
-        let output =
-            serde_json::to_string(&result).unwrap_or_else(|_| format!("moved {}", args.source));
+        let output = format_yaml_block_scalars(
+            &serde_yaml::to_string(&result).unwrap_or_else(|_| format!("moved {}", args.source)),
+        );
 
         let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread("vim.cmd('checktime')");
 

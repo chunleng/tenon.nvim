@@ -14,35 +14,27 @@ Identify implementation changes: new components to create, existing code to modi
    - Data structures that need changes
 
 ## Output
-```json
-{
-  "changes": [
-    {
-      "target": "file or component",
-      "description": "what to do",
-      "rationale": "why this change",
-      "integration_points": ["where it connects"]
-    }
-  ]
-}
+```yaml
+changes:
+  - target: "file or component"
+    description: "what to do"
+    rationale: "why this change"
+    integration_points:
+      - "where it connects"
 ```
 
 ## Example
-```json
-{
-  "changes": [
-    {
-      "target": "src/rate_limiter.rs",
-      "description": "create token bucket rate limiter",
-      "rationale": "encapsulates rate limiting logic",
-      "integration_points": ["middleware layer"]
-    },
-    {
-      "target": "src/middleware.rs",
-      "description": "modify to add rate limiter to request pipeline",
-      "rationale": "applies rate limiting to all requests",
-      "integration_points": ["request handler", "rate_limiter"]
-    }
-  ]
-}
+```yaml
+changes:
+  - target: "src/rate_limiter.rs"
+    description: "create token bucket rate limiter"
+    rationale: "encapsulates rate limiting logic"
+    integration_points:
+      - "middleware layer"
+  - target: "src/middleware.rs"
+    description: "modify to add rate limiter to request pipeline"
+    rationale: "applies rate limiting to all requests"
+    integration_points:
+      - "request handler"
+      - "rate_limiter"
 ```

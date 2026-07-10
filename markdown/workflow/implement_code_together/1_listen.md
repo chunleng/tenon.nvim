@@ -17,21 +17,15 @@ Ask user for next incremental goal. Information-gathering only — no code imple
   b. User reject → loop to process step 2: clarify goal
 
 ## Output
-```json
-{
-  "goal": "clear description of the incremental goal user wants to achieve",
-  "sidenotes": [
-    "any additional context not covered by the goal"
-  ]
-}
+```yaml
+goal: "clear description of the incremental goal user wants to achieve"
+sidenotes:
+  - "any additional context not covered by the goal"
 ```
 
 ## Example
-```json
-{
-  "goal": "Add empty string validation to password field",
-  "sidenotes": [
-    "Should return user-friendly error message"
-  ]
-}
+```yaml
+goal: "Add empty string validation to password field"
+sidenotes:
+  - "Should return user-friendly error message"
 ```

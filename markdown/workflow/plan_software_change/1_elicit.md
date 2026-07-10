@@ -28,37 +28,25 @@ Gather requirements, identify existing features, detect contradictions with curr
 5. Clarify conflicts and ambiguities with user
 
 ## Output
-```json
-{
-  "requirement": "what user wants to achieve",
-  "constraints": [
-    "must preserve X behavior",
-    "cannot change Y interface",
-    "must support Z migration path"
-  ],
-  "acceptance_criteria": [
-    {
-      "criteria": "measurable outcome",
-      "verification": "how to verify"
-    }
-  ]
-}
+```yaml
+requirement: "what user wants to achieve"
+constraints:
+  - "must preserve X behavior"
+  - "cannot change Y interface"
+  - "must support Z migration path"
+acceptance_criteria:
+  - criteria: "measurable outcome"
+    verification: "how to verify"
 ```
 
 ## Example
-```json
-{
-  "requirement": "add rate limiting to API endpoints",
-  "constraints": [
-    "must not break existing API clients",
-    "must be configurable per endpoint",
-    "must log rejected requests"
-  ],
-  "acceptance_criteria": [
-    {
-      "criteria": "requests beyond limit return 429",
-      "verification": "test with burst of requests"
-    }
-  ]
-}
+```yaml
+requirement: "add rate limiting to API endpoints"
+constraints:
+  - "must not break existing API clients"
+  - "must be configurable per endpoint"
+  - "must log rejected requests"
+acceptance_criteria:
+  - criteria: "requests beyond limit return 429"
+    verification: "test with burst of requests"
 ```

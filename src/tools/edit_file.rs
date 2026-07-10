@@ -215,11 +215,16 @@ impl Tool for EditFile {
 
         let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread("vim.cmd('checktime')");
 
-        Ok(json!({
+        serde_yaml::to_string(&json!({
             "successful_edits": edits,
             "count": edits.len(),
+        }))
+        .map_err(|e| {
+            ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
+                "Serialize failed: {}",
+                e
+            ))))
         })
-        .to_string())
     }
 }
 

@@ -24,16 +24,17 @@ Validate steps flow properly between each other and instructions flow properly w
 
 ## Output
 If issues found:
-```json
-{
-  "issues": [
-    {"type": "flow", "location": "step 2 → step 3", "description": "..."},
-    {"type": "internal", "location": "step 4", "description": "..."}
-  ]
-}
+```yaml
+issues:
+  - type: "flow"
+    location: "step 2 → step 3"
+    description: "..."
+  - type: "internal"
+    location: "step 4"
+    description: "..."
 ```
 
 If no issues:
-```json
-{"issues": []}
+```yaml
+issues: []
 ```

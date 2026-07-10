@@ -1,3 +1,4 @@
+use crate::utils::format_yaml_block_scalars;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
@@ -81,11 +82,9 @@ impl Tool for ReadFile {
 
                 let selected_lines = lines[start..end].join("\n");
 
-                Ok(format!(
-                    "<file path=\"{}\">{}</file>",
-                    path.to_str().unwrap_or_default(),
-                    selected_lines
-                ))
+                let yaml = serde_yaml::to_string(&json!({ "file_content": selected_lines }))
+                    .unwrap_or_else(|_| format!("content: \"{}\"", selected_lines));
+                Ok(format_yaml_block_scalars(&yaml))
             }
             Err(e) => Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                 e.kind(),

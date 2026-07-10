@@ -12,25 +12,15 @@ Trace execution path from reproduction steps:
 - Bug isolation: use debug print, log analysis, etc. to confirm unexpected behavior
 
 ## Output
-```json
-[
-  {
-    "file": "path/to/file",
-    "explanation": "how code causes bug (direct or indirect)"
-  }
-]
+```yaml
+- file: "path/to/file"
+  explanation: "how code causes bug (direct or indirect)"
 ```
 
 ## Example
-```json
-[
-  {
-    "file": "src/auth/login.rs",
-    "explanation": "validate_password() doesn't check empty string → crash on empty input"
-  },
-  {
-    "file": "src/api/handler.rs",
-    "explanation": "passes unvalidated user input to validate_password()"
-  }
-]
+```yaml
+- file: "src/auth/login.rs"
+  explanation: "validate_password() doesn't check empty string → crash on empty input"
+- file: "src/api/handler.rs"
+  explanation: "passes unvalidated user input to validate_password()"
 ```

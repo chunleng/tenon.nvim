@@ -11,26 +11,17 @@ Determine if texts are compacted properly
 
 ## Output
 ### Changes Required
-```json
-[
-  {
-    "source": "file path or 'inline'",
-    "context": "text snippet identifying section (e.g. '## Purpose', 'fn process()')",
-    "text": "current text — still needs compaction",
-    "issue": "what can be more concise"
-  }
-]
+```yaml
+- source: "file path or 'inline'"
+  context: "text snippet identifying section (e.g. '## Purpose', 'fn process()')"
+  text: "current text — still needs compaction"
+  issue: "what can be more concise"
 ```
 
 ### No Further changes
-```json
-{
-  "finals": [
-    {
-      "source": "file path or 'inline'",
-      "original": "original text",
-      "compacted": "final compacted text"
-    }
-  ]
-}
+```yaml
+finals:
+  - source: "file path or 'inline'"
+    original: "original text"
+    compacted: "final compacted text"
 ```

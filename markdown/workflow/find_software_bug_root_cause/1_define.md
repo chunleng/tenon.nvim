@@ -24,25 +24,21 @@ There are many ways to observe what's happening inside code
 - Bug isolation technique
 
 ## Output
-```json
-[
-  {
-    "steps_to_reproduce": ["step1", "step2", ...],
-    "conditions": "conditions to reproduce, or 'none'",
-    "expected_behavior": "expected behavior",
-    "actual_behavior": "actual behavior"
-  }
-]
+```yaml
+- steps_to_reproduce:
+    - "step1"
+    - "step2"
+  conditions: "conditions to reproduce, or 'none'"
+  expected_behavior: "expected behavior"
+  actual_behavior: "actual behavior"
 ```
 
 ## Example
-```json
-[
-  {
-    "steps_to_reproduce": ["login", "click button A"],
-    "conditions": "user has admin role and browser is Safari",
-    "expected_behavior": "go to settings page",
-    "actual_behavior": "user got logged out"
-  }
-]
+```yaml
+- steps_to_reproduce:
+    - "login"
+    - "click button A"
+  conditions: "user has admin role and browser is Safari"
+  expected_behavior: "go to settings page"
+  actual_behavior: "user got logged out"
 ```

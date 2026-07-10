@@ -22,26 +22,20 @@ Goal reached criteria:
 - No remaining work from requirements
 
 ## Output
-```json
-{
-  "goal_reached": true|false,
-  "reasoning": "explanation of decision",
-  "remaining_gap": "what's still needed (if goal_reached: false)"
-}
+```yaml
+goal_reached: true|false
+reasoning: "explanation of decision"
+remaining_gap: "what's still needed (if goal_reached: false)"
 ```
 
 ## Example
-```json
-{
-  "goal_reached": true,
-  "reasoning": "Empty password validation added, all acceptance criteria met, tests passing"
-}
+```yaml
+goal_reached: true
+reasoning: "Empty password validation added, all acceptance criteria met, tests passing"
 ```
 
-```json
-{
-  "goal_reached": false,
-  "reasoning": "Empty password check added but error message not user-friendly",
-  "remaining_gap": "Add user-friendly error message for empty password validation"
-}
+```yaml
+goal_reached: false
+reasoning: "Empty password check added but error message not user-friendly"
+remaining_gap: "Add user-friendly error message for empty password validation"
 ```

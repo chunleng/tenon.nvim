@@ -22,20 +22,19 @@ Verify after implementation:
 - If verification fails → fix issues and retry
 
 ## Output
-```json
-{
-  "build_status": "pass|fail",
-  "tests_run": ["test_name_1"],
-  "test_status": "pass|fail",
-  "failed_tests": ["test_name: failure reason"]
-}
+```yaml
+build_status: "pass|fail"
+tests_run:
+  - "test_name_1"
+test_status: "pass|fail"
+failed_tests:
+  - "test_name: failure reason"
 ```
 
 ## Example
-```json
-{
-  "build_status": "pass",
-  "tests_run": ["test_empty_password_validation"],
-  "test_status": "pass"
-}
+```yaml
+build_status: "pass"
+tests_run:
+  - "test_empty_password_validation"
+test_status: "pass"
 ```

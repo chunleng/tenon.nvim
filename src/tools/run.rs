@@ -1,5 +1,6 @@
 use crate::agent::worker::SimpleTenonWorkerAgent;
 use crate::get_application_config;
+use crate::utils::format_yaml_block_scalars;
 use futures::stream::{self, StreamExt};
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
@@ -128,7 +129,7 @@ async fn check_command_safety_with_llm(
 ) -> Result<(bool, Option<String>), ToolError> {
     let worker = SimpleTenonWorkerAgent::new(
         Some(model.clone()),
-        r#"Judge command safety. Output JSON only.
+        r#"Judge command safety. Output YAML only.
 
 DENY patterns:
 - Secrets: env vars (*KEY*, *SECRET*, *TOKEN*, *API*), files (.env, id_rsa, credentials, .pem)
@@ -149,9 +150,12 @@ ALLOW patterns:
 
 Judge by similarity to patterns above. Commands matching DENY patterns → deny. Commands matching ALLOW patterns → allow. Similar safe read-only operations → allow.
 
-Output:
-{"decision": "allow"}
-{"decision": "deny", "reason": "..."}"#,
+Output (allow):
+decision: allow
+
+Output (deny):
+decision: deny
+reason: ..."#,
         true,
     )
     .map_err(|e| {
@@ -167,12 +171,12 @@ Output:
         ))))
     })?;
 
-    // Parse JSON response
-    let safety: CommandSafetyResponse = serde_json::from_str(&response).map_err(|e| {
+    // Parse YAML response
+    let safety: CommandSafetyResponse = serde_yaml::from_str(&response).map_err(|e| {
         ToolError::ToolCallError(Box::new(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
-                "Failed to parse LLM response as JSON: {} (response: {})",
+                "Failed to parse LLM response as YAML: {} (response: {})",
                 e, response
             ),
         )))
@@ -441,9 +445,11 @@ impl Tool for Run {
             truncated,
         };
 
-        Ok(serde_json::to_string(&result).unwrap_or_else(|_| {
-            r#"{"exit_code":-1,"stdout":"","stderr":"","truncated":false}"#.to_string()
-        }))
+        Ok(format_yaml_block_scalars(
+            &serde_yaml::to_string(&result).unwrap_or_else(|_| {
+                "exit_code: -1\nstdout: \"\"\nstderr: \"\"\ntruncated: false\n".to_string()
+            }),
+        ))
     }
 }
 

@@ -103,6 +103,55 @@ pub fn format_token_count(count: u64) -> String {
     }
 }
 
+/// Convert serde_yaml's double-quoted strings containing `\n` into YAML literal
+/// block scalar style (`|`) for better readability by the LLM.
+pub fn format_yaml_block_scalars(yaml: &str) -> String {
+    let re = regex::Regex::new(r#"(?m)^(\s*(?:- )?)([^:\n]+): "((?:[^"\\]|\\.)*)""#).unwrap();
+
+    re.replace_all(yaml, |caps: &regex::Captures| {
+        let prefix = &caps[1];
+        let value = &caps[3];
+
+        if !value.contains(r"\n") {
+            return caps[0].to_string();
+        }
+
+        let unescaped = unescape_yaml_string(value);
+        let content_indent = " ".repeat(prefix.len() + 2);
+        let block = unescaped
+            .split('\n')
+            .map(|line| format!("{}{}", content_indent, line))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        format!("{}{}: |\n{}", prefix, &caps[2], block)
+    })
+    .to_string()
+}
+
+fn unescape_yaml_string(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => result.push('\n'),
+                Some('t') => result.push('\t'),
+                Some('\\') => result.push('\\'),
+                Some('"') => result.push('"'),
+                Some(other) => {
+                    result.push('\\');
+                    result.push(other);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 /// Format token count with delta, hiding delta when it's 0.
 ///
 /// Examples:
@@ -355,5 +404,20 @@ mod tests {
     fn test_format_token_count_billions() {
         assert_eq!(format_token_count(1_000_000_000), "1.0B");
         assert_eq!(format_token_count(1_500_000_000), "1.5B");
+    }
+
+    #[test]
+    fn test_format_yaml_block_scalars_converts_multiline() {
+        let input = r#"test: "a\nb""#;
+        let expected = "test: |\n  a\n  b";
+        assert_eq!(format_yaml_block_scalars(input), expected);
+    }
+
+    #[test]
+    fn test_format_yaml_block_scalars_converts_multiline_in_object() {
+        let input = r#"result: "line one\nline two\nline three"
+count: 5"#;
+        let expected = "result: |\n  line one\n  line two\n  line three\ncount: 5";
+        assert_eq!(format_yaml_block_scalars(input), expected);
     }
 }

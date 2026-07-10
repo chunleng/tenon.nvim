@@ -19,18 +19,15 @@ Define documentation goal and propose structure for user approval
    - User rejects → return to Gather step to collect more context
 
 ## Output
-```json
-{
-  "goal": {
-    "target_file": "path/to/file.md",
-    "scope": "what the documentation covers",
-    "success_criteria": ["criteria 1", "criteria 2"]
-  },
-  "structure": {
-    "sections": [
-      {"title": "Title A", "description": "create: section description | update: what changes"},
-      ...
-    ]
-  }
-}
+```yaml
+goal:
+  target_file: "path/to/file.md"
+  scope: "what the documentation covers"
+  success_criteria:
+    - "criteria 1"
+    - "criteria 2"
+structure:
+  sections:
+    - title: "Title A"
+      description: "create: section description | update: what changes"
 ```

@@ -23,5 +23,5 @@ Description: {description}
 ```
 
 ## Output
-- Changes needed: `{"change_requests": ["..."]}`
-- Approved: `{"status": "complete", "workflow_id": "...", "instruction": "compact created prompt"}`
+- Changes needed: `change_requests: ["..."]`
+- Approved: `status: "complete", workflow_id: "...", instruction: "compact created prompt"`

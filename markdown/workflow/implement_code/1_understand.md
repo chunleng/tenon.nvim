@@ -20,40 +20,25 @@ Define verification methods:
 - Build + analysis: Untestable (language/visual limits). Last resort.
 
 ## Output
-```json
-{
-  "requirements": "clear statement of what needs to be implemented",
-  "acceptance_criteria": [
-    {
-      "criterion": "what must be true",
-      "verification": {
-        "method": "test|build+analysis",
-        "details": "specific test name or build command"
-      }
-    }
-  ]
-}
+```yaml
+requirements: "clear statement of what needs to be implemented"
+acceptance_criteria:
+  - criterion: "what must be true"
+    verification:
+      method: "test|build+analysis"
+      details: "specific test name or build command"
 ```
 
 ## Example
-```json
-{
-  "requirements": "Add empty string validation to password input",
-  "acceptance_criteria": [
-    {
-      "criterion": "Empty password returns validation error",
-      "verification": {
-        "method": "test",
-        "details": "test_empty_password_validation in auth_test.rs"
-      }
-    },
-    {
-      "criterion": "Non-empty password proceeds to authentication",
-      "verification": {
-        "method": "test",
-        "details": "test_nonempty_password_proceeds in auth_test.rs"
-      }
-    }
-  ]
-}
+```yaml
+requirements: "Add empty string validation to password input"
+acceptance_criteria:
+  - criterion: "Empty password returns validation error"
+    verification:
+      method: "test"
+      details: "test_empty_password_validation in auth_test.rs"
+  - criterion: "Non-empty password proceeds to authentication"
+    verification:
+      method: "test"
+      details: "test_nonempty_password_proceeds in auth_test.rs"
 ```

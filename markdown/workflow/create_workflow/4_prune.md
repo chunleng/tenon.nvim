@@ -20,11 +20,15 @@ For each flagged line:
 - Contradictory → resolve conflict, update both lines
 
 ## Output
-```json
-{
-  "changes": [
-    {"file": "...", "line": 5, "action": "removed", "reason": "..."},
-    {"file": "...", "line": 12, "action": "replaced", "old": "...", "new": "..."}
-  ]
-}
+```yaml
+changes:
+  - file: "..."
+    line: 5
+    action: "removed"
+    reason: "..."
+  - file: "..."
+    line: 12
+    action: "replaced"
+    old: "..."
+    new: "..."
 ```

@@ -25,50 +25,36 @@ Final output:
 - User confirmation obtained
 
 ## Output
-```json
-{
-  "build_status": "pass|fail",
-  "test_status": "pass|fail",
-  "project_standards": "pass|fail|not applicable",
-  "unverifiable_aspects": [
-    {
-      "aspect": "description",
-      "reason": "why agent cannot verify"
-    }
-  ],
-  "failed_tests": [
-    "file:test: message"
-  ],
-  "user_verification": "confirmed|pending|failed"
-}
+```yaml
+build_status: "pass|fail"
+test_status: "pass|fail"
+project_standards: "pass|fail|not applicable"
+unverifiable_aspects:
+  - aspect: "description"
+    reason: "why agent cannot verify"
+failed_tests:
+  - "file:test: message"
+user_verification: "confirmed|pending|failed"
 ```
 
 ## Example
-```json
-{
-  "build_status": "pass",
-  "test_status": "pass",
-  "project_standards": "pass",
-  "unverifiable_aspects": [
-    {
-      "aspect": "UI rendering of error message",
-      "reason": "Agent cannot see browser rendering"
-    }
-  ],
-  "user_verification": "confirmed"
-}
+```yaml
+build_status: "pass"
+test_status: "pass"
+project_standards: "pass"
+unverifiable_aspects:
+  - aspect: "UI rendering of error message"
+    reason: "Agent cannot see browser rendering"
+user_verification: "confirmed"
 ```
 
-```json
-{
-  "build_status": "pass",
-  "test_status": "fail",
-  "project_standards": "pass",
-  "unverifiable_aspects": [],
-  "failed_tests": [
-    "src/auth/test_auth: test_auth failed: timeout",
-    "src/auth/test_login: test_login failed: wrong error code"
-  ],
-  "user_verification": "pending"
-}
+```yaml
+build_status: "pass"
+test_status: "fail"
+project_standards: "pass"
+unverifiable_aspects: []
+failed_tests:
+  - "src/auth/test_auth: test_auth failed: timeout"
+  - "src/auth/test_login: test_login failed: wrong error code"
+user_verification: "pending"
 ```

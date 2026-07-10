@@ -12,4 +12,4 @@ Verify documentation meets the goal defined in Set Goal step
 
 ## Output
 - Goal achieved → `null` (workflow ends)
-- Goal not achieved → `{"gaps": ["criteria not met and what's missing"]}` (redirect to Execute)
+- Goal not achieved → `gaps: ["criteria not met and what's missing"]` (redirect to Execute)

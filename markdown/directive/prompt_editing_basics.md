@@ -12,13 +12,13 @@
 - Why: Role definitions and action lists → stereotypical patterns, misinterprets intent. Define how agent works, not identity.
 
 ### Hedging Language
-- Bad: "Try to be concise", "Ideally output JSON"
-- Good: "Be concise", "Output JSON"
+- Bad: "Try to be concise", "Ideally output YAML"
+- Good: "Be concise", "Output YAML"
 - Why: Model follows instructions literally—hedging weakens compliance.
 
 ### Burying Constraints
-- Bad: "Output JSON. Example: {...}. Never wrap in code blocks."
-- Good: "Never wrap in code blocks. Output JSON. Example: {...}."
+- Bad: "Output YAML. Example: key: value. Never wrap in code blocks."
+- Good: "Never wrap in code blocks. Output YAML. Example: key: value."
 - Why: Models attend more to early content.
 
 ### Conflicting Rules

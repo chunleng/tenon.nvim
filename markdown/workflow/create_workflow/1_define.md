@@ -25,15 +25,14 @@ Define workflow goal and step structure through user interaction. Critical: do n
 - Opinion-seeking: "Do you think step 2 is necessary?" → propose, let user reject
 
 ## Output
-```json
-{
-  "workflow_id": "...",
-  "description": "...",
-  "purpose": "...",
-  "config_path": "...",
-  "storage_path": "...",
-  "steps": [
-    {"step_title": "...", "input": "...", "output": "..."}
-  ]
-}
+```yaml
+workflow_id: "..."
+description: "..."
+purpose: "..."
+config_path: "..."
+storage_path: "..."
+steps:
+  - step_title: "..."
+    input: "..."
+    output: "..."
 ```

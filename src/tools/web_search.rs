@@ -69,7 +69,7 @@ impl Tool for WebSearch {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "web_search".to_string(),
-            description: "Search web → JSON results. Each: name, url, snippet, date_published, date_last_crawled.".to_string(),
+            description: "Search web → YAML results. Each: name, url, snippet, date_published, date_last_crawled.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -169,8 +169,10 @@ impl Tool for WebSearch {
             })
             .collect();
 
-        Ok(serde_json::to_string(&results)
-            .unwrap_or_else(|e| format!("{{\"error\": \"Serialize failed: {}\"}}", e)))
+        Ok(crate::utils::format_yaml_block_scalars(
+            &serde_yaml::to_string(&results)
+                .unwrap_or_else(|e| format!("error: \"Serialize failed: {}\"", e)),
+        ))
     }
 }
 

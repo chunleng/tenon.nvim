@@ -14,25 +14,18 @@ Verify refactoring plan is sound before implementation
 
 ## Output
 When verification fails (issues found):
-```json
-{
-  "status": "verification failed",
-  "issues": [
-    {
-      "change": "description of problematic change",
-      "issue": "what's wrong",
-      "suggestion": "how to fix"
-    }
-  ]
-}
+```yaml
+status: "verification failed"
+issues:
+  - change: "description of problematic change"
+    issue: "what's wrong"
+    suggestion: "how to fix"
 ```
 This triggers return to Plan step to address issues.
 
 When verification passes (no issues):
-```json
-{
-  "status": "passed",
-  "plan": "complete refactoring plan ready for implement_software workflow"
-}
+```yaml
+status: "passed"
+plan: "complete refactoring plan ready for implement_software workflow"
 ```
 This ends the workflow.
