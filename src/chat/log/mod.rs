@@ -466,6 +466,26 @@ impl TenonLogData {
                 lines.push("### Workflow Title".to_string());
                 lines.push(String::new());
                 lines.extend(plain(&log.content));
+                if log.tool_log.tool_call.name == "navigate_workflow" {
+                    match &log.tool_log.tool_result {
+                        Some(Ok(TenonToolResult::Text(text))) => {
+                            let output_text = serde_yaml::from_str::<serde_yaml::Value>(&text.text)
+                                .ok()
+                                .and_then(|parsed| {
+                                    parsed
+                                        .get("output")
+                                        .and_then(|v| v.as_str())
+                                        .map(String::from)
+                                })
+                                .unwrap_or_else(|| text.text.clone());
+                            lines.push(String::new());
+                            lines.push("### Output (Previous Step)".to_string());
+                            lines.push(String::new());
+                            lines.extend(plain(&output_text));
+                        }
+                        _ => {}
+                    }
+                }
                 lines
             }
         }

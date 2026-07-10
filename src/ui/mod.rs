@@ -978,7 +978,9 @@ mod tests {
                     name: "navigate_workflow".to_string(),
                     args: serde_json::json!({}),
                 },
-                tool_result: None,
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                    text: "step: 2\noutput: \"step output here\"".into(),
+                }))),
             },
         )));
         let lines = format_log_detail(&log);
@@ -1004,8 +1006,42 @@ mod tests {
             "should contain content"
         );
         assert!(
+            content.contains("### Output (Previous Step)"),
+            "should show output section for navigate_workflow"
+        );
+        assert!(
+            content.contains("step output here"),
+            "should contain only the output field value, not the full YAML"
+        );
+        assert!(
             !content.contains("unsupported"),
             "should not show unsupported"
+        );
+    }
+
+    #[test]
+    fn test_format_log_detail_workflow_no_output_for_start() {
+        let log = TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog::new(
+            "my-workflow",
+            "Doing something",
+            Some(1),
+            TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "test-id".to_string(),
+                    internal_call_id: "test-internal-id".to_string(),
+                    name: "start_workflow".to_string(),
+                    args: serde_json::json!({}),
+                },
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                    text: "step output here".into(),
+                }))),
+            },
+        )));
+        let lines = format_log_detail(&log);
+        let content = lines.join("\n");
+        assert!(
+            !content.contains("### Output (Previous Step)"),
+            "should not show output section for start_workflow"
         );
     }
 }

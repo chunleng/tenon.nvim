@@ -110,16 +110,12 @@ impl Tool for NavigateWorkflow {
             workflow_ref.step = target_step;
         }
 
-        let step_title = workflow
-            .steps
-            .get(target_step - 1)
-            .map(|s| s.title.clone())
-            .unwrap_or_else(|| "Unknown".to_string());
-
-        Ok(format!(
-            "Navigated to step {} ({}). Output: {}",
-            target_step, step_title, args.step_output
-        ))
+        let yaml = serde_yaml::to_string(&json!({
+            "step": target_step,
+            "output": args.step_output,
+        }))
+        .map_err(|e| lock_err(e, "serialize navigate_workflow output"))?;
+        Ok(yaml)
     }
 }
 
