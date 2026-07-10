@@ -131,7 +131,7 @@ pub struct EditFileArgs {
     pub search: String,
     pub replace: String,
     pub replace_mode: Option<String>,
-    pub search_mode: Option<String>,
+    pub search_mode: String,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -161,17 +161,16 @@ impl Tool for EditFile {
                     "search_mode": {
                         "type": "string",
                         "enum": ["literal", "regex"],
-                        "description": "literal = exact match (default). regex = pattern, dot matches \\n"
+                        "description": "literal = exact match. regex = pattern, dot matches \\n"
                     }
                 },
-                "required": ["filepath", "search", "replace"]
+                "required": ["filepath", "search", "replace", "search_mode"]
             }),
         }
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let replace_mode = args.replace_mode.unwrap_or_else(|| "one".to_string());
-        let search_mode = args.search_mode.unwrap_or_else(|| "literal".to_string());
         let path = Path::new(&args.filepath);
 
         if !["one", "all"].contains(&replace_mode.as_str()) {
@@ -181,12 +180,12 @@ impl Tool for EditFile {
             ))));
         }
 
-        if !["literal", "regex"].contains(&search_mode.as_str()) {
+        if !["literal", "regex"].contains(&args.search_mode.as_str()) {
             return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!(
                     "Bad search_mode '{}'. Use 'literal' or 'regex'",
-                    search_mode
+                    args.search_mode
                 ),
             ))));
         }
@@ -203,7 +202,7 @@ impl Tool for EditFile {
             &args.search,
             &args.replace,
             &replace_mode,
-            &search_mode,
+            &args.search_mode,
         )
         .map_err(|e| ToolError::ToolCallError(Box::new(e)))?;
 

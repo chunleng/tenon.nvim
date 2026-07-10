@@ -16,7 +16,7 @@ pub struct SearchTextArgs {
     pub pattern: String,
     pub path: Option<String>,
     pub glob: Option<String>,
-    pub is_regex: Option<bool>,
+    pub is_regex: bool,
     pub ignore_case: Option<bool>,
     pub context_lines: Option<usize>,
     pub max_files: Option<usize>,
@@ -122,7 +122,7 @@ impl Tool for SearchText {
                     },
                     "is_regex": {
                         "type": "boolean",
-                        "description": "Treat pattern as regex. Default=false. Turn on when regex is needed. e.g. alternation regex (`a|b`)"
+                        "description": "Treat pattern as regex if true. Turn on when regex is needed. e.g. alternation regex (`a|b`)"
                     },
                     "ignore_case": {
                         "type": "boolean",
@@ -137,7 +137,7 @@ impl Tool for SearchText {
                         "description": "Max files returned. Default=all"
                     }
                 },
-                "required": ["pattern"]
+                "required": ["pattern", "is_regex"]
             }),
         }
     }
@@ -153,7 +153,7 @@ impl Tool for SearchText {
             ))));
         }
 
-        let is_regex = args.is_regex.unwrap_or(false);
+        let is_regex = args.is_regex;
         let ignore_case = args.ignore_case.unwrap_or(false);
         let context_lines = args.context_lines.unwrap_or(0);
         let max_files = args.max_files;
