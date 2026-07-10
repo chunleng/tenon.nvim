@@ -1,4 +1,3 @@
-use crate::utils::format_yaml_block_scalars;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
@@ -26,7 +25,7 @@ impl Tool for ReadFile {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "read_file".to_string(),
-            description: "Read file contents. Supports line ranges.".to_string(),
+            description: "Read file contents. Supports line ranges. Output starting with `Toolset error:` indicates error".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -82,9 +81,7 @@ impl Tool for ReadFile {
 
                 let selected_lines = lines[start..end].join("\n");
 
-                let yaml = serde_yaml::to_string(&json!({ "file_content": selected_lines }))
-                    .unwrap_or_else(|_| format!("content: \"{}\"", selected_lines));
-                Ok(format_yaml_block_scalars(&yaml))
+                Ok(selected_lines)
             }
             Err(e) => Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
                 e.kind(),
