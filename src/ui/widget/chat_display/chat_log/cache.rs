@@ -41,7 +41,7 @@ use std::sync::atomic::Ordering;
 
 fn process_log_lines(current_log: &TenonLogData, next_log: Option<&TenonLogData>) -> Vec<String> {
     // Treat system tools as hidden (no next_log)
-    let next_log = next_log.filter(|n| !n.is_system_tool());
+    let next_log = next_log.filter(|n| !n.is_hidden_system_tool());
 
     let mut x: Vec<String> = current_log.lines().into_iter().collect();
 
@@ -117,7 +117,24 @@ impl ChatLogCache {
                     line_start,
                     line_count,
                 } => (*line_start, *line_count),
-                RenderedLocation::Hidden => return (None, current_line),
+                RenderedLocation::Hidden => {
+                    if log.data.is_hidden_system_tool() {
+                        return (None, current_line);
+                    }
+                    existing.log = log.clone();
+                    existing.render_location = RenderedLocation::Shown {
+                        line_start: current_line,
+                        line_count: lines.len(),
+                    };
+                    existing.last_updated_at = log.last_updated_at;
+                    return (
+                        Some(RenderedLocation::Shown {
+                            line_start: current_line,
+                            line_count: 0,
+                        }),
+                        current_line + lines.len(),
+                    );
+                }
             };
 
             // Check if separator changed (line count differs for Tool logs)
@@ -151,7 +168,7 @@ impl ChatLogCache {
         }
 
         // New entry
-        if log.data.is_system_tool() {
+        if log.data.is_hidden_system_tool() {
             self.rendered_entries.push(RenderedLogEntry {
                 log: log.clone(),
                 render_location: RenderedLocation::Hidden,
@@ -228,7 +245,7 @@ impl ChatLogCache {
                     // Find next visible log (skip system tools)
                     let next_log = log_window.logs[check_from + offset + 1..]
                         .iter()
-                        .find(|n| !n.log.data.is_system_tool())
+                        .find(|n| !n.log.data.is_hidden_system_tool())
                         .map(|n| &n.log.data);
 
                     let x = process_log_lines(&indexed_log.log.data, next_log);
@@ -838,6 +855,132 @@ mod tests {
 
         // Out of range
         assert!(cache.get_log_at_line(100).is_none());
+    }
+
+    fn add_system_tool_log_with_error(cache: &mut ChatLogCache, name: &str, id: usize) {
+        let session = cache.chat_session.write().unwrap();
+        let mut log_window = session.log_handler.log_window.write().unwrap();
+        log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+            log: Arc::new(TenonLog::new(TenonLogData::Tool(
+                crate::chat::log::TenonToolLog {
+                    tool_call: crate::chat::log::TenonToolCall {
+                        id: id.to_string(),
+                        internal_call_id: id.to_string(),
+                        name: name.to_string(),
+                        args: serde_json::json!({}),
+                    },
+                    tool_result: Some(Err(crate::chat::log::TenonToolError(
+                        "Toolset error: something went wrong".into(),
+                    ))),
+                },
+            ))),
+            active: true,
+        });
+    }
+
+    fn add_system_tool_log_with_ok(cache: &mut ChatLogCache, name: &str, id: usize) {
+        let session = cache.chat_session.write().unwrap();
+        let mut log_window = session.log_handler.log_window.write().unwrap();
+        log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+            log: Arc::new(TenonLog::new(TenonLogData::Tool(
+                crate::chat::log::TenonToolLog {
+                    tool_call: crate::chat::log::TenonToolCall {
+                        id: id.to_string(),
+                        internal_call_id: id.to_string(),
+                        name: name.to_string(),
+                        args: serde_json::json!({}),
+                    },
+                    tool_result: Some(Ok(crate::chat::log::TenonToolResult::Text(
+                        rig::agent::Text { text: "ok".into() },
+                    ))),
+                },
+            ))),
+            active: true,
+        });
+    }
+
+    fn update_tool_log_to_error(cache: &mut ChatLogCache, index: usize) {
+        let session = cache.chat_session.write().unwrap();
+        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let log = Arc::make_mut(&mut log_window.logs[index].log);
+        log.set_tool_result(Some(Err(crate::chat::log::TenonToolError(
+            "Toolset error: something went wrong".into(),
+        ))));
+    }
+
+    #[test]
+    fn test_system_tool_error_visible() {
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Hello");
+        add_system_tool_log_with_error(&mut cache, "start_workflow", 1);
+
+        let (updates, _) = cache.poll_render_update();
+
+        assert_eq!(updates.len(), 2, "System tool with error should be visible");
+        assert_eq!(updates[0].lines, vec!["Hello", ""]);
+        assert!(
+            updates[1].lines[0].contains("start_workflow"),
+            "errored system tool should be rendered"
+        );
+    }
+
+    #[test]
+    fn test_system_tool_ok_hidden() {
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Hello");
+        add_system_tool_log_with_ok(&mut cache, "start_workflow", 1);
+
+        let (updates, _) = cache.poll_render_update();
+
+        assert_eq!(
+            updates.len(),
+            1,
+            "System tool with Ok result should be hidden"
+        );
+        assert_eq!(updates[0].lines, vec!["Hello", ""]);
+    }
+
+    #[test]
+    fn test_system_tool_pending_hidden() {
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Hello");
+        add_tool_log(&mut cache, "start_workflow", 1);
+
+        let (updates, _) = cache.poll_render_update();
+
+        assert_eq!(
+            updates.len(),
+            1,
+            "System tool with pending result should be hidden"
+        );
+        assert_eq!(updates[0].lines, vec!["Hello", ""]);
+    }
+
+    #[test]
+    fn test_system_tool_pending_to_error_transition() {
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Hello");
+        add_tool_log(&mut cache, "start_workflow", 1);
+
+        let (updates, _) = cache.poll_render_update();
+        assert_eq!(updates.len(), 1, "pending system tool should be hidden");
+
+        update_tool_log_to_error(&mut cache, 1);
+
+        let (updates, _) = cache.poll_render_update();
+        assert_eq!(
+            updates.len(),
+            1,
+            "errored system tool should become visible"
+        );
+        assert!(
+            updates[0].lines[0].contains("start_workflow"),
+            "transitioned system tool should be rendered"
+        );
     }
 
     #[test]
