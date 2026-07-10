@@ -36,7 +36,7 @@ impl Tool for ListFiles {
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "Glob pattern. Eg '*.rs', '**/*.toml'"
+                        "description": "Glob pattern. e.g '*.rs', '**/*.rs', 'src/*.py', 'test/**/test_*.py'"
                     },
                     "path": {
                         "type": "string",
