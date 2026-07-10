@@ -286,7 +286,7 @@ impl Tool for Run {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "run".to_string(),
-            description: "Run command (exec form). Output: stdout+stderr (filtered). E.g. git log → command='git', args=['log']."
+            description: "Run command (exec form). Pipes and redirects are not allowed (e.g. `2>&1`, `> out.txt`). Tool outputs yaml with both stdout and stderr.\nE.g.\n`git log` → command='git', args=['log'].\n`make 2>&1` → command='make' (drop `2>&1` as error is always output)\n`cat ./in.txt|grep foo` → Run for `cat` command and think of alternative for `grep`"
                 .to_string(),
             parameters: json!({
                 "type": "object",
