@@ -1,47 +1,37 @@
-## Purpose
-Ensure test verifies incremental change. Tests only — no implementation
-
 ## Process
-> **Note**: Collaborating w/ user. May have future code. Don't remove w/o confirming. Blocked → ask user
+Determine if code behavior changes:
+- No → follow "Behavior changes" section
+- Yes → follow "Refactor changes" section
 
-1. Understand user intent & determine change type
-   - Review goal, clarify if needed
-   - Determine: behavior preserved?
-     - Yes → refer+execute "Refactor changes" section
-     - No → refer+execute "Code changes" section
-   - Continue below after the tests are updated
-2. Output tests table
-   - Columns: Function Name, File, New/Existing, Test Run Status
-3. Confirm with user, say "Please confirm the test"
-   - Confirmed + test written or explicitly told to skip → proceed to next workflow step
-   - Changes → loop back to understand user intent
-
-## Refactor changes (behavior preserved)
-1. Identify affected tests
-   - Search tests covering refactored code
-   - List all tests exercising affected logic
+### Refactor changes
+1. Search tests covering code to be refactored
+   - Modify test so they pass after refactoring
 2. Ensure test coverage
-   - Existing test → document as verification point
-   - No test → create passing test for refactored logic
-   - Use cohesion test if unsure: modify or create
-3. Verify tests pass
-   - Run tests before refactoring
-   - Confirm behavior remains correct
+   - Code to be refactored not covered by any test → create test that passes after refactoring
+3. Perform necessary edit on test files
+4. Verify tests
+   - Run tests and capture status
+   - Test may pass or fail, depending on test modification and refactoring type
+5. Follow "Confirm with User" section
 
-## Code changes (new behavior)
-1. Search existing tests
-   - Find tests related to goal files/code
-   - Identify tests that can be modified
-2. Prepare test
-   - No existing test → create new file, write test asserting goal behavior
-   - Existing test → use cohesion test: modify vs create
-3. Verify test fails
-   - Run test → confirm failure
-   - Failing = change not yet made
-   - Passing = goal implemented or test incorrect → ask: "Test passing. Implemented already, or should test be adjusted?"
+### Behavior changes
+1. Search existing tests related to goal files/code
+2. Write test asserting goal behavior
+   - Use "Decision: Modify vs. Create test" to create new test or append to existing
+3. Perform necessary edit on test files
+4. Verify tests
+   - Run test → when behavior changes, test must fail before code change
+   - Test passes → ask: "Implemented already, or how to adjust test to capture the change?"
+5. Follow "Confirm with User" section
+
+### Confirm with User
+1. Show tests targets
+2. Say "Please confirm the test"
+   - User confirmed, test created/modified or told to skip → next workflow step
+   - User requests changes → loop to process step 1
 
 ## Decision: Modify vs. Create test
-**Cohesion test:** Would both verifications fail for same reason?
+**Cohesion test:** Would both verifications fail for the same reason?
 - Yes → Same concept → Modify existing test
 - No → Different concepts → Create separate test
 
@@ -51,29 +41,29 @@ Ensure test verifies incremental change. Tests only — no implementation
 
 ## Output
 ```yaml
-- test_file: "path/to/test/file"
-  test_name: "test function name"
-  status: "failing|passing"
-  purpose: "why this test is crucial for verifying the change"
+- test_file: path/to/test/file
+  test_name: test function name
+  status: failing|passing
+  purpose: why this test is crucial for verifying the change
 ```
 
 ## Example
 **Code change:**
 ```yaml
-- test_file: "src/auth/tests/validation_test.rs"
-  test_name: "test_empty_password_validation"
-  status: "failing"
-  purpose: "Confirms password validation rejects empty strings"
+- test_file: src/auth/tests/validation_test.rs
+  test_name: test_empty_password_validation
+  status: failing
+  purpose: Confirms password validation rejects empty strings
 ```
 
 **Refactor change:**
 ```yaml
-- test_file: "src/utils/parser_test.rs"
-  test_name: "test_parse_config"
-  status: "passing"
-  purpose: "Ensures config parsing logic remains correct after extracting parse logic into separate module"
-- test_file: "src/utils/parser_test.rs"
-  test_name: "test_parse_edge_cases"
-  status: "passing"
-  purpose: "Covers edge cases that must remain working after refactoring"
+- test_file: src/utils/parser_test.rs
+  test_name: test_parse_config
+  status: passing
+  purpose: Ensures config parsing stays correct after extracting parse logic to separate module
+- test_file: src/utils/parser_test.rs
+  test_name: test_parse_edge_cases
+  status: passing
+  purpose: Covers edge cases that must work after refactoring
 ```

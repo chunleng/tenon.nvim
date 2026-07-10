@@ -1,9 +1,6 @@
-## Purpose
-Implement code to make test pass
-
 ## Process
-1. If goal is to create a test, say "User ask for test only, skipping implementation" and navigate to workflow step 1
-2. Implement only what's needed to make test pass:
+1. If goal is to create a test, say "Test only goal, skipping implementation" and navigate to workflow step 1
+2. Implement only what's needed to make the test pass:
   - Follow project coding standards (check AGENTS.md or project instructions)
   - Match existing code style
   - No scope creep/extra features
@@ -12,17 +9,20 @@ Implement code to make test pass
   - Run test (should pass now)
   - Run tests in same module/feature area
 4. Summarize changes
-5. Ask user to confirm implementation, say "Please confirm the implementation"
-  - If confirmed → format code and navigate to workflow step 1
-  - If rejected → revise based on feedback and go to process step 1
+5. Ask user to confirm: "Please confirm the implementation"
+  - Use "Decision: Confirm vs. Reject vs. No Answer" to determine action
+  - Confirm → format code and navigate to workflow step 1
+  - Rejected → revise based on feedback and loop to process step 1
+  - No answer → reply to user and ask to confirm again
 
-## Handling User Response
-Confirm + info
-- new requirement → confirmed
-- change request → rejected
+## Decision: Confirm vs. Reject vs. No Answer
+**Cohesion test 1:** Is user asking a question?
+- question → "No answer"
+- else → continue
 
-- "Good, now add error handling" → confirmed
-- "Works, but rename variable" → rejected
+**Cohesion test 2:** Is user asking for something part of the goal?
+- part of goal → "Rejected"
+- else → "Confirm"
 
 ## Output
 Nothing

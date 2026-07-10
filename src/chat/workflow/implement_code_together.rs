@@ -20,7 +20,7 @@ pub fn workflow() -> Workflow {
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::Next,
-                        condition: None,
+                        condition: Some("confirmed with user".to_string()),
                         output_to_workflow_memory: Some("goal".to_string()),
                     },
                 ],
@@ -32,7 +32,7 @@ pub fn workflow() -> Workflow {
                 },
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
-                    condition: None,
+                    condition: Some("confirmed with user".to_string()),
                     output_to_workflow_memory: None,
                 }],
             },
