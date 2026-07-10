@@ -13,7 +13,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use crate::chat::TenonWorkflowLog;
+use crate::chat::{TenonToolLog, TenonWorkflowLog};
 use crate::utils::plugin_path;
 
 pub static WORKFLOW_BASE: OnceLock<std::path::PathBuf> = OnceLock::new();
@@ -84,7 +84,7 @@ pub struct Workflow {
 }
 
 impl Workflow {
-    pub fn generate_log(&self, step: usize) -> Result<TenonWorkflowLog> {
+    pub fn generate_log(&self, step: usize, tool_log: TenonToolLog) -> Result<TenonWorkflowLog> {
         Ok(TenonWorkflowLog {
             id: self.id.clone(),
             content: format!(
@@ -99,6 +99,7 @@ impl Workflow {
                 self.steps.len()
             ),
             step: Some(step),
+            tool_log,
         })
     }
 }

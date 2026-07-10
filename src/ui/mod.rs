@@ -971,6 +971,15 @@ mod tests {
             "my-workflow",
             "Doing something",
             Some(1),
+            TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "test-id".to_string(),
+                    internal_call_id: "test-internal-id".to_string(),
+                    name: "navigate_workflow".to_string(),
+                    args: serde_json::json!({}),
+                },
+                tool_result: None,
+            },
         )));
         let lines = format_log_detail(&log);
         let content = lines.join("\n");

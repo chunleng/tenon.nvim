@@ -1,8 +1,8 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
+    chat::ActiveWorkflow,
     chat::workflow::Workflow,
-    chat::{ActiveWorkflow, LogWindow},
     clients::{ChatAgent, SupportedModels, get_agent},
     directive::{Directive, DirectiveSource, directive_path},
     tools::resolve_tools,
@@ -34,7 +34,6 @@ impl TenonAgent {
     pub fn build_chat_adapter(
         &self,
         workflow_context: Arc<RwLock<Option<ActiveWorkflow>>>,
-        log_window: Arc<RwLock<LogWindow>>,
     ) -> ChatAgent {
         let mut combined = vec![Directive {
             condition: None,
@@ -56,18 +55,15 @@ impl TenonAgent {
             use crate::tools::navigate_workflow::NavigateWorkflow;
             tools.push(Box::new(NavigateWorkflow {
                 active_workflow: workflow_context.clone(),
-                log_window: log_window.clone(),
             }));
             tools.push(Box::new(EndWorkflow {
                 active_workflow: workflow_context,
-                log_window,
             }));
         } else if !self.workflows.is_empty() {
             use crate::tools::start_workflow::StartWorkflow;
             tools.push(Box::new(StartWorkflow {
                 workflows: self.workflows.clone(),
                 active_workflow: workflow_context.clone(),
-                log_window: log_window.clone(),
             }));
         }
 

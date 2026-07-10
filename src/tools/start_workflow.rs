@@ -1,5 +1,5 @@
+use crate::chat::ActiveWorkflow;
 use crate::chat::workflow::Workflow;
-use crate::chat::{ActiveWorkflow, LogWindow, TenonLog, TenonLogData};
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
@@ -23,7 +23,6 @@ pub struct StartWorkflowArgs {
 pub struct StartWorkflow {
     pub workflows: Vec<Arc<Workflow>>,
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub log_window: Arc<RwLock<LogWindow>>,
 }
 
 impl Tool for StartWorkflow {
@@ -86,20 +85,6 @@ impl Tool for StartWorkflow {
                 .write()
                 .map_err(|e| lock_err(e, "write active_workflow"))?;
             *active_workflow_guard = Some(ActiveWorkflow::new(workflow.clone(), 1));
-        }
-
-        // Add workflow log for step 1
-        {
-            let mut log_window = self
-                .log_window
-                .write()
-                .map_err(|e| lock_err(e, "write log_window"))?;
-            if let Ok(workflow_log) = workflow.generate_log(1) {
-                log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                    log: Arc::new(TenonLog::new(TenonLogData::Workflow(workflow_log))),
-                    active: true,
-                });
-            }
         }
 
         Ok(format!(

@@ -60,7 +60,7 @@ impl From<TenonAssistantMessage> for Option<Message> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TenonToolCall {
     pub id: String,
     pub internal_call_id: String,
@@ -90,7 +90,7 @@ impl TenonToolError {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TenonToolLog {
     pub tool_call: TenonToolCall,
     pub tool_result: Option<Result<TenonToolResult, TenonToolError>>,
@@ -136,14 +136,23 @@ pub struct TenonWorkflowLog {
     /// Step number within the workflow. `None` for end-of-workflow logs.
     #[serde(default)]
     pub step: Option<usize>,
+    /// The tool log (call + result) that navigated to this workflow step.
+    #[serde(default)]
+    pub tool_log: TenonToolLog,
 }
 
 impl TenonWorkflowLog {
-    pub fn new(id: impl ToString, content: impl ToString, step: Option<usize>) -> Self {
+    pub fn new(
+        id: impl ToString,
+        content: impl ToString,
+        step: Option<usize>,
+        tool_log: TenonToolLog,
+    ) -> Self {
         Self {
             id: id.to_string(),
             content: content.to_string(),
             step,
+            tool_log,
         }
     }
 }

@@ -21,7 +21,6 @@ pub mod usage;
 pub mod workflow;
 
 pub use log::handler::ChatLogHandler;
-pub use log::window::LogWindow;
 pub use log::{
     TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData, TenonToolCall,
     TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage, TenonUserTextMessage,
@@ -248,10 +247,7 @@ impl ChatSession {
             rt.block_on(async {
                 loop {
                     let mut should_continue = false;
-                    let agent = agent_clone.build_chat_adapter(
-                        active_workflow_clone.clone(),
-                        log_handler.log_window.clone(),
-                    );
+                    let agent = agent_clone.build_chat_adapter(active_workflow_clone.clone());
 
                     let next_prompt = log_handler.get_user_prompt();
                     let chat_history = log_handler.get_chat_history(&next_prompt);
@@ -302,14 +298,62 @@ impl ChatSession {
                                     log.set_tool_result(Some(result.clone()));
 
                                     // Handle workflow tool results
-                                    if let TenonLogData::Tool(tool_log) = log.data() {
-                                        if ["start_workflow", "navigate_workflow", "end_workflow"]
+                                    if let TenonLogData::Tool(tool_log) = log.data()
+                                        && ["start_workflow", "navigate_workflow", "end_workflow"]
                                             .contains(&tool_log.tool_call.name.as_str())
-                                            && result.is_ok()
+                                        && result.is_ok()
+                                    {
+                                        let tool_log_clone = tool_log.clone();
+
+                                        if tool_log_clone.tool_call.name == "end_workflow" {
+                                            let id = active_workflow_clone
+                                                .read()
+                                                .ok()
+                                                .and_then(|active| {
+                                                    active.as_ref().map(|wf| wf.workflow.id.clone())
+                                                })
+                                                .unwrap_or_default();
+                                            if let Ok(mut active) =
+                                                active_workflow_clone.write()
+                                            {
+                                                *active = None;
+                                            }
+                                            log_window.logs.push(
+                                                crate::chat::log::indexer::IndexedLog {
+                                                    log: Arc::new(TenonLog::new(
+                                                        TenonLogData::Workflow(
+                                                            TenonWorkflowLog::new(
+                                                                id,
+                                                                "Workflow ended",
+                                                                None,
+                                                                tool_log_clone,
+                                                            ),
+                                                        ),
+                                                    )),
+                                                    active: true,
+                                                },
+                                            );
+                                        } else if let Ok(active) = active_workflow_clone.read()
+                                            && let Some(active_wf) = active.as_ref()
                                         {
-                                            should_continue = true;
-                                            break;
+                                            let step = active_wf.step;
+                                            if let Ok(wf_log) = active_wf
+                                                .workflow
+                                                .generate_log(step, tool_log_clone)
+                                            {
+                                                log_window.logs.push(
+                                                    crate::chat::log::indexer::IndexedLog {
+                                                        log: Arc::new(TenonLog::new(
+                                                            TenonLogData::Workflow(wf_log),
+                                                        )),
+                                                        active: true,
+                                                    },
+                                                );
+                                            }
                                         }
+
+                                        should_continue = true;
+                                        break;
                                     }
                                 }
                             }

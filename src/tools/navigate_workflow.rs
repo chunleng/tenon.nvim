@@ -1,4 +1,4 @@
-use crate::chat::{ActiveWorkflow, LogWindow, TenonLog, TenonLogData};
+use crate::chat::ActiveWorkflow;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
@@ -22,7 +22,6 @@ pub struct NavigateWorkflowArgs {
 #[derive(Clone)]
 pub struct NavigateWorkflow {
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub log_window: Arc<RwLock<LogWindow>>,
 }
 
 impl Tool for NavigateWorkflow {
@@ -117,20 +116,6 @@ impl Tool for NavigateWorkflow {
             .map(|s| s.title.clone())
             .unwrap_or_else(|| "Unknown".to_string());
 
-        // Add workflow log for the target step
-        {
-            let mut log_window = self
-                .log_window
-                .write()
-                .map_err(|e| lock_err(e, "write log_window"))?;
-            if let Ok(workflow_log) = workflow.generate_log(target_step) {
-                log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                    log: Arc::new(TenonLog::new(TenonLogData::Workflow(workflow_log))),
-                    active: true,
-                });
-            }
-        }
-
         Ok(format!(
             "Navigated to step {} ({}). Output: {}",
             target_step, step_title, args.step_output
@@ -142,7 +127,17 @@ impl Tool for NavigateWorkflow {
 mod tests {
     use super::*;
     use crate::chat::log::window::LogWindow;
+    use crate::chat::{TenonLog, TenonLogData, TenonToolCall};
     use std::collections::HashMap;
+
+    fn dummy_tool_call(name: &str) -> TenonToolCall {
+        TenonToolCall {
+            id: "test-id".to_string(),
+            internal_call_id: "test-internal-id".to_string(),
+            name: name.to_string(),
+            args: serde_json::json!({"step": 2, "step_output": "test output from step 1"}),
+        }
+    }
 
     #[test]
     fn test_navigate_workflow_stores_memory() {
@@ -164,7 +159,6 @@ mod tests {
 
         let tool = NavigateWorkflow {
             active_workflow: Arc::clone(&workflow),
-            log_window,
         };
 
         // Navigate to step 2 with output
@@ -182,6 +176,39 @@ mod tests {
         let guard = workflow.read().unwrap();
         let active = guard.as_ref().unwrap();
         assert_eq!(active.step, 2);
+
+        // Simulate the ToolResult handler: create workflow log with the tool log
+        let tool_log = crate::chat::TenonToolLog {
+            tool_call: dummy_tool_call("navigate_workflow"),
+            tool_result: None,
+        };
+        {
+            let wf = active.workflow.clone();
+            let wf_log = wf.generate_log(active.step, tool_log).unwrap();
+            let mut log_window = log_window.write().unwrap();
+            log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                log: Arc::new(TenonLog::new(TenonLogData::Workflow(wf_log))),
+                active: true,
+            });
+        }
+
+        // Verify workflow log contains the tool log that navigated to this step
+        {
+            let log_window = log_window.read().unwrap();
+            let workflow_log = log_window
+                .logs
+                .iter()
+                .find_map(|indexed| {
+                    if let TenonLogData::Workflow(wf_log) = indexed.log.data() {
+                        Some(wf_log)
+                    } else {
+                        None
+                    }
+                })
+                .expect("workflow log should exist");
+            assert_eq!(workflow_log.tool_log.tool_call.name, "navigate_workflow");
+            assert_eq!(workflow_log.tool_log.tool_call.id, "test-id");
+        }
 
         // Note: Memory would only be populated if the workflow definition has
         // output_to_workflow_memory configured, which implement_code doesn't have

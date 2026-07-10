@@ -239,7 +239,20 @@ mod tests {
 
     #[test]
     fn test_workflow_formatter() {
-        let workflow = TenonWorkflowLog::new("wf_1", "Processing step 1", Some(1));
+        let workflow = TenonWorkflowLog::new(
+            "wf_1",
+            "Processing step 1",
+            Some(1),
+            TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "test-id".to_string(),
+                    internal_call_id: "test-internal-id".to_string(),
+                    name: "navigate_workflow".to_string(),
+                    args: serde_json::json!({}),
+                },
+                tool_result: None,
+            },
+        );
         let data = TenonLogData::Workflow(workflow);
 
         assert_eq!(data.lines(), vec!["# Processing step 1"]);

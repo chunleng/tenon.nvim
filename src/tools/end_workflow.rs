@@ -1,4 +1,4 @@
-use crate::chat::{ActiveWorkflow, LogWindow, TenonLog, TenonLogData, TenonWorkflowLog};
+use crate::chat::ActiveWorkflow;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
@@ -21,7 +21,6 @@ pub struct EndWorkflowArgs {
 #[derive(Clone)]
 pub struct EndWorkflow {
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
-    pub log_window: Arc<RwLock<LogWindow>>,
 }
 
 impl Tool for EndWorkflow {
@@ -48,37 +47,17 @@ impl Tool for EndWorkflow {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        // Take active workflow and create end log
-        {
-            let mut active_workflow_guard = self
-                .active_workflow
-                .write()
-                .map_err(|e| lock_err(e, "write active_workflow"))?;
+        let active_workflow_guard = self
+            .active_workflow
+            .read()
+            .map_err(|e| lock_err(e, "read active_workflow"))?;
 
-            match active_workflow_guard.take() {
-                Some(active_wf) => {
-                    // Add end workflow log
-                    let mut log_window = self
-                        .log_window
-                        .write()
-                        .map_err(|e| lock_err(e, "write log_window"))?;
-                    log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                        log: Arc::new(TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog {
-                            id: active_wf.workflow.id.clone(),
-                            content: "Workflow ended".to_string(),
-                            step: None,
-                        }))),
-                        active: true,
-                    });
-                }
-                None => {
-                    return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "No active workflow",
-                    ))));
-                }
-            }
-        };
+        if active_workflow_guard.is_none() {
+            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "No active workflow",
+            ))));
+        }
 
         Ok(format!("workflow completed. output: {}", args.output))
     }
