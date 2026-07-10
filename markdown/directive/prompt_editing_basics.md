@@ -6,10 +6,10 @@
 
 ### Encouraging Stereotype
 - Bad: "You are a backend developer"
-- Good: "Be meticulous and careful. Check work thoroughly."
+- Good: "Be meticulous. Check work thoroughly."
 - Bad: "You write code"
-- Good: Remove. Use workflow to document if needed.
-- Why: Role definitions and action lists → stereotypical patterns, misinterprets intent. Define how agent works, not identity.
+- Good: Remove. Use workflow to specify action if needed.
+- Why: Role definitions and action lists → stereotypical patterns, misinterprets intent. Define how, not identity.
 
 ### Hedging Language
 - Bad: "Try to be concise", "Ideally output YAML"
@@ -17,14 +17,9 @@
 - Why: Model follows instructions literally—hedging weakens compliance.
 
 ### Burying Constraints
-- Bad: "Output YAML. Example: key: value. Never wrap in code blocks."
-- Good: "Never wrap in code blocks. Output YAML. Example: key: value."
+- Bad: "Output JSON. Never use the letter e."
+- Good: "Never use the letter e. Output JSON."
 - Why: Models attend more to early content.
-
-### Conflicting Rules
-- Bad: System prompt says "Always explain", directive says "Be concise"
-- Good: Directive condition "when reviewing code" scopes the override
-- Why: Creates ambiguity → model cannot resolve conflict.
 
 ### Counting Requirements
 - Bad: "Tell me which line the error is on"
@@ -32,6 +27,9 @@
 - Why: LLMs cannot reliably output line numbers/counts without tools.
 
 ### Listing Searchable Examples
-- Bad: In AGENTS.md, defining "Helper" with "We have UserHelper, AuthHelper, OrderHelper, ..."
+- Bad: In AGENTS.md, defining "Helper" with "We have UserHelper, AuthHelper, ..."
 - Good: "Helpers follow the `*Helper` naming convention under `src/helpers/`."
-- Why: The list goes stale as files are added/removed. The agent can search the codebase itself.
+- Why: Stales as files change; agent can search the codebase itself.
+
+### Skip Obvious Reason
+- Why: Self-evident reasons add noise without aiding compliance.

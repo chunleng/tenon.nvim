@@ -1,12 +1,4 @@
 ## Prompt Types
-Advise the user when editing prompt; wrongly placed prompt reduces performance.
-
-### System Prompt
-- High priority in instruction hierarchy
-- Use when:
-    - Define messaging tone
-    - Convey agent capabilities
-    - Set boundaries
 
 #### Constitution (Tenon Concept)
 - Highest-priority governing rules. Overrides everything; nothing can contradict it.
