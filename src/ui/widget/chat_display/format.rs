@@ -45,8 +45,10 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
                     None => format!("{} {}", prefix, log.tool_call.name),
                 };
                 let mut lines = vec![first_line];
-                if let Some(Err(err)) = &log.tool_result {
-                    lines.push(format!("   > {}", err.display_message()));
+                if let Some(Err(err)) = &log.tool_result
+                    && let Some(first_line) = err.display_message().lines().next()
+                {
+                    lines.push(format!("   > {}", first_line));
                 }
                 lines
             }
