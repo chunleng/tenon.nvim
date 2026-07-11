@@ -69,23 +69,23 @@ pub async fn build_workflow_prompt(
             return format!(
                 "<context>\n\
                     Currently in {} step of {} workflow.\n\
-                    Complete \"Process\" section in `instruction` tag. \
-                    Upon full completion, never halfway unless explicitly asked, \
-                    follow \"Output\" section to create step output; if no \"Output\" section, send \"none\". Then call tool from `navigate` tag to navigate.\n\
+                    Execute \"Process\" in `instruction`; don't stop partway unless explicitly asked. \
+                    When done, output per \"Output\" section, or \"none\" if absent. Then call a tool from `navigation`.\n\
                     \n\n\
+                    {}\
                     <instruction>\n\
                     {}\n\
                     </instruction>\n\
                     <navigation>\n\
                     {}\n\
                     </navigation>\n\
-                    {}</context>\n\
+                    </context>\n\
                     {}",
                 step.title,
                 workflow.title,
+                memory_section,
                 step.instruction.resolve().unwrap_or_default(),
                 goto_instruction,
-                memory_section,
                 base_prompt
             );
         }
