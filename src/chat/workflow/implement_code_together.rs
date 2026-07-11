@@ -48,7 +48,6 @@ pub fn workflow() -> Workflow {
                 }],
             },
         ],
-        description: "Collaboratively implements code changes with the user turn-by-turn"
-            .to_string(),
+        description: "Make code changes under user guidance: implement, rename, refactor, fix, move, extract, add, update, change or delete code.".to_string(),
     }
 }
