@@ -19,9 +19,20 @@ pub fn workflow() -> Workflow {
                 }],
             },
             WorkflowStep {
+                title: "Hunt Ambiguity".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("compact_prompt/2_ambiguity_hunt.md"),
+                },
+                goto_instructions: vec![WorkflowGotoInstruction {
+                    to: GotoStep::Next,
+                    condition: Some("ambiguity resolved".to_string()),
+                    output_to_workflow_memory: None,
+                }],
+            },
+            WorkflowStep {
                 title: "Change".to_string(),
                 instruction: Instruction::File {
-                    file: workflow_path("compact_prompt/2_change.md"),
+                    file: workflow_path("compact_prompt/3_change.md"),
                 },
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
@@ -32,11 +43,11 @@ pub fn workflow() -> Workflow {
             WorkflowStep {
                 title: "Goal Check".to_string(),
                 instruction: Instruction::File {
-                    file: workflow_path("compact_prompt/3_goal_check.md"),
+                    file: workflow_path("compact_prompt/4_goal_check.md"),
                 },
                 goto_instructions: vec![
                     WorkflowGotoInstruction {
-                        to: GotoStep::Step(2),
+                        to: GotoStep::Step(3),
                         condition: Some("texts can be simpler".to_string()),
                         output_to_workflow_memory: None,
                     },

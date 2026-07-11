@@ -10,6 +10,7 @@ Determine if texts are compacted properly
     - No ambiguity introduced
 
 ## Output
+
 ### Changes Required
 ```yaml
 - source: "file path or 'inline'"
@@ -19,9 +20,4 @@ Determine if texts are compacted properly
 ```
 
 ### No Further changes
-```yaml
-finals:
-  - source: "file path or 'inline'"
-    original: "original text"
-    compacted: "final compacted text"
-```
+No output needed

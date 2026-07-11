@@ -7,7 +7,7 @@ Apply rules to each target text:
   - Ensure meaning is preserved
   - Don't drop subject/object unless proven redundant
   - Don't drop examples unless identical
-3. Preserve similar structure, wherever possible
+3. Preserve original structure (headers, lists, paragraph order) unless the compaction rules below require otherwise
 4. Type specific compaction → see each section
 
 Edit target file. Report edits for next step
