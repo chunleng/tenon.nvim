@@ -1,5 +1,6 @@
 use crate::agent::worker::SimpleTenonWorkerAgent;
 use crate::get_application_config;
+use crate::utils::path_from_str;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rig::OneOrMany;
 use rig::completion::ToolDefinition;
@@ -103,7 +104,8 @@ impl Tool for AnalyzeImage {
         let image_content = if is_url(&args.image) {
             UserContent::image_url(&args.image, None, None)
         } else {
-            let bytes = std::fs::read(&args.image).map_err(|e| {
+            let image_path = path_from_str(&args.image);
+            let bytes = std::fs::read(&image_path).map_err(|e| {
                 ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
                     "Failed to read image '{}': {}",
                     args.image, e

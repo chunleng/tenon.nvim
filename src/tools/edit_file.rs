@@ -1,11 +1,11 @@
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
+use crate::utils::path_from_str;
 use regex::RegexBuilder;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
-use std::path::Path;
 
 /// Returns the 1-based line number at the given byte offset within `content`.
 fn line_at(content: &str, byte_offset: usize) -> usize {
@@ -171,7 +171,7 @@ impl Tool for EditFile {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let replace_mode = args.replace_mode.unwrap_or_else(|| "one".to_string());
-        let path = Path::new(&args.filepath);
+        let path = path_from_str(&args.filepath);
 
         if !["one", "all"].contains(&replace_mode.as_str()) {
             return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
@@ -190,7 +190,7 @@ impl Tool for EditFile {
             ))));
         }
 
-        let content = fs::read_to_string(path).map_err(|e| {
+        let content = fs::read_to_string(&path).map_err(|e| {
             ToolError::ToolCallError(Box::new(std::io::Error::new(
                 e.kind(),
                 format!("Read fail '{}': {}", args.filepath, e),

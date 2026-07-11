@@ -28,6 +28,23 @@ pub fn format_path_relative(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
+/// Create a `PathBuf` from a string, expanding a leading `~` to `$HOME`.
+///
+/// Expands `~` alone or `~/...`. Falls back to the original path if `$HOME`
+/// is unset. Does not handle `~user` syntax.
+pub fn path_from_str(path: &str) -> PathBuf {
+    if path == "~" {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home);
+        }
+    } else if let Some(rest) = path.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return PathBuf::from(home).join(rest);
+    }
+    PathBuf::from(path)
+}
+
 /// Resolve a path relative to the plugin root directory.
 ///
 /// Returns the absolute path. If `relative` is already absolute, returns it as-is.
@@ -419,5 +436,53 @@ mod tests {
 count: 5"#;
         let expected = "result: |\n  line one\n  line two\n  line three\ncount: 5";
         assert_eq!(format_yaml_block_scalars(input), expected);
+    }
+
+    #[test]
+    fn test_path_from_str() {
+        let orig_home = std::env::var("HOME").ok();
+        unsafe { std::env::set_var("HOME", "/home/testuser") };
+
+        // ~ alone → HOME
+        assert_eq!(path_from_str("~").to_str().unwrap(), "/home/testuser");
+
+        // ~/path → HOME/path
+        assert_eq!(
+            path_from_str("~/projects/foo").to_str().unwrap(),
+            "/home/testuser/projects/foo"
+        );
+
+        // No leading ~ → unchanged
+        assert_eq!(
+            path_from_str("/absolute/path").to_str().unwrap(),
+            "/absolute/path"
+        );
+
+        // ~ in middle → unchanged
+        assert_eq!(
+            path_from_str("/tmp/~weird").to_str().unwrap(),
+            "/tmp/~weird"
+        );
+
+        // Relative path → unchanged
+        assert_eq!(
+            path_from_str("relative/path").to_str().unwrap(),
+            "relative/path"
+        );
+
+        // ~user (not ~/ or ~ alone) → unchanged
+        assert_eq!(
+            path_from_str("~otheruser/foo").to_str().unwrap(),
+            "~otheruser/foo"
+        );
+
+        // No HOME → falls back to original path
+        unsafe { std::env::remove_var("HOME") };
+        assert_eq!(path_from_str("~/projects").to_str().unwrap(), "~/projects");
+
+        match orig_home {
+            Some(h) => unsafe { std::env::set_var("HOME", h) },
+            None => {}
+        }
     }
 }

@@ -1,5 +1,6 @@
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::format_yaml_block_scalars;
+use crate::utils::path_from_str;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
@@ -89,7 +90,7 @@ impl Tool for MovePath {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let source = Path::new(&args.source);
+        let source = path_from_str(&args.source);
 
         // 1. Source must exist
         if !source.exists() {
@@ -107,7 +108,7 @@ impl Tool for MovePath {
         })?;
 
         // 2. Resolve destination
-        let dest = Path::new(&args.destination);
+        let dest = path_from_str(&args.destination);
         let actual_dest = if dest.exists() && dest.is_dir() {
             // Move into directory — append source filename
             dest.join(source.file_name().unwrap_or_default())

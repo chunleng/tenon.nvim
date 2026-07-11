@@ -1,10 +1,10 @@
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
+use crate::utils::path_from_str;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
-use std::path::Path;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -39,7 +39,7 @@ impl Tool for RemovePath {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let path = Path::new(&args.filepath);
+        let path = path_from_str(&args.filepath);
 
         if !path.exists() {
             return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(

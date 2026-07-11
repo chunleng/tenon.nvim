@@ -1,4 +1,5 @@
 use crate::utils::format_yaml_block_scalars;
+use crate::utils::path_from_str;
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
@@ -6,7 +7,6 @@ use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::path::Path;
 
 const LINE_TRUNCATION_LIMIT: usize = 300;
 const MATCH_LIMIT: usize = 100;
@@ -145,7 +145,7 @@ impl Tool for SearchText {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let search_dir = args.path.unwrap_or_else(|| ".".to_string());
-        let search_path = Path::new(&search_dir);
+        let search_path = path_from_str(&search_dir);
 
         if !search_path.exists() {
             return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
@@ -192,7 +192,7 @@ impl Tool for SearchText {
             })
             .transpose()?;
 
-        let mut walker = WalkBuilder::new(search_path);
+        let mut walker = WalkBuilder::new(&search_path);
         walker
             .git_ignore(true)
             .git_exclude(true)
@@ -220,7 +220,7 @@ impl Tool for SearchText {
             if let Some(ref matcher) = glob_matcher {
                 let relative = entry
                     .path()
-                    .strip_prefix(search_path)
+                    .strip_prefix(&search_path)
                     .unwrap_or(entry.path());
                 if !matcher.is_match(relative) {
                     continue;

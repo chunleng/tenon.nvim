@@ -1,10 +1,10 @@
+use crate::utils::path_from_str;
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::path::Path;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,7 +60,7 @@ impl Tool for ListFiles {
         let max_count = args.max_count.unwrap_or(20);
         let show_gitignored = args.show_gitignored.unwrap_or(false);
         let search_dir = args.path.unwrap_or_else(|| ".".to_string());
-        let search_path = Path::new(&search_dir);
+        let search_path = path_from_str(&search_dir);
 
         if !search_path.exists() {
             return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
@@ -80,7 +80,7 @@ impl Tool for ListFiles {
             })?
             .compile_matcher();
 
-        let mut walker = WalkBuilder::new(search_path);
+        let mut walker = WalkBuilder::new(&search_path);
         walker
             .git_ignore(!show_gitignored)
             .git_exclude(!show_gitignored)
@@ -102,7 +102,7 @@ impl Tool for ListFiles {
                     if e.path().components().any(|c| c.as_os_str() == ".git") {
                         continue;
                     }
-                    let relative = e.path().strip_prefix(search_path).unwrap_or(e.path());
+                    let relative = e.path().strip_prefix(&search_path).unwrap_or(e.path());
                     if !glob.is_match(relative) {
                         continue;
                     }

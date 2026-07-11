@@ -1,3 +1,4 @@
+use crate::utils::path_from_str;
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use lance_linalg::distance::cosine::cosine_distance_batch;
@@ -16,10 +17,7 @@ pub fn generate_embedding(text: &str) -> Result<Vec<f32>> {
         return Ok(vec![]);
     }
 
-    // Use ~/.fastembed_cache for model storage
-    let cache_dir = std::env::var("HOME")
-        .map(|home| std::path::PathBuf::from(home).join(".fastembed_cache"))
-        .unwrap_or_else(|_| std::path::PathBuf::from(".fastembed_cache"));
+    let cache_dir = path_from_str("~/.fastembed_cache");
 
     let options = InitOptions::new(EmbeddingModel::AllMiniLML6V2Q)
         .with_cache_dir(cache_dir)
