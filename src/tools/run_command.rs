@@ -16,7 +16,7 @@ const OUTPUT_CAP: usize = 32 * 1024;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunArgs {
+pub struct RunCommandArgs {
     pub command: String,
     pub args: Option<Vec<String>>,
     pub cwd: Option<String>,
@@ -28,10 +28,10 @@ pub struct RunArgs {
 }
 
 #[derive(Deserialize, Serialize, Clone)]
-pub struct Run;
+pub struct RunCommand;
 
 #[derive(Serialize)]
-struct RunOutput {
+struct RunCommandOutput {
     exit_code: i32,
     stdout: String,
     stderr: String,
@@ -192,7 +192,7 @@ reason: ..."#,
 async fn check_command_safety(command: &str) -> Result<(), ToolError> {
     let config = get_application_config();
 
-    let models = &config.tools.run.check_models;
+    let models = &config.tools.run_command.check_models;
     if models.is_empty() {
         return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
@@ -281,15 +281,15 @@ fn truncate_output(output: &str) -> (String, bool) {
     (output[..OUTPUT_CAP].to_string(), true)
 }
 
-impl Tool for Run {
-    const NAME: &'static str = "run";
+impl Tool for RunCommand {
+    const NAME: &'static str = "run_command";
     type Error = ToolError;
-    type Args = RunArgs;
+    type Args = RunCommandArgs;
     type Output = String;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
-            name: "run".to_string(),
+            name: "run_command".to_string(),
             description: "Run command (exec form). Pipes and redirects are not allowed (e.g. `2>&1`, `> out.txt`). Tool outputs yaml with both stdout and stderr.\nE.g.\n`git log` → command='git', args=['log'].\n`make 2>&1` → command='make' (drop `2>&1` as error is always output)\n`cat ./in.txt|grep foo` → Run for `cat` command and think of alternative for `grep`"
                 .to_string(),
             parameters: json!({
@@ -360,7 +360,7 @@ impl Tool for Run {
 
         // Check whitelist
         let config = get_application_config();
-        let whitelist = &config.tools.run.whitelist;
+        let whitelist = &config.tools.run_command.whitelist;
 
         if !command_matches_whitelist(&command_tokens, whitelist) {
             // Whitelist doesn't match - use LLM to check if command is safe
@@ -438,7 +438,7 @@ impl Tool for Run {
         let (truncated_stderr, stderr_was_truncated) = truncate_output(&filtered_stderr);
         let truncated = stdout_was_truncated || stderr_was_truncated;
 
-        let result = RunOutput {
+        let result = RunCommandOutput {
             exit_code,
             stdout: truncated_stdout,
             stderr: truncated_stderr,

@@ -13,7 +13,7 @@ pub mod user;
 pub struct ToolsConfig {
     pub fetch_webpage: FetchWebpageConfig,
     pub analyze_image: AnalyzeImageConfig,
-    pub run: RunConfig,
+    pub run_command: RunCommandConfig,
 }
 
 impl Default for ToolsConfig {
@@ -21,7 +21,7 @@ impl Default for ToolsConfig {
         Self {
             fetch_webpage: FetchWebpageConfig { model: None },
             analyze_image: AnalyzeImageConfig { model: None },
-            run: RunConfig::default(),
+            run_command: RunCommandConfig::default(),
         }
     }
 }
@@ -37,7 +37,7 @@ pub struct AnalyzeImageConfig {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct RunConfig {
+pub struct RunCommandConfig {
     pub whitelist: Vec<String>,
     pub check_models: Vec<SupportedModels>,
 }
@@ -108,7 +108,7 @@ impl Default for TenonConfig {
                     "list_files",
                     "read_file",
                     "remove_path",
-                    "run",
+                    "run_command",
                     "search_text",
                     "web_search",
                     "think",

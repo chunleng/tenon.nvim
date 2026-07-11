@@ -403,7 +403,7 @@ mod tests {
                 "list_files".to_string(),
                 "read_file".to_string(),
                 "remove_path".to_string(),
-                "run".to_string(),
+                "run_command".to_string(),
                 "search_text".to_string(),
                 "web_search".to_string(),
                 "think".to_string(),

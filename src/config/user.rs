@@ -39,12 +39,12 @@ pub struct TitleUserConfig {
 pub struct ToolsUserConfig {
     pub fetch_webpage: Option<FetchWebpageUserConfig>,
     pub analyze_image: Option<AnalyzeImageUserConfig>,
-    pub run: Option<RunUserConfig>,
+    pub run_command: Option<RunCommandUserConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunUserConfig {
+pub struct RunCommandUserConfig {
     pub whitelist: Vec<String>,
 
     #[serde(default)]
@@ -271,9 +271,9 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                     model_name: model.name,
                 });
             }
-            if let Some(run) = tools.run {
-                conf.tools.run.whitelist = run.whitelist;
-                conf.tools.run.check_models = run
+            if let Some(run) = tools.run_command {
+                conf.tools.run_command.whitelist = run.whitelist;
+                conf.tools.run_command.check_models = run
                     .check_models
                     .into_iter()
                     .map(|m| -> Result<_, nvim_oxi::Error> {
