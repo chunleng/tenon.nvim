@@ -11,7 +11,8 @@ Draft workflow structure and each step's instruction content
 4. Update `{config_path}/workflow.rs` with new workflow definition
 
 ## Drafting Guidelines
-- Each step should have: Purpose, Process, Output
+- Each step requires a "Process" section.
+- Include "Workflow Step Output" according to workflow memory's goal `steps.output`
 - Clear, minimal language
 - Include examples when instruction abstract or complex
 - Define goto_instructions with conditions and outputs

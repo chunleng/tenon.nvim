@@ -10,6 +10,12 @@ Define workflow goal and step structure through user interaction. Critical: do n
 6. Present flow: verify step N output → step N+1 input match
 7. Iterate until user approves
 
+## Decision Test: Step Output Required?
+
+Does the next step use this step's result as input?
+- Yes → include output
+- No → omit output
+
 ## Clarifying Questions
 
 ### Good

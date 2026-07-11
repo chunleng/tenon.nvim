@@ -10,8 +10,7 @@ For each flagged line:
    - **Remove**: Line provides no value or is redundant
    - **Replace**: Line has value but needs rewording
 3. Apply changes to file
-4. Document changes made
-5. Process next line or end
+4. Process next line or end
 
 ## Decision Guide
 - Vague + can't clarify → remove
@@ -20,15 +19,4 @@ For each flagged line:
 - Contradictory → resolve conflict, update both lines
 
 ## Workflow Step Output
-```yaml
-changes:
-  - file: "..."
-    line: 5
-    action: "removed"
-    reason: "..."
-  - file: "..."
-    line: 12
-    action: "replaced"
-    old: "..."
-    new: "..."
-```
+None
