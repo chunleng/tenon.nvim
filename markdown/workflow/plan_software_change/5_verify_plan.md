@@ -14,7 +14,7 @@ Verify plan addresses requirement without unintended side effects
    - Verify all integration points are covered
 4. If issues found, return to Analyze step
 
-## Output
+## Workflow Step Output
 When verification fails (issues found):
 ```yaml
 status: "verification failed"

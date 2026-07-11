@@ -19,7 +19,7 @@ For each flagged line:
 - Redundant → remove
 - Contradictory → resolve conflict, update both lines
 
-## Output
+## Workflow Step Output
 ```yaml
 changes:
   - file: "..."

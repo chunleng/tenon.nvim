@@ -5,7 +5,7 @@ Conclude root cause analysis with recommendations
 - Identify root cause from code inspection + test result
 - Check if surrounding logic is overly complex
 
-## Output
+## Workflow Step Output
 ```yaml
 cause: "root cause write-up"
 recommendation: "test created (if any), fix suggestion, refactoring suggestion if code is complex"

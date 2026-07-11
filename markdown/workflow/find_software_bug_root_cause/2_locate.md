@@ -11,7 +11,7 @@ Trace execution path from reproduction steps:
 ### Divergence Discovery
 - Bug isolation: use debug print, log analysis, etc. to confirm unexpected behavior
 
-## Output
+## Workflow Step Output
 ```yaml
 - file: "path/to/file"
   explanation: "how code causes bug (direct or indirect)"

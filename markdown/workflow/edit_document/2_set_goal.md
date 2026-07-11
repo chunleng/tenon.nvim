@@ -18,7 +18,7 @@ Define documentation goal and propose structure for user approval
    - User requests changes → update goal/structure and ask again
    - User rejects → return to Gather step to collect more context
 
-## Output
+## Workflow Step Output
 ```yaml
 goal:
   target_file: "path/to/file.md"

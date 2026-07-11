@@ -18,7 +18,7 @@ Find next incremental step:
 - Moves toward goal
 - Avoid large refactors (break into smaller steps)
 
-## Output
+## Workflow Step Output
 ```yaml
 next_step: "description of the change"
 files:

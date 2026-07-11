@@ -12,7 +12,7 @@ Verify refactoring plan is sound before implementation
    - Missing files in affected list
    - Unclear descriptions
 
-## Output
+## Workflow Step Output
 When verification fails (issues found):
 ```yaml
 status: "verification failed"

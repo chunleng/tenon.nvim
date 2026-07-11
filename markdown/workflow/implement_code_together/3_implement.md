@@ -24,5 +24,5 @@
 - part of goal → "Rejected"
 - else → "Confirm"
 
-## Output
+## Workflow Step Output
 Nothing

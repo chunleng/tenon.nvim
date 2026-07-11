@@ -24,7 +24,7 @@ Final output:
 - Unverifiable aspects documented
 - User confirmation obtained
 
-## Output
+## Workflow Step Output
 ```yaml
 build_status: "pass|fail"
 test_status: "pass|fail"

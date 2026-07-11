@@ -22,6 +22,6 @@ Description: {description}
 ### Step 2: ...
 ```
 
-## Output
+## Workflow Step Output
 - Changes needed: `change_requests: ["..."]`
 - Approved: `status: "complete", workflow_id: "...", instruction: "compact created prompt"`

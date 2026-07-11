@@ -21,7 +21,7 @@ Verify after implementation:
 - Run affected tests (test from Prepare Test step, tests in same module, or tests calling modified functions)
 - If verification fails → fix issues and retry
 
-## Output
+## Workflow Step Output
 ```yaml
 build_status: "pass|fail"
 tests_run:

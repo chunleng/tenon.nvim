@@ -24,7 +24,7 @@ Define workflow goal and step structure through user interaction. Critical: do n
 - Implementation detail: "Which data structure should I use?" → LLM decides
 - Opinion-seeking: "Do you think step 2 is necessary?" → propose, let user reject
 
-## Output
+## Workflow Step Output
 ```yaml
 workflow_id: "..."
 description: "..."

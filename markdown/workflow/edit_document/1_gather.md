@@ -14,7 +14,7 @@ Collect relevant information to inform documentation goal and structure
    - User's explicit request
    - File location conventions (README = project overview, docs/ = detailed guides)
 
-## Output
+## Workflow Step Output
 ```yaml
 target_file: "path/to/file.md"
 action: "create | update"

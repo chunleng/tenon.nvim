@@ -19,7 +19,7 @@ Define verification methods:
 - Tests (preferred)
 - Build + analysis: Untestable (language/visual limits). Last resort.
 
-## Output
+## Workflow Step Output
 ```yaml
 requirements: "clear statement of what needs to be implemented"
 acceptance_criteria:

@@ -23,7 +23,7 @@ There are many ways to observe what's happening inside code
 - Use existing context: execute code, run tests, inspect logs
 - Bug isolation technique
 
-## Output
+## Workflow Step Output
 ```yaml
 - steps_to_reproduce:
     - "step1"

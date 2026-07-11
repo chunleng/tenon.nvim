@@ -6,7 +6,7 @@ Analyze code and create refactoring plan
 2. Analyze each file (dependencies, callers, exports)
 3. Design changes that respect constraints
 
-## Output
+## Workflow Step Output
 ```yaml
 changes:
   - description: "specific change to make"

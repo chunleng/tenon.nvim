@@ -10,5 +10,5 @@ Determine the source of the diff from the user's request:
 
 If the source is ambiguous or missing, ask the user how to obtain the diff.
 
-## Output
+## Workflow Step Output
 The diff or list of changes

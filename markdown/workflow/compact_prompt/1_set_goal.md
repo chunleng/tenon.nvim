@@ -8,7 +8,7 @@ Check input source:
 
 List each target text with source location (file path, distinctive text snippet)
 
-## Output
+## Workflow Step Output
 ```yaml
 targets:
   - source: "file path or 'inline'"

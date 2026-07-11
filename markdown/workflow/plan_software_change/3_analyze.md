@@ -13,7 +13,7 @@ Identify implementation changes: new components to create, existing code to modi
    - APIs that need modification
    - Data structures that need changes
 
-## Output
+## Workflow Step Output
 ```yaml
 changes:
   - target: "file or component"

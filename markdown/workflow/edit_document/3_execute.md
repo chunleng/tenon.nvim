@@ -12,5 +12,5 @@ Write or update documentation directly in target file
    - Use gathered context materials
    - Follow documentation conventions (markdown formatting, headings)
 
-## Output
+## Workflow Step Output
 None (document modified in place)

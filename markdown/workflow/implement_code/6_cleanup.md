@@ -18,7 +18,7 @@ Verify removals don't break:
 - Run build after cleanup
 - If build fails after removal, revert that removal and proceed
 
-## Output
+## Workflow Step Output
 ```yaml
 items_removed:
   - file: "path/to/file"

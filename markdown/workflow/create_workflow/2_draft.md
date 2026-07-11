@@ -41,5 +41,5 @@ Draft workflow structure and each step's instruction content
 - Order conditions before catch-all (null): evaluated in order; null always matches → later conditions blocked
 - `output_to_workflow_memory`: workflow state (e.g., goals) → persists for all steps
 
-## Output
+## Workflow Step Output
 None

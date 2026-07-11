@@ -70,7 +70,7 @@ pub async fn build_workflow_prompt(
                 "<context>\n\
                     Currently in {} step of {} workflow.\n\
                     Execute \"Process\" in `instruction`; don't stop partway unless explicitly asked. \
-                    When done, output per \"Output\" section, or \"none\" if absent. Then call a tool from `navigation`.\n\
+                    When done, output per \"Workflow Step Output\" section, or \"none\" if absent. Then call a tool from `navigation`.\n\
                     \n\n\
                     {}\
                     <instruction>\n\

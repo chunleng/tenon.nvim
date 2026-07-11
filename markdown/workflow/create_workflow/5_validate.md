@@ -22,7 +22,7 @@ Validate steps flow properly between each other and instructions flow properly w
 - Critical constraints appear in Purpose section or first Process paragraph
 - No contradictory instructions within same step
 
-## Output
+## Workflow Step Output
 If issues found:
 ```yaml
 issues:

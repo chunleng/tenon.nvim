@@ -14,7 +14,7 @@ Understand user's refactoring requirement and define constraints
   - Any deadlines or constraints
 4. Iterate: investigate → ask questions → refine understanding until constraints are clear
 
-## Output
+## Workflow Step Output
 ```yaml
 requirement: "what user wants to achieve"
 constraints:

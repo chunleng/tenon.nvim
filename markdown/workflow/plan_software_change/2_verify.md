@@ -16,7 +16,7 @@ Confirm requirements are complete, unambiguous, and non-contradictory with exist
    - Constraints don't conflict with each other
    - Acceptance criteria are mutually compatible
 
-## Output
+## Workflow Step Output
 When verification fails:
 ```yaml
 status: "verification failed"

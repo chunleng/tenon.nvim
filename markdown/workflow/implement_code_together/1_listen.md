@@ -14,7 +14,7 @@
   a. User confirmed → next workflow step
   b. User rejects → loop to process step 2
 
-## Output
+## Workflow Step Output
 ```yaml
 goal: clear description of the incremental goal to achieve
 sidenotes:

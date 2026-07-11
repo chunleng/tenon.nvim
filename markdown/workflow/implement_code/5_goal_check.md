@@ -21,7 +21,7 @@ Goal reached criteria:
 - All verification methods passed
 - No remaining work from requirements
 
-## Output
+## Workflow Step Output
 ```yaml
 goal_reached: true|false
 reasoning: "explanation of decision"

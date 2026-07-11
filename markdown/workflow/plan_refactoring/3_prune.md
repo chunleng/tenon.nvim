@@ -7,7 +7,7 @@ Remove out-of-scope items from refactoring plan
    - Violate constraints
    - Are unrelated to user's requirement
 
-## Output
+## Workflow Step Output
 ```yaml
 changes:
   - description: "specific change to make"

@@ -27,7 +27,7 @@ Gather requirements, identify existing features, detect contradictions with curr
     - Scalability: expected load, growth
 5. Clarify conflicts and ambiguities with user
 
-## Output
+## Workflow Step Output
 ```yaml
 requirement: "what user wants to achieve"
 constraints:

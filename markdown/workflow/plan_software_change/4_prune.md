@@ -9,7 +9,7 @@ Remove out-of-scope or unnecessary changes
    - Add unrequested functionality
 3. Document rationale for each removal
 
-## Output
+## Workflow Step Output
 ```yaml
 changes:
   - target: "file or component"
