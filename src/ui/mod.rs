@@ -288,10 +288,12 @@ impl ChatWindow {
             api::get_option_value::<u32>("lines", &api::opts::OptionOpts::default())?;
         let max_height = (editor_height as f32 * 0.3) as u32;
 
-        let text_height = window
-            .text_height(&api::opts::WinTextHeightOpts::default())?
-            .all;
-        let target_height = text_height.max(3).min(max_height);
+        // TODO: There's a malloc error with text_height (Error on nvim-oxi side), to fix and reactivate this function
+        // let text_height = window
+        //     .text_height(&api::opts::WinTextHeightOpts::default())?
+        //     .all;
+        // let target_height = text_height.max(3).min(max_height);
+        let target_height = max_height;
 
         let mut win = window.clone();
         win.set_height(target_height)?;
@@ -840,9 +842,7 @@ impl ChatWindow {
             .get("detail")
             .expect("detail widget must exist");
         let mut buffer = detail_widget.buffer().inner.clone();
-        let buf_opts = api::opts::OptionOpts::builder()
-            .buffer(buffer.clone())
-            .build();
+        let buf_opts = api::opts::OptionOpts::builder().buf(buffer.clone()).build();
         api::set_option_value("modifiable", true, &buf_opts)?;
         let lines = format_log_detail(&log);
         buffer.set_lines(0.., false, lines)?;

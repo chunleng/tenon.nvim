@@ -142,7 +142,7 @@ impl ChatDisplay {
         // TODO we might want to instead switch buffer in the future
         // Clear buffer before starting new thread (switching chats, resetting)
         if let Some(mut buffer) = self.inner.get_buffer() {
-            let buf_opts = OptionOpts::builder().buffer(buffer.clone()).build();
+            let buf_opts = OptionOpts::builder().buf(buffer.clone()).build();
             nvim_oxi::api::set_option_value("modifiable", true, &buf_opts)?;
             let line_count = buffer.line_count()?;
             let _ = buffer.set_lines(0..line_count, false, Vec::<&str>::new());

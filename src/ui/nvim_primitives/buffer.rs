@@ -52,7 +52,7 @@ impl NvimBuffer {
     pub fn new(option: NvimBufferOption) -> OxiResult<Self> {
         let mut buffer = api::create_buf(option.buf_listed, false)?;
 
-        let buf_opts = OptionOpts::builder().buffer(buffer.clone()).build();
+        let buf_opts = OptionOpts::builder().buf(buffer.clone()).build();
         api::set_option_value("bufhidden", option.buf_hidden, &buf_opts)?;
         api::set_option_value("buftype", option.buf_type, &buf_opts)?;
         api::set_option_value("buflisted", option.buf_listed, &buf_opts)?;
@@ -72,7 +72,7 @@ impl NvimBuffer {
     }
 
     pub fn set_bufhidden(&self, value: &str) -> OxiResult<()> {
-        let opts = OptionOpts::builder().buffer(self.inner.clone()).build();
+        let opts = OptionOpts::builder().buf(self.inner.clone()).build();
         api::set_option_value("bufhidden", value, &opts)?;
         Ok(())
     }

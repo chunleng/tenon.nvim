@@ -32,7 +32,7 @@ fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
             let buf = Buffer::from(bufnr);
 
             // Get buftype first to determine formatting approach
-            let option_opt = OptionOpts::builder().buffer(buf.clone()).build();
+            let option_opt = OptionOpts::builder().buf(buf.clone()).build();
             let buftype: String = nvim_oxi::api::get_option_value("buftype", &option_opt)
                 .ok()
                 .and_then(|obj| String::from_object(obj).ok())

@@ -8,7 +8,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 futures = "0.3.32"
-nvim-oxi = { version = "0.6", features = ["neovim-0-11", "libuv", "mlua"] }
+nvim-oxi = { git = "https://github.com/chunleng/nvim-oxi", package = "nvim-oxi", features = [
+    "neovim-0-12",
+    "libuv",
+    "mlua",
+] }
 mlua = { version = "*", features = ["module", "serialize", "luajit"] }
 reqwest = "0.13.2"
 rig-core = "0.36"

@@ -76,7 +76,7 @@ impl ChatLogRenderer {
                                 false
                             };
 
-                            let buf_opts = OptionOpts::builder().buffer(buffer.clone()).build();
+                            let buf_opts = OptionOpts::builder().buf(buffer.clone()).build();
                             let _ = nvim_oxi::api::set_option_value("modifiable", true, &buf_opts);
                             for update in updates {
                                 let replace_start = update.replace_line_start;
