@@ -2,7 +2,7 @@ use crate::agent::worker::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use crate::utils::format_yaml_block_scalars;
 use futures::stream::{self, StreamExt};
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -287,52 +287,52 @@ impl Tool for RunCommand {
     type Args = RunCommandArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "run_command".to_string(),
-            description: "Run command (exec form). Pipes and redirects are not allowed (e.g. `2>&1`, `> out.txt`). Tool outputs yaml with both stdout and stderr.\nE.g.\n`git log` → command='git', args=['log'].\n`make 2>&1` → command='make' (drop `2>&1` as error is always output)\n`cat ./in.txt|grep foo` → Run for `cat` command and think of alternative for `grep`"
-                .to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "Executable. E.g. 'git', 'make'."
-                    },
-                    "args": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Args. E.g. ['log', '--oneline']."
-                    },
-                    "cwd": {
-                        "type": "string",
-                        "description": "Working dir. Default: cwd."
-                    },
-                    "timeout": {
-                        "type": "integer",
-                        "description": "Timeout (sec). Default: 30."
-                    },
-                    "filter": {
-                        "type": "string",
-                        "description": "Filter lines containing substring."
-                    },
-                    "head": {
-                        "type": "integer",
-                        "description": "Keep first N lines. Exclusive with tail."
-                    },
-                    "tail": {
-                        "type": "integer",
-                        "description": "Keep last N lines. Exclusive with head."
-                    },
-                    "env": {
-                        "type": "object",
-                        "additionalProperties": {"type": "string"},
-                        "description": "Env vars."
-                    }
+    fn description(&self) -> String {
+        "Run command (exec form). Pipes and redirects are not allowed (e.g. `2>&1`, `> out.txt`). Tool outputs yaml with both stdout and stderr.\nE.g.\n`git log` → command='git', args=['log'].\n`make 2>&1` → command='make' (drop `2>&1` as error is always output)\n`cat ./in.txt|grep foo` → Run for `cat` command and think of alternative for `grep`"
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Executable. E.g. 'git', 'make'."
                 },
-                "required": ["command"]
-            }),
-        }
+                "args": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Args. E.g. ['log', '--oneline']."
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working dir. Default: cwd."
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout (sec). Default: 30."
+                },
+                "filter": {
+                    "type": "string",
+                    "description": "Filter lines containing substring."
+                },
+                "head": {
+                    "type": "integer",
+                    "description": "Keep first N lines. Exclusive with tail."
+                },
+                "tail": {
+                    "type": "integer",
+                    "description": "Keep last N lines. Exclusive with head."
+                },
+                "env": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                    "description": "Env vars."
+                }
+            },
+            "required": ["command"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

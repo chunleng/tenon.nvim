@@ -212,6 +212,7 @@ mod tests {
         let before = Utc::now();
         log.set_tool_result(Some(Ok(TenonToolResult::Text(rig::agent::Text {
             text: "result".into(),
+            ..Default::default()
         }))));
         let after = Utc::now();
 

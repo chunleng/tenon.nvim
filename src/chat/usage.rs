@@ -42,6 +42,7 @@ mod tests {
             total_tokens: 150,
             cached_input_tokens: 0,
             cache_creation_input_tokens: 0,
+            ..Default::default()
         };
         session_usage.add(usage1.clone());
 
@@ -56,6 +57,7 @@ mod tests {
             total_tokens: 300,
             cached_input_tokens: 50,
             cache_creation_input_tokens: 0,
+            ..Default::default()
         };
         session_usage.add(usage2.clone());
 
@@ -78,6 +80,7 @@ mod tests {
             total_tokens: 750,
             cached_input_tokens: 100,
             cache_creation_input_tokens: 0,
+            ..Default::default()
         };
 
         let session_usage = SessionUsage {

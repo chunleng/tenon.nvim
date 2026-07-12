@@ -22,7 +22,7 @@ pub use list_files::ListFiles;
 pub use move_path::MovePath;
 pub use read_file::ReadFile;
 pub use remove_path::RemovePath;
-use rig::{tool::ToolDyn, tools::ThinkTool};
+use rig::{tool::ToolDyn, tool::builtin::ThinkTool};
 pub use run_command::RunCommand;
 pub use search_text::SearchText;
 pub use web_search::WebSearch;

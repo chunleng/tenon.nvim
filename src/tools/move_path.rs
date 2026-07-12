@@ -1,7 +1,7 @@
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::format_yaml_block_scalars;
 use crate::utils::path_from_str;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -66,27 +66,25 @@ impl Tool for MovePath {
     type Args = MovePathArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "move_path".to_string(),
-            description:
-                "Move/rename file or dir. Dir dest → move into. Error if dest file exists."
-                    .to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "source": {
-                        "type": "string",
-                        "description": "Source path"
-                    },
-                    "destination": {
-                        "type": "string",
-                        "description": "Destination path"
-                    }
+    fn description(&self) -> String {
+        "Move/rename file or dir. Dir dest → move into. Error if dest file exists.".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "Source path"
                 },
-                "required": ["source", "destination"]
-            }),
-        }
+                "destination": {
+                    "type": "string",
+                    "description": "Destination path"
+                }
+            },
+            "required": ["source", "destination"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

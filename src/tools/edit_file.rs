@@ -1,7 +1,7 @@
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::path_from_str;
 use regex::RegexBuilder;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -143,30 +143,30 @@ impl Tool for EditFile {
     type Args = EditFileArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "edit_file".to_string(),
-            description: "Find → replace. 'one' errors if >1 match. Example: empty file → search='', replace='new content'".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "filepath": { "type": "string", "description": "File path" },
-                    "search": { "type": "string", "description": "Search text or regex (see search_mode)" },
-                    "replace": { "type": "string", "description": "Replacement text" },
-                    "replace_mode": {
-                        "type": "string",
-                        "enum": ["one", "all"],
-                        "description": "one = first match (error if >1). all = every match"
-                    },
-                    "search_mode": {
-                        "type": "string",
-                        "enum": ["literal", "regex"],
-                        "description": "literal = exact match. regex = pattern, dot matches \\n"
-                    }
+    fn description(&self) -> String {
+        "Find → replace. 'one' errors if >1 match. Example: empty file → search='', replace='new content'".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "filepath": { "type": "string", "description": "File path" },
+                "search": { "type": "string", "description": "Search text or regex (see search_mode)" },
+                "replace": { "type": "string", "description": "Replacement text" },
+                "replace_mode": {
+                    "type": "string",
+                    "enum": ["one", "all"],
+                    "description": "one = first match (error if >1). all = every match"
                 },
-                "required": ["filepath", "search", "replace", "search_mode"]
-            }),
-        }
+                "search_mode": {
+                    "type": "string",
+                    "enum": ["literal", "regex"],
+                    "description": "literal = exact match. regex = pattern, dot matches \\n"
+                }
+            },
+            "required": ["filepath", "search", "replace", "search_mode"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

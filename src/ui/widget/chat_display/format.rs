@@ -207,6 +207,7 @@ mod tests {
             tool_call,
             tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
                 text: "content".to_string(),
+                ..Default::default()
             }))),
         };
         let data = TenonLogData::Tool(log);

@@ -1,7 +1,7 @@
 use crate::utils::path_from_str;
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -27,33 +27,33 @@ impl Tool for ListFiles {
     type Args = ListFilesArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "list_files".to_string(),
-            description: "List files matching glob. YAML: files[] + metadata.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "pattern": {
-                        "type": "string",
-                        "description": "Glob pattern. e.g '*.rs', '**/*.rs', 'src/*.py', 'test/**/test_*.py'"
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "Search dir. Default=cwd"
-                    },
-                    "show_gitignored": {
-                        "type": "boolean",
-                        "description": "Include gitignored. Default=false"
-                    },
-                    "max_count": {
-                        "type": "integer",
-                        "description": "Max results. Default=20"
-                    }
+    fn description(&self) -> String {
+        "List files matching glob. YAML: files[] + metadata.".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Glob pattern. e.g '*.rs', '**/*.rs', 'src/*.py', 'test/**/test_*.py'"
                 },
-                "required": ["pattern"]
-            }),
-        }
+                "path": {
+                    "type": "string",
+                    "description": "Search dir. Default=cwd"
+                },
+                "show_gitignored": {
+                    "type": "boolean",
+                    "description": "Include gitignored. Default=false"
+                },
+                "max_count": {
+                    "type": "integer",
+                    "description": "Max results. Default=20"
+                }
+            },
+            "required": ["pattern"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

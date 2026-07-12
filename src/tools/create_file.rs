@@ -1,6 +1,6 @@
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::path_from_str;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -21,22 +21,21 @@ impl Tool for CreateFile {
     type Args = CreateFileArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "create_file".to_string(),
-            description: "Create empty file. Error if exists. Auto-creates parent dirs."
-                .to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "filepath": {
-                        "type": "string",
-                        "description": "Path"
-                    }
-                },
-                "required": ["filepath"]
-            }),
-        }
+    fn description(&self) -> String {
+        "Create empty file. Error if exists. Auto-creates parent dirs.".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "filepath": {
+                    "type": "string",
+                    "description": "Path"
+                }
+            },
+            "required": ["filepath"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

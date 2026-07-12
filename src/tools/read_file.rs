@@ -1,5 +1,5 @@
 use crate::utils::path_from_str;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -22,29 +22,29 @@ impl Tool for ReadFile {
     type Args = ReadFileArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "read_file".to_string(),
-            description: "Read file contents. Supports line ranges. Output starting with `Toolset error:` indicates error".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "filepath": {
-                        "type": "string",
-                        "description": "Path to file (absolute or relative)"
-                    },
-                    "start_line": {
-                        "type": "number",
-                        "description": "Start line (1-based). Default: 1"
-                    },
-                    "end_line": {
-                        "type": "number",
-                        "description": "End line (1-based, inclusive). Default: EOF"
-                    }
+    fn description(&self) -> String {
+        "Read file contents. Supports line ranges. Output starting with `Toolset error:` indicates error".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "filepath": {
+                    "type": "string",
+                    "description": "Path to file (absolute or relative)"
                 },
-                "required": ["filepath"]
-            }),
-        }
+                "start_line": {
+                    "type": "number",
+                    "description": "Start line (1-based). Default: 1"
+                },
+                "end_line": {
+                    "type": "number",
+                    "description": "End line (1-based, inclusive). Default: EOF"
+                }
+            },
+            "required": ["filepath"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

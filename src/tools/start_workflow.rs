@@ -1,6 +1,6 @@
 use crate::chat::ActiveWorkflow;
 use crate::chat::workflow::Workflow;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
 use serde_json::json;
@@ -31,29 +31,29 @@ impl Tool for StartWorkflow {
     type Args = StartWorkflowArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn description(&self) -> String {
+        "Start workflow".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
         let candidate_workflow = self
             .workflows
             .iter()
             .map(|wf| format!("- {} — {}", wf.id, wf.description))
             .collect::<Vec<_>>()
             .join("\n");
-        ToolDefinition {
-            name: "start_workflow".to_string(),
-            description: "Start workflow".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "workflow_id": {
-                        "type": "string",
-                        "description": format!(
-                            "The workflow ID to start. Pick the workflow description that best matches the user's intent.\nID — description:\n{}", candidate_workflow
-                        ),
-                    }
-                },
-                "required": ["workflow_id"]
-            }),
-        }
+        json!({
+            "type": "object",
+            "properties": {
+                "workflow_id": {
+                    "type": "string",
+                    "description": format!(
+                        "The workflow ID to start. Pick the workflow description that best matches the user's intent.\nID — description:\n{}", candidate_workflow
+                    ),
+                }
+            },
+            "required": ["workflow_id"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

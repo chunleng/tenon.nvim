@@ -1,4 +1,3 @@
-use rig::completion::ToolDefinition;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -66,29 +65,30 @@ impl Tool for WebSearch {
     type Args = WebSearchArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "web_search".to_string(),
-            description: "Search web → YAML results. Each: name, url, snippet, date_published, date_last_crawled.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search query. No year/date unless user specified."
-                    },
-                    "freshness": {
-                        "type": "string",
-                        "description": "Time filter. \"oneDay\"|\"oneWeek\"|\"oneMonth\"|\"oneYear\"|\"noLimit\" (default)"
-                    },
-                    "count": {
-                        "type": "integer",
-                        "description": "Results count. 1-10. Default: 10"
-                    }
+    fn description(&self) -> String {
+        "Search web → YAML results. Each: name, url, snippet, date_published, date_last_crawled."
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query. No year/date unless user specified."
                 },
-                "required": ["query"]
-            }),
-        }
+                "freshness": {
+                    "type": "string",
+                    "description": "Time filter. \"oneDay\"|\"oneWeek\"|\"oneMonth\"|\"oneYear\"|\"noLimit\" (default)"
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "Results count. 1-10. Default: 10"
+                }
+            },
+            "required": ["query"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

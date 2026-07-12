@@ -1,7 +1,7 @@
 use crate::agent::worker::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use html_to_markdown_rs::{ConversionOptions, PreprocessingOptions, PreprocessingPreset};
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -22,27 +22,26 @@ impl Tool for FetchWebpage {
     type Args = FetchWebpageArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "fetch_webpage".to_string(),
-            description:
-                "Fetch webpage → readable text. w/ prompt (RECOMMENDED): answer from content. Else: full markdown"
-                    .to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "URL"
-                    },
-                    "prompt": {
-                        "type": "string",
-                        "description": "What to extract/answer. Returns answer only. Scalar: fact/yes-no. Structured: table/steps/kvpairs. Compressed: summary/takeaways/translation. Filtered: partial document"
-                    }
+    fn description(&self) -> String {
+        "Fetch webpage → readable text. w/ prompt (RECOMMENDED): answer from content. Else: full markdown"
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL"
                 },
-                "required": ["url"]
-            }),
-        }
+                "prompt": {
+                    "type": "string",
+                    "description": "What to extract/answer. Returns answer only. Scalar: fact/yes-no. Structured: table/steps/kvpairs. Compressed: summary/takeaways/translation. Filtered: partial document"
+                }
+            },
+            "required": ["url"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

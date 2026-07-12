@@ -3,7 +3,7 @@ use crate::utils::path_from_str;
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -102,45 +102,45 @@ impl Tool for SearchText {
     type Args = SearchTextArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "search_text".to_string(),
-            description: "Search text under directory. Returns match locations".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "pattern": {
-                        "type": "string",
-                        "description": "Text to find"
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "Directory to search. Default=cwd"
-                    },
-                    "glob": {
-                        "type": "string",
-                        "description": "File filter. e.g. '*.rs', '**/*.rs', 'src/*.py', 'test/**/test_*.py'. Default='**/*'"
-                    },
-                    "is_regex": {
-                        "type": "boolean",
-                        "description": "Treat pattern as regex if true. Turn on when regex is needed. e.g. alternation regex (`a|b`)"
-                    },
-                    "ignore_case": {
-                        "type": "boolean",
-                        "description": "Case-insensitive search. Default=false"
-                    },
-                    "context_lines": {
-                        "type": "number",
-                        "description": "Lines before+after match. Default=0"
-                    },
-                    "max_files": {
-                        "type": "integer",
-                        "description": "Max files returned. Default=all"
-                    }
+    fn description(&self) -> String {
+        "Search text under directory. Returns match locations".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Text to find"
                 },
-                "required": ["pattern", "is_regex"]
-            }),
-        }
+                "path": {
+                    "type": "string",
+                    "description": "Directory to search. Default=cwd"
+                },
+                "glob": {
+                    "type": "string",
+                    "description": "File filter. e.g. '*.rs', '**/*.rs', 'src/*.py', 'test/**/test_*.py'. Default='**/*'"
+                },
+                "is_regex": {
+                    "type": "boolean",
+                    "description": "Treat pattern as regex if true. Turn on when regex is needed. e.g. alternation regex (`a|b`)"
+                },
+                "ignore_case": {
+                    "type": "boolean",
+                    "description": "Case-insensitive search. Default=false"
+                },
+                "context_lines": {
+                    "type": "number",
+                    "description": "Lines before+after match. Default=0"
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Max files returned. Default=all"
+                }
+            },
+            "required": ["pattern", "is_regex"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

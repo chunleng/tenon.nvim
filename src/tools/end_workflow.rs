@@ -1,5 +1,5 @@
 use crate::chat::ActiveWorkflow;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
 use serde_json::json;
@@ -29,21 +29,21 @@ impl Tool for EndWorkflow {
     type Args = EndWorkflowArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "end_workflow".to_string(),
-            description: "End workflow. Use when complete".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "output": {
-                        "type": "string",
-                        "description": "Result of the workflow"
-                    }
-                },
-                "required": ["output"]
-            }),
-        }
+    fn description(&self) -> String {
+        "End workflow. Use when complete".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "output": {
+                    "type": "string",
+                    "description": "Result of the workflow"
+                }
+            },
+            "required": ["output"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

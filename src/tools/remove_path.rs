@@ -1,6 +1,6 @@
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::path_from_str;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -21,21 +21,21 @@ impl Tool for RemovePath {
     type Args = RemovePathArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "remove_path".to_string(),
-            description: "Delete file/dir. Error if missing.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "filepath": {
-                        "type": "string",
-                        "description": "Path"
-                    }
-                },
-                "required": ["filepath"]
-            }),
-        }
+    fn description(&self) -> String {
+        "Delete file/dir. Error if missing.".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "filepath": {
+                    "type": "string",
+                    "description": "Path"
+                }
+            },
+            "required": ["filepath"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

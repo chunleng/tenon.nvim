@@ -289,6 +289,7 @@ mod tests {
         let tool_result = if has_result {
             Some(Ok(TenonToolResult::Text(rig::agent::Text {
                 text: "ok".into(),
+                ..Default::default()
             })))
         } else {
             None

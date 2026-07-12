@@ -198,9 +198,10 @@ macro_rules! convert_stream_item {
             MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Final(
                 final_response,
             )) => StreamItem::Final {
-                token_usage: final_response
-                    .token_usage()
-                    .map(rig::completion::Usage::from),
+                token_usage: Some(final_response.token_usage()),
+            },
+            MultiTurnStreamItem::FinalResponse(response) => StreamItem::Final {
+                token_usage: Some(response.usage),
             },
             _ => StreamItem::Other,
         }
@@ -246,31 +247,31 @@ impl ChatAgent {
             ChatAgent::Ollama(agent) => ChatStream::Ollama(
                 agent
                     .stream_chat(message, history)
-                    .multi_turn(multi_turn)
+                    .max_turns(multi_turn)
                     .await,
             ),
             ChatAgent::Gemini(agent) => ChatStream::Gemini(
                 agent
                     .stream_chat(message, history)
-                    .multi_turn(multi_turn)
+                    .max_turns(multi_turn)
                     .await,
             ),
             ChatAgent::OpenAI(agent) => ChatStream::OpenAI(
                 agent
                     .stream_chat(message, history)
-                    .multi_turn(multi_turn)
+                    .max_turns(multi_turn)
                     .await,
             ),
             ChatAgent::Anthropic(agent) => ChatStream::Anthropic(
                 agent
                     .stream_chat(message, history)
-                    .multi_turn(multi_turn)
+                    .max_turns(multi_turn)
                     .await,
             ),
             ChatAgent::Bedrock(agent) => ChatStream::Bedrock(
                 agent
                     .stream_chat(message, history)
-                    .multi_turn(multi_turn)
+                    .max_turns(multi_turn)
                     .await,
             ),
         }

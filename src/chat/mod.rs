@@ -313,9 +313,7 @@ impl ChatSession {
                                                     active.as_ref().map(|wf| wf.workflow.id.clone())
                                                 })
                                                 .unwrap_or_default();
-                                            if let Ok(mut active) =
-                                                active_workflow_clone.write()
-                                            {
+                                            if let Ok(mut active) = active_workflow_clone.write() {
                                                 *active = None;
                                             }
                                             log_window.logs.push(

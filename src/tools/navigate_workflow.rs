@@ -1,5 +1,5 @@
 use crate::chat::ActiveWorkflow;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde::Deserialize;
 use serde_json::json;
@@ -30,25 +30,25 @@ impl Tool for NavigateWorkflow {
     type Args = NavigateWorkflowArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "navigate_workflow".to_string(),
-            description: "Navigate workflow steps".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "step": {
-                        "type": "integer",
-                        "description": "Step number (1-indexed)"
-                    },
-                    "step_output": {
-                        "type": "string",
-                        "description": "Output of current step"
-                    }
+    fn description(&self) -> String {
+        "Navigate workflow steps".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "step": {
+                    "type": "integer",
+                    "description": "Step number (1-indexed)"
                 },
-                "required": ["step", "step_output"]
-            }),
-        }
+                "step_output": {
+                    "type": "string",
+                    "description": "Output of current step"
+                }
+            },
+            "required": ["step", "step_output"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

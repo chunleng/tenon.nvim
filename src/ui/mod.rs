@@ -941,6 +941,7 @@ mod tests {
             },
             tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
                 text: "file content".into(),
+                ..Default::default()
             }))),
         }));
         let lines = format_log_detail(&log);
@@ -980,6 +981,7 @@ mod tests {
                 },
                 tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
                     text: "step: 2\noutput: \"step output here\"".into(),
+                    ..Default::default()
                 }))),
             },
         )));
@@ -1034,6 +1036,7 @@ mod tests {
                 },
                 tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
                     text: "step output here".into(),
+                    ..Default::default()
                 }))),
             },
         )));

@@ -1,5 +1,5 @@
 use nvim_oxi::Result as OxiResult;
-use rig::completion::ToolDefinition;
+
 use rig::tool::{Tool, ToolError};
 use serde_json::Value;
 
@@ -102,12 +102,12 @@ impl Tool for McpHubCaller {
         format!("{}____{}", self.server_name, self.tool_name)
     }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: self.name(),
-            description: self.description.clone(),
-            parameters: self.input_schema.clone(),
-        }
+    fn description(&self) -> String {
+        self.description.clone()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        self.input_schema.clone()
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {

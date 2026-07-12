@@ -3,7 +3,7 @@ use crate::get_application_config;
 use crate::utils::path_from_str;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rig::OneOrMany;
-use rig::completion::ToolDefinition;
+
 use rig::message::{ImageMediaType, Message, MimeType, UserContent};
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
@@ -77,27 +77,26 @@ impl Tool for AnalyzeImage {
     type Args = AnalyzeImageArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: "analyze_image".to_string(),
-            description:
-                "Analyze image and answer questions about its content. Accepts local file path or URL. Use to identify objects, read text, describe scenes, answer visual queries, or extract info. Returns text answer based on prompt."
-                    .to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "image": {
-                        "type": "string",
-                        "description": "Path or URL to image. Supports common formats (PNG, JPEG, GIF, WebP, BMP, SVG)."
-                    },
-                    "prompt": {
-                        "type": "string",
-                        "description": "Question or instruction about the image. Scalar: 'How many people are in this image?' Structured: 'List all visible objects with their colors.' Compressed: 'Summarize this image in one sentence.'"
-                    }
+    fn description(&self) -> String {
+        "Analyze image and answer questions about its content. Accepts local file path or URL. Use to identify objects, read text, describe scenes, answer visual queries, or extract info. Returns text answer based on prompt."
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "image": {
+                    "type": "string",
+                    "description": "Path or URL to image. Supports common formats (PNG, JPEG, GIF, WebP, BMP, SVG)."
                 },
-                "required": ["image", "prompt"]
-            }),
-        }
+                "prompt": {
+                    "type": "string",
+                    "description": "Question or instruction about the image. Scalar: 'How many people are in this image?' Structured: 'List all visible objects with their colors.' Compressed: 'Summarize this image in one sentence.'"
+                }
+            },
+            "required": ["image", "prompt"]
+        })
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
