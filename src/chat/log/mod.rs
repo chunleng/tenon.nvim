@@ -78,11 +78,10 @@ pub enum TenonToolResult {
 pub struct TenonToolError(pub String);
 
 impl TenonToolError {
-    /// Strip rig's internal wrapping prefixes for display.
-    /// E.g. "Toolset error: ToolCallError: ToolCallError: read_file ..."
-    ///   → "read_file ..."
+    /// Strip rig's internal wrapping prefix for display.
+    /// E.g. "ToolCallError: read_file ..." → "read_file ..."
     pub fn display_message(&self) -> &str {
-        let mut s = self.0.strip_prefix("Toolset error: ").unwrap_or(&self.0);
+        let mut s = self.0.as_str();
         while let Some(stripped) = s.strip_prefix("ToolCallError: ") {
             s = stripped;
         }

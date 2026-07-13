@@ -284,7 +284,7 @@ impl ChatSession {
                                     let tool_result = tool_result.content.first();
                                     let result = match tool_result {
                                         ToolResultContent::Text(text) => {
-                                            if text.text.starts_with("Toolset error: ") {
+                                            if text.text.starts_with("ToolCallError: ") {
                                                 Err(TenonToolError(text.text))
                                             } else {
                                                 Ok(TenonToolResult::Text(text))
