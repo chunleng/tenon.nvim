@@ -23,18 +23,5 @@ Verify after implementation:
 
 ## Workflow Step Output
 ```yaml
-build_status: "pass|fail"
-tests_run:
-  - "test_name_1"
-test_status: "pass|fail"
-failed_tests:
-  - "test_name: failure reason"
-```
-
-## Example
-```yaml
-build_status: "pass"
-tests_run:
-  - "test_empty_password_validation"
-test_status: "pass"
+test_status: pass
 ```

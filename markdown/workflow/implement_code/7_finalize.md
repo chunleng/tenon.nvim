@@ -4,7 +4,6 @@ Full verification and documentation
 ## Process
 Run full verification:
 - Batch tool calls when running multiple commands
-- Build entire project
 - Run full test suite
 - Check project standards (lint, format, etc.)
 
@@ -21,40 +20,5 @@ Ask user to verify unverifiable aspects:
 
 Final output:
 - All verifications passed
-- Unverifiable aspects documented
+- List unverifiable aspects and reasons
 - User confirmation obtained
-
-## Workflow Step Output
-```yaml
-build_status: "pass|fail"
-test_status: "pass|fail"
-project_standards: "pass|fail|not applicable"
-unverifiable_aspects:
-  - aspect: "description"
-    reason: "why agent cannot verify"
-failed_tests:
-  - "file:test: message"
-user_verification: "confirmed|pending|failed"
-```
-
-## Example
-```yaml
-build_status: "pass"
-test_status: "pass"
-project_standards: "pass"
-unverifiable_aspects:
-  - aspect: "UI rendering of error message"
-    reason: "Agent cannot see browser rendering"
-user_verification: "confirmed"
-```
-
-```yaml
-build_status: "pass"
-test_status: "fail"
-project_standards: "pass"
-unverifiable_aspects: []
-failed_tests:
-  - "src/auth/test_auth: test_auth failed: timeout"
-  - "src/auth/test_login: test_login failed: wrong error code"
-user_verification: "pending"
-```

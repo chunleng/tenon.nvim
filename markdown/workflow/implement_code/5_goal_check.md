@@ -13,7 +13,6 @@ If goal not reached:
 
 If goal reached:
 - Confirm all acceptance criteria satisfied
-- Document reasoning
 - Proceed to Cleanup step
 
 Goal reached criteria:
@@ -22,20 +21,26 @@ Goal reached criteria:
 - No remaining work from requirements
 
 ## Workflow Step Output
+
+### Goal Reached
 ```yaml
-goal_reached: true|false
-reasoning: "explanation of decision"
-remaining_gap: "what's still needed (if goal_reached: false)"
+goal_reached: true
+```
+
+### Goal Not Reached
+```yaml
+goal_reached: false
+remaining_gap:
+  - what's still needed
 ```
 
 ## Example
 ```yaml
 goal_reached: true
-reasoning: "Empty password validation added, all acceptance criteria met, tests passing"
 ```
 
 ```yaml
 goal_reached: false
-reasoning: "Empty password check added but error message not user-friendly"
-remaining_gap: "Add user-friendly error message for empty password validation"
+remaining_gap:
+  - Error message for empty password validation not user-friendly
 ```
