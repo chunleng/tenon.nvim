@@ -7929,6 +7929,7 @@ dependencies = [
  "lance-linalg 0.15.0",
  "mlua",
  "nvim-oxi",
+ "rand 0.9.2",
  "regex",
  "reqwest 0.13.2",
  "resvg",
