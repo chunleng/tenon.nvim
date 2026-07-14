@@ -18,16 +18,16 @@ Review drafted workflow content and flag vague, ambiguous, or problematic lines
 
 ## Workflow Step Output
 ```yaml
-file: "path/to/file.md"
+file: path/to/file.md
 flagged_lines:
-  - file: "path/to/file.md"
+  - file: path/to/file.md
     line: 5
-    content: "..."
-    reason: "..."
-  - file: "path/to/file.md"
+    content: ...
+    reason: ...
+  - file: path/to/file.md
     line: 12
-    content: "..."
-    reason: "..."
+    content: ...
+    reason: ...
 ```
 
 If no issues:

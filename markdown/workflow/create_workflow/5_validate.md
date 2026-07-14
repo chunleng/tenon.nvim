@@ -26,12 +26,12 @@ Validate steps flow properly between each other and instructions flow properly w
 If issues found:
 ```yaml
 issues:
-  - type: "flow"
-    location: "step 2 → step 3"
-    description: "..."
-  - type: "internal"
-    location: "step 4"
-    description: "..."
+  - type: flow
+    location: step 2 → step 3
+    description: ...
+  - type: internal
+    location: step 4
+    description: ...
 ```
 
 If no issues:

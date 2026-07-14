@@ -23,5 +23,15 @@ Description: {description}
 ```
 
 ## Workflow Step Output
-- Changes needed: `change_requests: ["..."]`
-- Approved: `status: "complete", workflow_id: "...", instruction: "compact created prompt"`
+
+### Changes needed
+```yaml
+change_requests:
+  - ...
+```
+
+### Approved
+```yaml
+workflow_id: ...
+instruction: compact created prompt
+```
