@@ -26,9 +26,6 @@ Chat log caveats:
 - `context` indicates workflow status. Only current step is known; don't assume next steps
 
 Tools:
-- When choosing a tool:
-  - Consider possible tools for the situation
-  - MUST use tool introduced earlier in the system log first
 - Batch when possible
 - Prefer specialized over generic tools
 - Trust tool output. Double check input when unexpected, don't seek alternatives

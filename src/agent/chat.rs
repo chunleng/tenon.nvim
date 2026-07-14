@@ -53,18 +53,27 @@ impl TenonAgent {
         if has_active {
             use crate::tools::end_workflow::EndWorkflow;
             use crate::tools::navigate_workflow::NavigateWorkflow;
-            tools.push(Box::new(NavigateWorkflow {
-                active_workflow: workflow_context.clone(),
-            }));
-            tools.push(Box::new(EndWorkflow {
-                active_workflow: workflow_context,
-            }));
+            tools.insert(
+                0,
+                Box::new(NavigateWorkflow {
+                    active_workflow: workflow_context.clone(),
+                }),
+            );
+            tools.insert(
+                0,
+                Box::new(EndWorkflow {
+                    active_workflow: workflow_context,
+                }),
+            );
         } else if !self.workflows.is_empty() {
             use crate::tools::start_workflow::StartWorkflow;
-            tools.push(Box::new(StartWorkflow {
-                workflows: self.workflows.clone(),
-                active_workflow: workflow_context.clone(),
-            }));
+            tools.insert(
+                0,
+                Box::new(StartWorkflow {
+                    workflows: self.workflows.clone(),
+                    active_workflow: workflow_context.clone(),
+                }),
+            );
         }
 
         get_agent(self.model.clone(), combined, tools, true)

@@ -205,6 +205,25 @@ pub fn resolve_tool_names(names: &[impl AsRef<str>]) -> Vec<String> {
     names.iter().map(|x| x.as_ref().to_string()).collect()
 }
 
+/// Select tools matching `selectors`, returned in selector order.
+///
+/// Each selector contributes its matches consecutively, at the selector's
+/// position. A tool is taken at most once (first matching selector wins).
+fn select_in_order<T>(mut tools: Vec<Option<(String, T)>>, selectors: &[&str]) -> Vec<T> {
+    let mut result = Vec::new();
+    for selector in selectors {
+        for entry in tools.iter_mut() {
+            if entry.is_none() {
+                continue;
+            }
+            if tool_matches_selectors(&entry.as_ref().unwrap().0, std::slice::from_ref(selector)) {
+                result.push(entry.take().unwrap().1);
+            }
+        }
+    }
+    result
+}
+
 /// Resolve a list of tool name strings into concrete `Box<dyn ToolDyn>` instances.
 ///
 /// Built-in names: "create_file", "edit_file", "fetch_webpage",
@@ -214,63 +233,88 @@ pub fn resolve_tool_names(names: &[impl AsRef<str>]) -> Vec<String> {
 pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
     let name_refs: Vec<&str> = names.iter().map(|n| n.as_ref()).collect();
 
-    let mut all_tools: Vec<(String, Box<dyn ToolDyn>)> = vec![
-        (
+    let mut all_tools: Vec<Option<(String, Box<dyn ToolDyn>)>> = vec![
+        Some((
             "create_file".to_string(),
             Box::new(CreateFile) as Box<dyn ToolDyn>,
-        ),
-        (
+        )),
+        Some((
             "edit_file".to_string(),
             Box::new(EditFile) as Box<dyn ToolDyn>,
-        ),
-        (
+        )),
+        Some((
             "fetch_webpage".to_string(),
             Box::new(FetchWebpage) as Box<dyn ToolDyn>,
-        ),
-        (
+        )),
+        Some((
             "analyze_image".to_string(),
             Box::new(AnalyzeImage) as Box<dyn ToolDyn>,
-        ),
-        (
+        )),
+        Some((
             "list_files".to_string(),
             Box::new(ListFiles) as Box<dyn ToolDyn>,
-        ),
-        (
+        )),
+        Some((
             "move_path".to_string(),
             Box::new(MovePath) as Box<dyn ToolDyn>,
-        ),
-        (
+        )),
+        Some((
             "read_file".to_string(),
             Box::new(ReadFile) as Box<dyn ToolDyn>,
-        ),
-        (
+        )),
+        Some((
             "remove_path".to_string(),
             Box::new(RemovePath) as Box<dyn ToolDyn>,
-        ),
-        (
+        )),
+        Some((
             "run_command".to_string(),
             Box::new(RunCommand) as Box<dyn ToolDyn>,
-        ),
-        (
+        )),
+        Some((
             "search_text".to_string(),
             Box::new(SearchText) as Box<dyn ToolDyn>,
-        ),
-        (
+        )),
+        Some((
             "web_search".to_string(),
             Box::new(WebSearch) as Box<dyn ToolDyn>,
-        ),
-        ("think".to_string(), Box::new(ThinkTool) as Box<dyn ToolDyn>),
+        )),
+        Some(("think".to_string(), Box::new(ThinkTool) as Box<dyn ToolDyn>)),
     ];
 
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {
         for tool in mcp_tools {
-            all_tools.push((tool.name(), Box::new(tool) as Box<dyn ToolDyn>));
+            all_tools.push(Some((tool.name(), Box::new(tool) as Box<dyn ToolDyn>)));
         }
     }
 
-    all_tools
-        .into_iter()
-        .filter(|(name, _)| tool_matches_selectors(name, &name_refs))
-        .map(|(_, tool)| tool)
-        .collect()
+    select_in_order(all_tools, &name_refs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_in_order_preserves_selector_order() {
+        let tools = vec![
+            Some(("a".to_string(), 1)),
+            Some(("b".to_string(), 2)),
+            Some(("c".to_string(), 3)),
+        ];
+        let selectors = ["c", "a", "b"];
+        let result: Vec<i32> = select_in_order(tools, &selectors);
+        assert_eq!(result, vec![3, 1, 2]);
+    }
+
+    #[test]
+    fn select_in_order_groups_prefix_selector_matches() {
+        let tools = vec![
+            Some(("srv____tool1".to_string(), 1)),
+            Some(("srv____tool2".to_string(), 2)),
+            Some(("other".to_string(), 3)),
+        ];
+        let selectors = ["srv", "other"];
+        let result: Vec<i32> = select_in_order(tools, &selectors);
+        assert_eq!(result, vec![1, 2, 3]);
+    }
 }
