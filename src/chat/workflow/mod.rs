@@ -1,3 +1,4 @@
+mod analyze_software_change;
 mod compact_prompt;
 mod create_pr_description;
 mod create_workflow;
@@ -6,7 +7,6 @@ mod find_software_bug_root_cause;
 mod implement_code;
 mod implement_code_together;
 mod plan_refactoring;
-mod plan_software_change;
 
 use anyhow::{Result, anyhow};
 use serde::Deserialize;
@@ -69,9 +69,9 @@ pub fn load_system_workflows() -> Vec<Arc<Workflow>> {
         Arc::new(edit_document::workflow()),
         Arc::new(implement_code::workflow()),
         Arc::new(plan_refactoring::workflow()),
-        Arc::new(plan_software_change::workflow()),
         Arc::new(compact_prompt::workflow()),
         Arc::new(implement_code_together::workflow()),
+        Arc::new(analyze_software_change::workflow()),
     ]
 }
 
