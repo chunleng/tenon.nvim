@@ -119,6 +119,13 @@ impl Tool for ListFiles {
 
         let truncated = total_matched > max_count;
 
+        if total_matched == 0 {
+            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("No files found matching pattern '{}'", args.pattern),
+            ))));
+        }
+
         Ok(crate::utils::format_yaml_block_scalars(
             &serde_yaml::to_string(&json!({
                 "files": files,
