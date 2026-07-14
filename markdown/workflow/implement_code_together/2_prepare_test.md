@@ -1,4 +1,6 @@
 ## Process
+Tests only, no code implementation.
+
 Determine if code behavior changes:
 - No → follow "Behavior changes" section
 - Yes → follow "Refactor changes" section

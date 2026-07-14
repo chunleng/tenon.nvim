@@ -1,4 +1,5 @@
 ## Process
+Information-gathering only, no code implementation.
 1. Determine what user wants, from:
   - What user specified before the workflow starts
   - Otherwise → ask: "What to implement next?"
