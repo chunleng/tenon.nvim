@@ -28,7 +28,7 @@ impl ChatLogIndexer {
     const MAX_ACTIVE_CONTEXT_TOKENS: usize = 10;
 
     #[cfg(not(test))]
-    const HARD_LIMIT_ACTIVE_CONTEXT_TOKENS: usize = 50_000;
+    const HARD_LIMIT_ACTIVE_CONTEXT_TOKENS: usize = 30_000;
 
     #[cfg(test)]
     const HARD_LIMIT_ACTIVE_CONTEXT_TOKENS: usize = 20;
