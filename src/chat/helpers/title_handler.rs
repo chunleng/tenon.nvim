@@ -131,7 +131,8 @@ impl TitleHandler {
                         }
                     }
                     Err(e) => {
-                        eprintln!("[tenon] Failed to generate title: {}", e);
+                        crate::utils::GLOBAL_EXECUTION_HANDLER
+                            .notify_on_main_thread(format!("Failed to generate title: {}", e), nvim_oxi::api::types::LogLevel::Error);
                     }
                 }
             });
