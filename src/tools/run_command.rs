@@ -148,7 +148,7 @@ ALLOW patterns:
 - Build/test: make, cargo build, npm test
 - Info: which, whereis, echo
 
-Judge by similarity to patterns above. Commands matching DENY patterns → deny. Commands matching ALLOW patterns → allow. Similar safe read-only operations → allow.
+Judge by similarity to patterns above. Commands matching DENY patterns → deny. Commands matching ALLOW patterns → allow. When uncertain, deny.
 
 Output (allow):
 decision: allow
