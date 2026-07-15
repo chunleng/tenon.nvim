@@ -335,16 +335,10 @@ fn select_history_fn() -> Function<(), ()> {
                                 .map(|(dt, _)| dt.replace('T', " "))
                                 .unwrap_or_else(|| h.id.clone());
                         let title = h.title.as_deref().unwrap_or("Untitled");
-                        let messages = h
-                            .logs
-                            .iter()
-                            .filter(|log| {
-                                matches!(log.data, crate::chat::log::TenonLogData::User(_))
-                            })
-                            .count();
+                        let messages = h.logs.iter().count();
                         format!(
-                            "{} | {} | {} messages | agent: {} | {}",
-                            datetime, title, messages, h.agent_name, h.model_display
+                            "{} │ {:>3} msg │ {} (󰚩  {}, {})",
+                            datetime, messages, title, h.agent_name, h.model_display
                         )
                     })
                     .collect();
