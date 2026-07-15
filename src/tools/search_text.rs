@@ -1,5 +1,4 @@
-use crate::utils::format_yaml_block_scalars;
-use crate::utils::path_from_str;
+use crate::utils::{format_yaml_block_scalars, normalize_glob, path_from_str};
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
@@ -179,7 +178,8 @@ impl Tool for SearchText {
             .glob
             .as_ref()
             .map(|g| {
-                GlobBuilder::new(g)
+                let normalized = normalize_glob(g);
+                GlobBuilder::new(normalized)
                     .literal_separator(true)
                     .build()
                     .map_err(|e| {

@@ -1,4 +1,4 @@
-use crate::utils::path_from_str;
+use crate::utils::{normalize_glob, path_from_str};
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 
@@ -69,7 +69,8 @@ impl Tool for ListFiles {
             ))));
         }
 
-        let glob = GlobBuilder::new(&args.pattern)
+        let pattern = normalize_glob(&args.pattern);
+        let glob = GlobBuilder::new(pattern)
             .literal_separator(true)
             .build()
             .map_err(|e| {

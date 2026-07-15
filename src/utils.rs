@@ -45,6 +45,16 @@ pub fn path_from_str(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Strip a leading `./` from a glob pattern so that e.g. `./**/*` matches the
+/// same files as `**/*`. Patterns that are just `.` or `./` are left as-is
+/// (they don't carry the same meaning as a `./` prefix on a real glob).
+pub fn normalize_glob(pattern: &str) -> &str {
+    if pattern == "." || pattern == "./" {
+        return pattern;
+    }
+    pattern.strip_prefix("./").unwrap_or(pattern)
+}
+
 /// Resolve a path relative to the plugin root directory.
 ///
 /// Returns the absolute path. If `relative` is already absolute, returns it as-is.
@@ -436,6 +446,26 @@ mod tests {
 count: 5"#;
         let expected = "result: |\n  line one\n  line two\n  line three\ncount: 5";
         assert_eq!(format_yaml_block_scalars(input), expected);
+    }
+
+    #[test]
+    fn test_normalize_glob_strips_leading_dot_slash() {
+        assert_eq!(normalize_glob("./**/*"), "**/*");
+        assert_eq!(normalize_glob("./*.rs"), "*.rs");
+        assert_eq!(normalize_glob("./src/*.rs"), "src/*.rs");
+    }
+
+    #[test]
+    fn test_normalize_glob_no_prefix_unchanged() {
+        assert_eq!(normalize_glob("**/*"), "**/*");
+        assert_eq!(normalize_glob("*.rs"), "*.rs");
+        assert_eq!(normalize_glob("src/*.rs"), "src/*.rs");
+    }
+
+    #[test]
+    fn test_normalize_glob_single_dot_unchanged() {
+        assert_eq!(normalize_glob("."), ".");
+        assert_eq!(normalize_glob("./"), "./");
     }
 
     #[test]
