@@ -243,35 +243,41 @@ impl ChatAgent {
         history: Vec<Message>,
     ) -> ChatStream {
         let multi_turn = 100;
+        let tool_concurrency = 10;
         match self {
             ChatAgent::Ollama(agent) => ChatStream::Ollama(
                 agent
                     .stream_chat(message, history)
                     .max_turns(multi_turn)
+                    .tool_concurrency(tool_concurrency)
                     .await,
             ),
             ChatAgent::Gemini(agent) => ChatStream::Gemini(
                 agent
                     .stream_chat(message, history)
                     .max_turns(multi_turn)
+                    .tool_concurrency(tool_concurrency)
                     .await,
             ),
             ChatAgent::OpenAI(agent) => ChatStream::OpenAI(
                 agent
                     .stream_chat(message, history)
                     .max_turns(multi_turn)
+                    .tool_concurrency(tool_concurrency)
                     .await,
             ),
             ChatAgent::Anthropic(agent) => ChatStream::Anthropic(
                 agent
                     .stream_chat(message, history)
                     .max_turns(multi_turn)
+                    .tool_concurrency(tool_concurrency)
                     .await,
             ),
             ChatAgent::Bedrock(agent) => ChatStream::Bedrock(
                 agent
                     .stream_chat(message, history)
                     .max_turns(multi_turn)
+                    .tool_concurrency(tool_concurrency)
                     .await,
             ),
         }
