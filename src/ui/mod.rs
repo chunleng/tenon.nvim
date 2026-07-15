@@ -459,6 +459,7 @@ impl ChatWindow {
             let session = ChatSession::from_history(history)?;
             sessions.push(Arc::new(RwLock::new(session)));
         }
+        self.open()?;
         self.load_chat(new_index)?;
         self.focus_input_window()?;
         Ok(())
