@@ -1,6 +1,25 @@
 ## Do
-- Use example when instruction cannot express
-- Compact after editing prompt
+
+### Use Example When Instruction Cannot Express
+When there's an established standard, examples are redundant. Otherwise, some intent is easier to show than describe.
+- Bad: "Write in plain language" — vague, no example given
+- Good: "Write in plain language" → show an example of plain vs. technical writing
+- Bad: "Use conventional commits" → show a commit message example
+- Good: "Use conventional commits" — model already knows the format
+- Why: Examples anchor abstract instructions to concrete behavior. But if the model has a strong prior, examples add noise.
+
+### Use Generic Examples
+Use generic examples when the specific reference is incidental to the intent.
+- Bad: `assert!(!content.contains("step: 2"))` (Specific language)
+- Good: `assert content does not contain "step: 2"` (Pseudocode)
+- Bad: "Cite sources in APA 7th edition format"
+- Good: "Cite sources in your field's standard format"
+- Why: Specific examples couple the instruction to one tool/framework/standard. Generic examples keep the instruction reusable and avoid implying a specific implementation.
+
+### Use Decision Test
+When a rule requires judgment, add a decision test — quick yes/no questions to apply it.
+- Example: Rule "don't over-engineer" → test: "Who asked? What breaks? Real pain?"
+- Why: Abstract rules leave room for interpretation. A decision test turns judgment calls into concrete, verifiable checks.
 
 ## Don'ts
 
