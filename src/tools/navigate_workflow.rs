@@ -16,7 +16,7 @@ fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolError {
 #[serde(deny_unknown_fields)]
 pub struct NavigateWorkflowArgs {
     pub step: usize,
-    pub step_output: String,
+    pub step_output: Option<String>,
 }
 
 #[derive(Clone)]
@@ -44,10 +44,10 @@ impl Tool for NavigateWorkflow {
                 },
                 "step_output": {
                     "type": "string",
-                    "description": "Output of current step"
+                    "description": "Output of current step, according to \"Workflow Step Output\" if available"
                 }
             },
-            "required": ["step", "step_output"]
+            "required": ["step"]
         })
     }
 
@@ -100,10 +100,9 @@ impl Tool for NavigateWorkflow {
         if let Some(goto_instr) = goto_instruction
             && let Some(ref memory_key) = goto_instr.output_to_workflow_memory
             && let Some(ref mut workflow_ref) = active_workflow_guard.as_mut()
+            && let Some(step_output) = args.step_output.clone()
         {
-            workflow_ref
-                .memory
-                .insert(memory_key.clone(), args.step_output.clone());
+            workflow_ref.memory.insert(memory_key.clone(), step_output);
         }
 
         if let Some(ref mut workflow_ref) = active_workflow_guard.as_mut() {
@@ -163,7 +162,7 @@ mod tests {
                 .unwrap()
                 .block_on(tool.call(NavigateWorkflowArgs {
                     step: 2,
-                    step_output: "test output from step 1".to_string(),
+                    step_output: Some("test output from step 1".to_string()),
                 }));
 
         assert!(result.is_ok());
