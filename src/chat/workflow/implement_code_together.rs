@@ -20,7 +20,7 @@ pub fn workflow() -> Workflow {
                     },
                     WorkflowGotoInstruction {
                         to: GotoStep::Next,
-                        condition: Some("confirmed with user".to_string()),
+                        condition: Some("show user latest goal and confirmed with user".to_string()),
                         output_to_workflow_memory: Some("goal".to_string()),
                     },
                 ],
@@ -32,7 +32,7 @@ pub fn workflow() -> Workflow {
                 },
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
-                    condition: Some("confirmed with user".to_string()),
+                    condition: Some("test edited (if needed), showed and confirmed with user".to_string()),
                     output_to_workflow_memory: None,
                 }],
             },
@@ -43,7 +43,7 @@ pub fn workflow() -> Workflow {
                 },
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Step(1),
-                    condition: None,
+                    condition: Some("user confirmed implementation".to_string()),
                     output_to_workflow_memory: None,
                 }],
             },
