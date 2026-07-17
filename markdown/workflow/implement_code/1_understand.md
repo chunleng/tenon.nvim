@@ -1,44 +1,14 @@
-## Purpose
-Gather requirements + define verification criteria
-
-**Important**: Requirements persist throughout workflow → all subsequent steps reference
-
 ## Process
-**If requirements unclear → ask clarification before proceeding**
-
-**If test framework not found → ask user:**
-- Setup test framework?
-- Improves verification
-
-Define acceptance criteria:
-- What must be true when done
-- Measurable outcomes
-
-Define verification methods:
-- How to verify each criterion
-- Tests (preferred)
-- Build + analysis: Untestable (language/visual limits). Last resort.
+1. State the goal in one sentence — what to build or change
+2. List the specific conditions that must be true when the work is done
+  a. Each condition must be independently checkable
+  b. Do not specify how to check — that is not needed at this stage
+3. Ask the user a question only if there's no sensible default
 
 ## Workflow Step Output
 ```yaml
-requirements: "clear statement of what needs to be implemented"
+goal: "one-sentence statement of what to build or change"
 acceptance_criteria:
-  - criterion: "what must be true"
-    verification:
-      method: "test|build+analysis"
-      details: "specific test name or build command"
-```
-
-## Example
-```yaml
-requirements: "Add empty string validation to password input"
-acceptance_criteria:
-  - criterion: "Empty password returns validation error"
-    verification:
-      method: "test"
-      details: "test_empty_password_validation in auth_test.rs"
-  - criterion: "Non-empty password proceeds to authentication"
-    verification:
-      method: "test"
-      details: "test_nonempty_password_proceeds in auth_test.rs"
+  - "specific condition that must be true"
+  - "another condition"
 ```

@@ -1,38 +1,26 @@
-## Purpose
-Find next incremental step toward goal
-
 ## Process
-Assess current state:
-- What code exists now
-- What's working vs broken
-- What's already implemented
 
-Identify gap between current state and requirements from Understand step (requirements persist throughout workflow):
-- What's missing
-- What needs changing
-- Dependencies between changes
+### First visit (no existing plan in memory)
+1. Read the goal and the relevant parts of the codebase
+2. Break the work into discrete changes
+  a. Small enough to implement and verify on its own
+  b. Describe what to change — not which specific files or how to verify
+  c. Ordered so earlier changes don't get invalidated by later ones
+3. Pick the first change to make
 
-Find next incremental step:
-- One logical unit of change (one function, one module, or one feature)
-- Can be verified independently
-- Moves toward goal
-- Avoid large refactors (break into smaller steps)
+### Re-visits (plan exists in memory)
+1. Cross off what's done
+2. Adjust what remains based on what you learned from the last implementation and verification
+  a. Remove steps that turned out to be unnecessary
+  b. Add steps for issues discovered during verification
+  c. Re-order if dependencies turned out different than expected
+3. Pick the next change to make
 
 ## Workflow Step Output
 ```yaml
-next_step: "description of the change"
-files:
-  - "path/to/file1"
-  - "path/to/file2"
-change_details: "specific modification to make"
-verification: "how to verify this step works"
-```
-
-## Example
-```yaml
-next_step: "Add empty string check in validate_password function"
-files:
-  - "src/auth/validation.rs"
-change_details: "Add if password.is_empty() check at start of validate_password()"
-verification: "test_empty_password_validation should pass after this change"
+done:
+  - "what is done"
+remaining:
+  - "what to do"
+next: "what is next"
 ```

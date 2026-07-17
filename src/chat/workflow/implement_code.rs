@@ -26,30 +26,39 @@ pub fn workflow() -> Workflow {
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output_to_workflow_memory: None,
-                }],
-            },
-            WorkflowStep {
-                title: "Prepare Test".to_string(),
-                instruction: Instruction::File {
-                    file: workflow_path("implement_code/3_prepare_test.md"),
-                },
-                goto_instructions: vec![WorkflowGotoInstruction {
-                    to: GotoStep::Next,
-                    condition: None,
-                    output_to_workflow_memory: None,
+                    output_to_workflow_memory: Some("plan".to_string()),
                 }],
             },
             WorkflowStep {
                 title: "Implement".to_string(),
                 instruction: Instruction::File {
-                    file: workflow_path("implement_code/4_implement.md"),
+                    file: workflow_path("implement_code/3_implement.md"),
                 },
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
-                    condition: None,
+                    condition: Some(
+                        "confirmed valid code and fixed error from linter/compiler".to_string()
+                    ),
                     output_to_workflow_memory: None,
                 }],
+            },
+            WorkflowStep {
+                title: "Verify".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("implement_code/4_verify.md"),
+                },
+                goto_instructions: vec![
+                    WorkflowGotoInstruction {
+                        to: GotoStep::Step(3),
+                        condition: Some("verification fails".to_string()),
+                        output_to_workflow_memory: None,
+                    },
+                    WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output_to_workflow_memory: Some("unverifiable".to_string()),
+                    },
+                ],
             },
             WorkflowStep {
                 title: "Goal Check".to_string(),
@@ -70,20 +79,9 @@ pub fn workflow() -> Workflow {
                 ],
             },
             WorkflowStep {
-                title: "Cleanup".to_string(),
-                instruction: Instruction::File {
-                    file: workflow_path("implement_code/6_cleanup.md"),
-                },
-                goto_instructions: vec![WorkflowGotoInstruction {
-                    to: GotoStep::Next,
-                    condition: None,
-                    output_to_workflow_memory: None,
-                }],
-            },
-            WorkflowStep {
                 title: "Finalize".to_string(),
                 instruction: Instruction::File {
-                    file: workflow_path("implement_code/7_finalize.md"),
+                    file: workflow_path("implement_code/6_finalize.md"),
                 },
                 goto_instructions: vec![
                     WorkflowGotoInstruction {
@@ -99,7 +97,6 @@ pub fn workflow() -> Workflow {
                 ],
             },
         ],
-        description: "Implements code changes through a structured plan-test-implement cycle"
-            .to_string(),
+        description: "Implements code changes through upfront planning, implement-then-verify cycles, and deviation-aware re-planning".to_string(),
     }
 }

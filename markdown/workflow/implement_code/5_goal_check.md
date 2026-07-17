@@ -1,46 +1,16 @@
-## Purpose
-Determine if goal is reached
-
 ## Process
-Compare current state with requirements from Understand step (requirements persist throughout workflow):
-- Check each acceptance criterion from Understand step
-- Verify all criteria are met
-
-If goal not reached:
-- Identify remaining gap
-- Explain what's still needed
-- Return to Plan step for next iteration
-
-If goal reached:
-- Confirm all acceptance criteria satisfied
-- Proceed to Cleanup step
-
-Goal reached criteria:
-- All acceptance criteria met
-- All verification methods passed
-- No remaining work from requirements
+1. Go through each acceptance criterion from the goal
+  a. Is it actually met — verified, not just implemented?
+2. If every criterion checks out, you're done — go to the next step
+3. If something is still missing, figure out exactly what the remaining gap is
 
 ## Workflow Step Output
 
-### Goal Reached
-```yaml
-goal_reached: true
-```
+### If goal reached (all criteria met)
+No output needed — navigation moves to next step.
 
-### Goal Not Reached
+### If goal not reached
 ```yaml
-goal_reached: false
 remaining_gap:
   - what's still needed
-```
-
-## Example
-```yaml
-goal_reached: true
-```
-
-```yaml
-goal_reached: false
-remaining_gap:
-  - Error message for empty password validation not user-friendly
 ```
