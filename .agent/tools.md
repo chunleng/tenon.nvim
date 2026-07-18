@@ -38,12 +38,12 @@ Implement `rig::tool::Tool`. Must define:
 | `Args` | Args struct (e.g. `MyToolArgs`) |
 | `Output` | `String` |
 
-Required async methods:
+Required methods:
 
-- **`definition(&self, _prompt: String) -> ToolDefinition`** → returns JSON
-  Schema (`name`, `description`, `parameters`). Describe each property + list
-  required fields.
-- **`call(&self, args: Self::Args) -> Result<Self::Output, Self::Error>`** →
+- **`description(&self) -> String`** → returns the tool description.
+- **`parameters(&self) -> serde_json::Value`** → returns JSON Schema.
+  Describe each property + list required fields.
+- **`async call(&self, args: Self::Args) -> Result<Self::Output, Self::Error>`** →
   actual logic. Read file / perform op → return `String`. On failure →
   `Err(ToolError::ToolCallError(Box::new(...)))` with descriptive
   `std::io::Error`.
