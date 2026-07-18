@@ -247,13 +247,6 @@ impl Tool for SearchText {
 
         let result = perform_search(files, is_regex, &re, context_lines, max_files);
 
-        if result.total_matches == 0 {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("No matches found for pattern '{}'", args.pattern),
-            ))));
-        }
-
         Ok(format_yaml_block_scalars(
             &serde_yaml::to_string(&result).unwrap_or_else(|_| {
                 "files: []\ntotal_matches: 0\nfiles_with_matches: 0\nfiles_searched: 0\ntruncated_files: 0\n"
