@@ -23,7 +23,7 @@ impl Tool for ReadFile {
     type Output = String;
 
     fn description(&self) -> String {
-        "Read file contents. Supports line ranges. Output starting with `Toolset error:` indicates error".to_string()
+        "Read file contents. Supports line ranges (1-based, inclusive; default: full file). Empty string is returned if and only if the file exists and is empty. A missing file returns `Toolset error: ...`, never an empty string".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -56,10 +56,7 @@ impl Tool for ReadFile {
                 let total_lines = lines.len();
 
                 if total_lines == 0 {
-                    return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("read_file '{}': file empty", args.filepath),
-                    ))));
+                    return Ok(String::new());
                 }
 
                 let (start_line, end_line) = match (args.start_line, args.end_line) {
