@@ -28,10 +28,10 @@ pub struct SearchText;
 #[derive(Serialize)]
 struct MatchEntry {
     line_number: usize,
-    column_start: usize,
-    column_end: usize,
     line: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     context_before: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     context_after: Vec<String>,
 }
 
@@ -45,45 +45,10 @@ struct FileEntry {
 #[derive(Serialize)]
 struct SearchResult {
     files: Vec<FileEntry>,
-    total_matches: usize,
+    total_line_matches: usize,
     files_with_matches: usize,
     files_searched: usize,
     truncated_files: usize,
-}
-
-fn next_char_boundary(s: &str, pos: usize) -> usize {
-    s[pos..]
-        .char_indices()
-        .nth(1)
-        .map(|(i, _)| pos + i)
-        .unwrap_or(s.len())
-}
-
-fn find_overlapping_matches(re: &regex::Regex, line: &str) -> Vec<(usize, usize)> {
-    let mut matches = Vec::new();
-    let mut pos = 0usize;
-    while pos < line.len() {
-        match re.find_at(line, pos) {
-            Some(m) => {
-                if m.start() < pos {
-                    pos = next_char_boundary(line, pos);
-                    continue;
-                }
-                if m.start() == m.end() {
-                    pos = next_char_boundary(line, m.start());
-                    continue;
-                }
-                matches.push((m.start(), m.end()));
-                pos = next_char_boundary(line, m.start());
-            }
-            None => break,
-        }
-    }
-    matches
-}
-
-fn find_nonoverlapping_matches(re: &regex::Regex, line: &str) -> Vec<(usize, usize)> {
-    re.find_iter(line).map(|m| (m.start(), m.end())).collect()
 }
 
 fn truncate_line(line: &str) -> String {
@@ -245,11 +210,11 @@ impl Tool for SearchText {
             files.push((path_str, text));
         }
 
-        let result = perform_search(files, is_regex, &re, context_lines, max_files);
+        let result = perform_search(files, &re, context_lines, max_files);
 
         Ok(format_yaml_block_scalars(
             &serde_yaml::to_string(&result).unwrap_or_else(|_| {
-                "files: []\ntotal_matches: 0\nfiles_with_matches: 0\nfiles_searched: 0\ntruncated_files: 0\n"
+                "files: []\ntotal_line_matches: 0\nfiles_with_matches: 0\nfiles_searched: 0\ntruncated_files: 0\n"
                     .to_string()
             }),
         ))
@@ -258,13 +223,12 @@ impl Tool for SearchText {
 
 fn perform_search(
     files: Vec<(String, String)>,
-    is_regex: bool,
     re: &regex::Regex,
     context_lines: usize,
     max_files: Option<usize>,
 ) -> SearchResult {
     let mut file_results: Vec<FileEntry> = Vec::new();
-    let mut total_matches: usize = 0;
+    let mut total_line_matches: usize = 0;
     let files_searched = files.len();
 
     for (path, text) in files {
@@ -272,48 +236,42 @@ fn perform_search(
         let mut file_matches: Vec<MatchEntry> = Vec::new();
 
         for (line_idx, &line) in lines.iter().enumerate() {
-            let span_matches = if is_regex {
-                find_nonoverlapping_matches(re, line)
+            if !re.is_match(line) {
+                continue;
+            }
+
+            let line_number = line_idx + 1;
+
+            let context_before: Vec<String> = if context_lines > 0 {
+                let start = line_idx.saturating_sub(context_lines);
+                lines[start..line_idx]
+                    .iter()
+                    .map(|l| truncate_line(l))
+                    .collect()
             } else {
-                find_overlapping_matches(re, line)
+                Vec::new()
             };
 
-            for (col_start, col_end) in span_matches {
-                let line_number = line_idx + 1;
+            let context_after: Vec<String> = if context_lines > 0 {
+                let end = (line_idx + 1 + context_lines).min(lines.len());
+                lines[line_idx + 1..end]
+                    .iter()
+                    .map(|l| truncate_line(l))
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
-                let context_before: Vec<String> = if context_lines > 0 {
-                    let start = line_idx.saturating_sub(context_lines);
-                    lines[start..line_idx]
-                        .iter()
-                        .map(|l| truncate_line(l))
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-
-                let context_after: Vec<String> = if context_lines > 0 {
-                    let end = (line_idx + 1 + context_lines).min(lines.len());
-                    lines[line_idx + 1..end]
-                        .iter()
-                        .map(|l| truncate_line(l))
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-
-                file_matches.push(MatchEntry {
-                    line_number,
-                    column_start: col_start,
-                    column_end: col_end,
-                    line: truncate_line(line),
-                    context_before,
-                    context_after,
-                });
-            }
+            file_matches.push(MatchEntry {
+                line_number,
+                line: truncate_line(line),
+                context_before,
+                context_after,
+            });
         }
 
         if !file_matches.is_empty() {
-            total_matches += file_matches.len();
+            total_line_matches += file_matches.len();
             file_results.push(FileEntry {
                 path,
                 matches: file_matches,
@@ -341,7 +299,7 @@ fn perform_search(
 
     SearchResult {
         files: file_results,
-        total_matches,
+        total_line_matches,
         files_with_matches,
         files_searched,
         truncated_files,
@@ -362,9 +320,9 @@ mod tests {
                 ("file2.txt".to_string(), "hello rust\nfoo baz".to_string()),
             ];
             let re = regex::Regex::new("hello").unwrap();
-            let result = perform_search(files, false, &re, 0, None);
+            let result = perform_search(files, &re, 0, None);
 
-            assert_eq!(result.total_matches, 2);
+            assert_eq!(result.total_line_matches, 2);
             assert_eq!(result.files_with_matches, 2);
             assert_eq!(result.files[0].path, "file1.txt");
             assert_eq!(result.files[0].matches[0].line, "hello world");
@@ -374,10 +332,10 @@ mod tests {
         fn regex_search() {
             let files = vec![("file1.txt".to_string(), "123 hello\n456 world".to_string())];
             let re = regex::Regex::new(r"\d+").unwrap();
-            let result = perform_search(files, true, &re, 0, None);
+            let result = perform_search(files, &re, 0, None);
 
-            assert_eq!(result.total_matches, 2);
-            assert_eq!(result.files[0].matches[0].column_end, 3);
+            assert_eq!(result.total_line_matches, 2);
+            assert_eq!(result.files[0].matches[0].line, "123 hello");
         }
 
         #[test]
@@ -387,7 +345,7 @@ mod tests {
                 "line1\nline2\nline3\nline4\nline5".to_string(),
             )];
             let re = regex::Regex::new("line3").unwrap();
-            let result = perform_search(files, false, &re, 1, None);
+            let result = perform_search(files, &re, 1, None);
 
             let match_entry = &result.files[0].matches[0];
             assert_eq!(match_entry.context_before, vec!["line2".to_string()]);
@@ -402,7 +360,7 @@ mod tests {
                 ("c.txt".to_string(), "match".to_string()),
             ];
             let re = regex::Regex::new("match").unwrap();
-            let result = perform_search(files, false, &re, 0, Some(2));
+            let result = perform_search(files, &re, 0, Some(2));
 
             assert_eq!(result.files.len(), 2);
             assert_eq!(result.truncated_files, 1);
@@ -411,162 +369,13 @@ mod tests {
         #[test]
         fn match_limit_clears_matches() {
             let files = vec![
-                ("file1.txt".to_string(), "a\na\na".repeat(40).to_string()), // > 100 matches
+                ("file1.txt".to_string(), "a\n".repeat(120).to_string()), // > 100 matched lines
             ];
             let re = regex::Regex::new("a").unwrap();
-            let result = perform_search(files, false, &re, 0, None);
+            let result = perform_search(files, &re, 0, None);
 
-            assert!(result.total_matches > MATCH_LIMIT);
+            assert!(result.total_line_matches > MATCH_LIMIT);
             assert!(result.files[0].matches.is_empty());
-        }
-    }
-
-    mod next_char_boundary {
-        use super::*;
-
-        #[test]
-        fn ascii_string() {
-            assert_eq!(next_char_boundary("hello", 0), 1);
-            assert_eq!(next_char_boundary("hello", 1), 2);
-            assert_eq!(next_char_boundary("hello", 4), 5);
-        }
-
-        #[test]
-        fn utf8_multibyte() {
-            // '日' is 3 bytes, '本' is 3 bytes
-            assert_eq!(next_char_boundary("日本語", 0), 3);
-            assert_eq!(next_char_boundary("日本語", 3), 6);
-        }
-
-        #[test]
-        fn at_end_of_string() {
-            assert_eq!(next_char_boundary("a", 0), 1);
-            assert_eq!(next_char_boundary("abc", 3), 3); // at the end, returns length
-        }
-
-        #[test]
-        fn mixed_ascii_and_multibyte() {
-            // 'a' is 1 byte, '日' is 3 bytes
-            assert_eq!(next_char_boundary("a日", 0), 1);
-            assert_eq!(next_char_boundary("a日", 1), 4);
-        }
-
-        #[test]
-        fn emoji() {
-            // '😀' is 4 bytes
-            assert_eq!(next_char_boundary("😀😀", 0), 4);
-            assert_eq!(next_char_boundary("😀😀", 4), 8);
-        }
-    }
-
-    mod find_overlapping_matches {
-        use super::*;
-
-        #[test]
-        fn no_matches() {
-            let re = regex::Regex::new("foo").unwrap();
-            let matches = find_overlapping_matches(&re, "bar baz");
-            assert!(matches.is_empty());
-        }
-
-        #[test]
-        fn single_match() {
-            let re = regex::Regex::new("foo").unwrap();
-            let matches = find_overlapping_matches(&re, "foo bar");
-            assert_eq!(matches, vec![(0, 3)]);
-        }
-
-        #[test]
-        fn multiple_non_overlapping_matches() {
-            let re = regex::Regex::new("foo").unwrap();
-            let matches = find_overlapping_matches(&re, "foo bar foo");
-            assert_eq!(matches, vec![(0, 3), (8, 11)]);
-        }
-
-        #[test]
-        fn overlapping_matches() {
-            // Regex that matches "aa" - overlapping occurrences in "aaa"
-            let re = regex::Regex::new("aa").unwrap();
-            let matches = find_overlapping_matches(&re, "aaa");
-            assert_eq!(matches, vec![(0, 2), (1, 3)]);
-        }
-
-        #[test]
-        fn complex_overlapping() {
-            // In "aaaa", "aa" appears at positions 0-2, 1-3, 2-4
-            let re = regex::Regex::new("aa").unwrap();
-            let matches = find_overlapping_matches(&re, "aaaa");
-            assert_eq!(matches, vec![(0, 2), (1, 3), (2, 4)]);
-        }
-
-        #[test]
-        fn empty_match_skipped() {
-            // Regex that can match empty string should not infinite loop
-            let re = regex::Regex::new("a*").unwrap();
-            let matches = find_overlapping_matches(&re, "b");
-            // Should not hang, and should handle empty matches gracefully
-            // Empty matches at position 0 and 1 (after 'b')
-            // The function should skip zero-length matches
-            assert!(matches.iter().all(|(start, end)| start < end));
-        }
-
-        #[test]
-        fn utf8_boundaries() {
-            let re = regex::Regex::new("日").unwrap();
-            let matches = find_overlapping_matches(&re, "日本語日");
-            assert_eq!(matches, vec![(0, 3), (9, 12)]);
-        }
-
-        #[test]
-        fn word_boundary() {
-            let re = regex::Regex::new(r"\btest\b").unwrap();
-            let matches = find_overlapping_matches(&re, "test testing test");
-            // \btest\b matches "test" at start and end, not in "testing"
-            assert_eq!(matches, vec![(0, 4), (13, 17)]);
-        }
-    }
-
-    mod find_nonoverlapping_matches {
-        use super::*;
-
-        #[test]
-        fn no_matches() {
-            let re = regex::Regex::new("foo").unwrap();
-            let matches = find_nonoverlapping_matches(&re, "bar baz");
-            assert!(matches.is_empty());
-        }
-
-        #[test]
-        fn multiple_non_overlapping() {
-            let re = regex::Regex::new("foo").unwrap();
-            let matches = find_nonoverlapping_matches(&re, "foo bar foo");
-            assert_eq!(matches, vec![(0, 3), (8, 11)]);
-        }
-
-        #[test]
-        fn overlapping_pattern_non_overlapping_result() {
-            // "aa" appears overlapping in "aaa", but find_nonoverlapping should not overlap
-            let re = regex::Regex::new("aa").unwrap();
-            let matches = find_nonoverlapping_matches(&re, "aaa");
-            // Standard regex finds only (0, 2), not (1, 3)
-            assert_eq!(matches, vec![(0, 2)]);
-        }
-
-        #[test]
-        fn regex_captures() {
-            let re = regex::Regex::new(r"\d+").unwrap();
-            let matches = find_nonoverlapping_matches(&re, "123 456 789");
-            assert_eq!(matches, vec![(0, 3), (4, 7), (8, 11)]);
-        }
-
-        #[test]
-        fn case_insensitive() {
-            let re = regex::RegexBuilder::new("foo")
-                .case_insensitive(true)
-                .build()
-                .unwrap();
-            let matches = find_nonoverlapping_matches(&re, "FOO bar foo");
-            assert_eq!(matches, vec![(0, 3), (8, 11)]);
         }
     }
 
@@ -631,14 +440,14 @@ mod tests {
         fn empty_result() {
             let result = SearchResult {
                 files: vec![],
-                total_matches: 0,
+                total_line_matches: 0,
                 files_with_matches: 0,
                 files_searched: 0,
                 truncated_files: 0,
             };
             let json = serde_json::to_string(&result).unwrap();
             assert!(json.contains("\"files\":[]"));
-            assert!(json.contains("\"total_matches\":0"));
+            assert!(json.contains("\"total_line_matches\":0"));
         }
 
         #[test]
@@ -648,14 +457,12 @@ mod tests {
                     path: "test.rs".to_string(),
                     matches: vec![MatchEntry {
                         line_number: 1,
-                        column_start: 0,
-                        column_end: 4,
                         line: "test".to_string(),
                         context_before: vec![],
                         context_after: vec!["next".to_string()],
                     }],
                 }],
-                total_matches: 1,
+                total_line_matches: 1,
                 files_with_matches: 1,
                 files_searched: 5,
                 truncated_files: 0,
@@ -663,11 +470,10 @@ mod tests {
             let json = serde_json::to_string(&result).unwrap();
             let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-            assert_eq!(parsed["total_matches"], 1);
+            assert_eq!(parsed["total_line_matches"], 1);
             assert_eq!(parsed["files_searched"], 5);
             assert_eq!(parsed["files"][0]["path"], "test.rs");
             assert_eq!(parsed["files"][0]["matches"][0]["line_number"], 1);
-            assert_eq!(parsed["files"][0]["matches"][0]["column_start"], 0);
         }
 
         #[test]
@@ -686,8 +492,6 @@ mod tests {
         fn context_lines() {
             let entry = MatchEntry {
                 line_number: 5,
-                column_start: 0,
-                column_end: 3,
                 line: "foo".to_string(),
                 context_before: vec!["line3".to_string(), "line4".to_string()],
                 context_after: vec!["line6".to_string()],
@@ -717,38 +521,11 @@ mod tests {
         }
 
         #[test]
-        fn empty_pattern_matches_everything() {
-            // Empty pattern in regex matches at every position
-            let re = regex::Regex::new("").unwrap();
-            let matches = find_nonoverlapping_matches(&re, "test");
-            // Empty string matches between each character
-            assert!(!matches.is_empty());
-        }
-
-        #[test]
         fn very_long_line_truncation_in_context() {
             // Context lines should also be truncated
             let long_line: String = "x".repeat(500);
             let truncated = truncate_line(&long_line);
             assert_eq!(truncated.chars().count(), 301); // 300 + '…'
-        }
-
-        #[test]
-        fn utf8_character_boundaries_in_overlap() {
-            // Ensure we don't split multibyte characters when finding overlapping matches
-            let re = regex::Regex::new("日本").unwrap();
-            let text = "日本日本";
-            let matches = find_overlapping_matches(&re, text);
-            // "日本" at 0-6 and 6-12 (no overlap because they're adjacent)
-            assert_eq!(matches, vec![(0, 6), (6, 12)]);
-        }
-
-        #[test]
-        fn multiple_matches_on_same_line() {
-            let re = regex::Regex::new("a").unwrap();
-            let matches = find_overlapping_matches(&re, "aaa");
-            // 'a' matches at positions 0, 1, 2 - all non-overlapping since 'a' is 1 byte
-            assert_eq!(matches, vec![(0, 1), (1, 2), (2, 3)]);
         }
     }
 }
