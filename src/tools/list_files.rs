@@ -37,7 +37,7 @@ impl Tool for ListFiles {
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Glob pattern. e.g '*.rs', '**/*.rs', 'src/*.py', 'test/**/test_*.py'"
+                    "description": "Glob pattern. `**/*.rs` matches recursively in all subdirs; `*.rs` matches files directly under path"
                 },
                 "path": {
                     "type": "string",

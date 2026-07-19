@@ -84,7 +84,7 @@ impl Tool for SearchText {
                 },
                 "glob": {
                     "type": "string",
-                    "description": "File filter. e.g. '*.rs', '**/*.rs', 'src/*.py', 'test/**/test_*.py'. Default='**/*'"
+                    "description": "File filter. `**/*.rs` matches recursively in all subdirs; `*.rs` matches files directly under path. Default='**/*'"
                 },
                 "is_regex": {
                     "type": "boolean",
