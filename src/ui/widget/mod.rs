@@ -5,6 +5,8 @@ use crate::ui::nvim_primitives::{buffer::NvimBuffer, window::NvimWindow};
 
 pub mod chat_display;
 
+pub mod select;
+
 pub trait Widget: DynClone + Send + Sync {
     fn render(&mut self) -> OxiResult<()>;
     fn buffer(&self) -> &NvimBuffer;

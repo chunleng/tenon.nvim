@@ -65,7 +65,7 @@ pub fn plugin_path(relative: impl AsRef<Path>) -> PathBuf {
         .join(relative.as_ref())
 }
 
-fn escape_lua_string(s: &str) -> String {
+pub fn escape_lua_string(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('\n', "\\n")
         .replace('\r', "\\r")

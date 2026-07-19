@@ -1,4 +1,5 @@
 use crate::chat::helpers::TitleHandler;
+use crate::tools::ask_question::QuestionResult;
 use crate::{
     clients::StreamItem, get_application_config, get_workflow_registry,
     utils::GLOBAL_EXECUTION_HANDLER,
@@ -6,11 +7,11 @@ use crate::{
 use chrono::{DateTime, Local};
 use nvim_oxi::{Result as OxiResult, api::types::LogLevel};
 use rig::{completion::Usage, message::ToolResultContent};
-use std::{
-    collections::HashMap,
-    sync::atomic::{AtomicBool, Ordering},
-    sync::{Arc, LazyLock, Mutex, RwLock},
-};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
+
+pub mod event_channel;
 
 pub mod helpers;
 pub mod history;
@@ -20,6 +21,7 @@ pub mod prompt;
 pub mod usage;
 pub mod workflow;
 
+pub use event_channel::EventChannel;
 pub use log::handler::ChatLogHandler;
 pub use log::{
     TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData, TenonToolCall,
@@ -95,6 +97,16 @@ impl ActiveWorkflow {
     }
 }
 
+/// Pending actions that require user interaction, stored per chat session.
+#[derive(Clone)]
+pub enum PendingAction {
+    Question {
+        question: String,
+        options: Vec<String>,
+        response_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<QuestionResult>>>>,
+    },
+}
+
 pub struct ChatSession {
     pub id: String,
     pub log_handler: ChatLogHandler,
@@ -103,6 +115,7 @@ pub struct ChatSession {
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
     pub session_datetime: DateTime<Local>,
     pub title_handler: TitleHandler,
+    pub pending_actions_channel: Arc<EventChannel<PendingAction>>,
     cancel_token: Arc<AtomicBool>,
     active_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -129,6 +142,7 @@ impl ChatSession {
             },
             active_workflow: Arc::new(RwLock::new(None)),
             session_datetime: Local::now(),
+            pending_actions_channel: Arc::new(EventChannel::new()),
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
             title_handler: TitleHandler::new(log_handler.log_window.clone()),
@@ -195,6 +209,7 @@ impl ChatSession {
             },
             active_workflow: Arc::new(RwLock::new(active_workflow)),
             session_datetime: history.session_datetime,
+            pending_actions_channel: Arc::new(EventChannel::new()),
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
             title_handler: TitleHandler::from_history(
@@ -240,6 +255,7 @@ impl ChatSession {
         let session_datetime = self.session_datetime;
         let cancel_token = Arc::clone(&self.cancel_token);
         let active_workflow_clone = Arc::clone(&self.active_workflow);
+        let event_channel = Arc::downgrade(&self.pending_actions_channel);
 
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
@@ -247,7 +263,8 @@ impl ChatSession {
             rt.block_on(async {
                 loop {
                     let mut should_continue = false;
-                    let agent = agent_clone.build_chat_adapter(active_workflow_clone.clone());
+                    let agent = agent_clone
+                        .build_chat_adapter(active_workflow_clone.clone(), event_channel.clone());
 
                     let next_prompt = log_handler.get_user_prompt();
                     let chat_history = log_handler.get_chat_history(&next_prompt);

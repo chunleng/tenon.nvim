@@ -1,4 +1,5 @@
 pub mod analyze_image;
+pub mod ask_question;
 pub mod create_file;
 pub mod edit_file;
 pub mod end_workflow;
@@ -15,6 +16,7 @@ pub mod web_search;
 
 use crate::mcp::McpHubCaller;
 pub use analyze_image::AnalyzeImage;
+pub use ask_question::AskQuestion;
 pub use create_file::CreateFile;
 pub use edit_file::EditFile;
 pub use fetch_webpage::FetchWebpage;
@@ -66,7 +68,7 @@ pub fn get_tool_classification(name: &str) -> ToolClassification {
         "read_file" | "list_files" | "search_text" => ToolClassification::Idempotent,
 
         // Non-mutating tools: read-only, may produce different results
-        "web_search" | "fetch_webpage" | "think" | "analyze_image" => {
+        "web_search" | "fetch_webpage" | "think" | "analyze_image" | "ask_question" => {
             ToolClassification::NonMutating
         }
 
@@ -116,6 +118,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
         "list_files" | "search_text" => "pattern",
         "fetch_webpage" => "url",
         "analyze_image" => "image",
+        "ask_question" => "question",
         "navigate_workflow" => "step",
         _ => return None,
     };

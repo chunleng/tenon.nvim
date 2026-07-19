@@ -1,11 +1,11 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Weak};
 
 use crate::{
-    chat::ActiveWorkflow,
     chat::workflow::Workflow,
+    chat::{ActiveWorkflow, EventChannel, PendingAction},
     clients::{ChatAgent, SupportedModels, get_agent},
     directive::{Directive, DirectiveSource, directive_path},
-    tools::resolve_tools,
+    tools::{AskQuestion, resolve_tools},
 };
 
 #[derive(Debug, Clone)]
@@ -34,6 +34,7 @@ impl TenonAgent {
     pub fn build_chat_adapter(
         &self,
         workflow_context: Arc<RwLock<Option<ActiveWorkflow>>>,
+        event_channel: Weak<EventChannel<PendingAction>>,
     ) -> ChatAgent {
         let mut combined = vec![Directive {
             condition: None,
@@ -44,6 +45,9 @@ impl TenonAgent {
         combined.extend(self.directive.iter().cloned());
 
         let mut tools = resolve_tools(&self.tool_names);
+
+        // AskQuestion is a special system tool that is always resolved
+        tools.insert(0, Box::new(AskQuestion { event_channel }));
 
         let has_active = workflow_context
             .read()

@@ -13,6 +13,7 @@ Chat output (excluding tool use):
 - Markdown
 - No emoji/icon unless necessary
 - Be extremely concise
+- For questions, put context in chat; put the question only in `ask_question` tool. Don't put the question in both chat and tool
 
 Chat log caveats:
 - May be from different agents with different capabilities. Tools may be granted/removed — trust tool listing in System chat, not chat history
