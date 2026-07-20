@@ -129,6 +129,12 @@ impl From<TenonToolLog> for Vec<Message> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenonThoughtLog {
+    pub thought: String,
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonWorkflowLog {
     pub id: String,
     pub content: String,
@@ -161,6 +167,7 @@ pub enum TenonLogData {
     User(TenonUserMessage),
     Assistant(TenonAssistantMessage),
     Tool(TenonToolLog),
+    Thought(TenonThoughtLog),
     Workflow(TenonWorkflowLog),
 }
 
@@ -329,6 +336,7 @@ impl TenonLog {
                 }
                 Some(text)
             }
+            TenonLogData::Thought(thought_log) => Some(thought_log.thought.clone()),
             TenonLogData::Workflow(_) => None,
         }
     }
@@ -467,6 +475,17 @@ impl TenonLogData {
                 }
                 lines
             }
+            TenonLogData::Thought(log) => {
+                let mut lines = vec!["### Thought".to_string(), String::new()];
+                lines.extend(plain(&log.thought));
+                if let Some(summary) = &log.summary {
+                    lines.push(String::new());
+                    lines.push("### Summary".to_string());
+                    lines.push(String::new());
+                    lines.extend(plain(summary));
+                }
+                lines
+            }
             TenonLogData::Workflow(log) => {
                 let step = log
                     .step
@@ -538,6 +557,7 @@ impl TenonLogData {
                 };
                 call_tokens + result_tokens
             }
+            TenonLogData::Thought(log) => estimate_tokens(&log.thought),
             TenonLogData::Workflow(_) => 0,
         }
     }
@@ -554,6 +574,15 @@ impl From<TenonLog> for Vec<Message> {
                 }
             }
             TenonLogData::Tool(tool_log) => tool_log.into(),
+            TenonLogData::Thought(thought_log) => {
+                vec![Message::Assistant {
+                    id: None,
+                    content: OneOrMany::one(AssistantContent::text(format!(
+                        "Thoughts: {}",
+                        thought_log.thought
+                    ))),
+                }]
+            }
             TenonLogData::Workflow(_) => vec![],
         }
     }

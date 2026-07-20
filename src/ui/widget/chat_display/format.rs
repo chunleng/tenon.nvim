@@ -55,6 +55,14 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             TenonLogData::Workflow(wf) => {
                 vec![format!("# {}", wf.content)]
             }
+            TenonLogData::Thought(thought_log) => match &thought_log.summary {
+                Some(summary) => {
+                    let mut lines = vec!["Thought summary:".to_string()];
+                    lines.extend(summary.lines().map(|s| s.to_string()));
+                    lines
+                }
+                None => thought_log.thought.lines().map(|s| s.to_string()).collect(),
+            },
         }
     }
 
@@ -70,6 +78,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
                 }
             }
             TenonLogData::Tool(_) => "TenonLineTool".to_string(),
+            TenonLogData::Thought(_) => "TenonLineThought".to_string(),
             TenonLogData::Workflow(_) => String::new(),
         }
     }
@@ -87,6 +96,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             }
             TenonLogData::Tool(_) => "󰣖 ".to_string(),
             TenonLogData::Workflow(_) => " ".to_string(),
+            TenonLogData::Thought(_) => " ".to_string(),
         }
     }
 
@@ -102,6 +112,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
                 }
             }
             TenonLogData::Tool(_) => "TenonSignTool".to_string(),
+            TenonLogData::Thought(_) => "TenonSignThought".to_string(),
             TenonLogData::Workflow(_) => "TenonSignWorkflow".to_string(),
         }
     }
@@ -111,9 +122,9 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
 mod tests {
     use super::*;
     use crate::chat::{
-        TenonAssistantMessage, TenonAssistantMessageContent, TenonLogData, TenonToolCall,
-        TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage, TenonUserTextMessage,
-        TenonWorkflowLog,
+        TenonAssistantMessage, TenonAssistantMessageContent, TenonLogData, TenonThoughtLog,
+        TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage,
+        TenonUserTextMessage, TenonWorkflowLog,
     };
     use serde_json::json;
 
@@ -236,6 +247,37 @@ mod tests {
         assert_eq!(data.sign(), "󰣖 ");
         assert_eq!(data.sign_hl_group(), "TenonSignTool");
         assert_eq!(data.line_hl_group(), "TenonLineTool");
+    }
+
+    #[test]
+    fn test_thought_formatter_with_summary() {
+        let thought = TenonLogData::Thought(TenonThoughtLog {
+            thought: "I need to think about this carefully.\nIt has multiple lines.".to_string(),
+            summary: Some("Short summary".to_string()),
+        });
+
+        assert_eq!(thought.lines(), vec!["Thought summary:", "Short summary"]);
+        assert_eq!(thought.sign_hl_group(), "TenonSignThought");
+        assert_eq!(thought.line_hl_group(), "TenonLineThought");
+    }
+
+    #[test]
+    fn test_thought_formatter_without_summary() {
+        let thought = TenonLogData::Thought(TenonThoughtLog {
+            thought: "I need to think about this carefully.\nIt has multiple lines.".to_string(),
+            summary: None,
+        });
+
+        // Falls back to showing the thought itself
+        assert_eq!(
+            thought.lines(),
+            vec![
+                "I need to think about this carefully.",
+                "It has multiple lines."
+            ]
+        );
+        assert_eq!(thought.sign_hl_group(), "TenonSignThought");
+        assert_eq!(thought.line_hl_group(), "TenonLineThought");
     }
 
     #[test]

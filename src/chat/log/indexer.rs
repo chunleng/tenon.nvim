@@ -172,7 +172,9 @@ impl ChatLogIndexer {
                 if indexed.active
                     && matches!(
                         &indexed.log.data(),
-                        TenonLogData::User(_) | TenonLogData::Assistant(_)
+                        TenonLogData::User(_)
+                            | TenonLogData::Assistant(_)
+                            | TenonLogData::Thought(_)
                     )
                     && !is_first_user(idx)
                 {

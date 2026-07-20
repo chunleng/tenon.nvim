@@ -1091,8 +1091,9 @@ fn format_log_detail(log: &TenonLog) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::chat::log::{
-        TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData, TenonToolCall,
-        TenonToolLog, TenonToolResult, TenonUserMessage, TenonUserTextMessage, TenonWorkflowLog,
+        TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData,
+        TenonThoughtLog, TenonToolCall, TenonToolLog, TenonToolResult, TenonUserMessage,
+        TenonUserTextMessage, TenonWorkflowLog,
     };
 
     #[test]
@@ -1225,6 +1226,58 @@ mod tests {
         assert!(
             !content.contains("unsupported"),
             "should not show unsupported"
+        );
+    }
+
+    #[test]
+    fn test_format_log_detail_thought_with_summary() {
+        let log = TenonLog::new(TenonLogData::Thought(TenonThoughtLog {
+            thought: "I need to consider multiple approaches here.\nEach has tradeoffs."
+                .to_string(),
+            summary: Some("Short summary of the thought".to_string()),
+        }));
+        let lines = format_log_detail(&log);
+        let content = lines.join("\n");
+
+        assert!(
+            content.contains("### Thought"),
+            "should show Thought section"
+        );
+        assert!(
+            content.contains("I need to consider multiple approaches here."),
+            "should contain the full thought"
+        );
+        assert!(
+            content.contains("### Summary"),
+            "should show Summary section when summary is Some"
+        );
+        assert!(
+            content.contains("Short summary of the thought"),
+            "should contain the summary text"
+        );
+    }
+
+    #[test]
+    fn test_format_log_detail_thought_without_summary() {
+        let log = TenonLog::new(TenonLogData::Thought(TenonThoughtLog {
+            thought: "I need to consider multiple approaches here.\nEach has tradeoffs."
+                .to_string(),
+            summary: None,
+        }));
+        let lines = format_log_detail(&log);
+        let content = lines.join("\n");
+
+        assert!(
+            content.contains("### Thought"),
+            "should show Thought section"
+        );
+        assert!(
+            content.contains("I need to consider multiple approaches here."),
+            "should contain the full thought"
+        );
+        assert!(
+            !content.contains("### Summary"),
+            "should not show Summary section when summary is None"
         );
     }
 

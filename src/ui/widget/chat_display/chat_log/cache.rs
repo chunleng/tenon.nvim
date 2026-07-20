@@ -45,10 +45,22 @@ fn process_log_lines(current_log: &TenonLogData, next_log: Option<&TenonLogData>
 
     let mut x: Vec<String> = current_log.lines().into_iter().collect();
 
-    // For assistant reasoning, limit displayed lines
+    // For assistant reasoning and thought-without-summary, limit displayed lines
     if let TenonLogData::Assistant(msg) = current_log
         && msg.content.is_empty()
         && msg.reasoning.is_some()
+    {
+        let display_last_x = if next_log.is_some() { 1 } else { 3 };
+        let total_lines = x.len();
+        if total_lines > display_last_x {
+            let skip = total_lines.saturating_sub(display_last_x);
+            x = x.into_iter().skip(skip).collect();
+            if let Some(first) = x.first_mut() {
+                *first = format!("... {}", first);
+            }
+        }
+    } else if let TenonLogData::Thought(thought_log) = current_log
+        && thought_log.summary.is_none()
     {
         let display_last_x = if next_log.is_some() { 1 } else { 3 };
         let total_lines = x.len();
@@ -292,7 +304,7 @@ impl ChatLogCache {
             .rendered_entries
             .last()
             .map_or(current_count, |last_entry| match &last_entry.log.data {
-                TenonLogData::Assistant(_) => current_count - 1,
+                TenonLogData::Assistant(_) | TenonLogData::Thought(_) => current_count - 1,
                 TenonLogData::Tool(_) => (0..current_count - 1)
                     .rev()
                     .take_while(|&i| {
@@ -719,6 +731,44 @@ mod tests {
         )));
         let lines = process_log_lines(&reasoning_log, Some(&user_log));
         assert_eq!(lines, vec!["... Line 5", ""]);
+    }
+
+    #[test]
+    fn test_process_log_lines_thought_with_summary_not_truncated() {
+        use crate::chat::log::{TenonLogData, TenonThoughtLog};
+
+        let thought_log = TenonLogData::Thought(TenonThoughtLog {
+            thought: "Line 1\nLine 2\nLine 3\nLine 4\nLine 5".to_string(),
+            summary: Some("Short summary".to_string()),
+        });
+
+        // Summary is shown, not truncated
+        let lines = process_log_lines(&thought_log, None);
+        assert_eq!(lines, vec!["Thought summary:", "Short summary", ""]);
+    }
+
+    #[test]
+    fn test_process_log_lines_thought_followed_by_system_tool() {
+        use crate::chat::TenonLogData;
+        use crate::chat::log::{TenonThoughtLog, TenonToolCall, TenonToolLog};
+
+        let thought_log = TenonLogData::Thought(TenonThoughtLog {
+            thought: "Line 1\nLine 2\nLine 3\nLine 4\nLine 5".to_string(),
+            summary: None,
+        });
+        let system_tool_log = TenonLogData::Tool(TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                name: "start_workflow".into(),
+                args: serde_json::json!({}),
+            },
+            tool_result: None,
+        });
+
+        // System tool is hidden → treated as last visible → 3 lines
+        let lines = process_log_lines(&thought_log, Some(&system_tool_log));
+        assert_eq!(lines, vec!["... Line 3", "Line 4", "Line 5", ""]);
     }
 
     #[test]
