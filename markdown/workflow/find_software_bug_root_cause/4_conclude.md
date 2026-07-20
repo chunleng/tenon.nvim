@@ -1,9 +1,12 @@
 ## Purpose
-Conclude root cause analysis with recommendations
+Remove debugging artifacts and conclude root cause analysis with recommendations
 
 ## Process
-- Identify root cause from code inspection + test result
-- Check if surrounding logic is overly complex
+1. Remove debugging artifacts added during investigation:
+   - Debug prints
+   - Temporary logs
+2. Identify root cause from code inspection + test result
+3. Check if surrounding logic is overly complex
 
 ## Workflow Step Output
 ```yaml

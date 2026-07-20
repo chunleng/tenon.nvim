@@ -55,20 +55,9 @@ pub fn workflow() -> Workflow {
                 ],
             },
             WorkflowStep {
-                title: "Cleanup".to_string(),
-                instruction: Instruction::File {
-                    file: workflow_path("find_software_bug_root_cause/4_cleanup.md"),
-                },
-                goto_instructions: vec![WorkflowGotoInstruction {
-                    to: GotoStep::Next,
-                    condition: None,
-                    output_to_workflow_memory: None,
-                }],
-            },
-            WorkflowStep {
                 title: "Conclude".to_string(),
                 instruction: Instruction::File {
-                    file: workflow_path("find_software_bug_root_cause/5_conclude.md"),
+                    file: workflow_path("find_software_bug_root_cause/4_conclude.md"),
                 },
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::EndWorkflow,
