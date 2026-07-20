@@ -96,7 +96,8 @@ pub async fn build_workflow_prompt(
     {
         return format!(
             "<context>\nRecommend {} workflow, reason: {}.\n\
-            Start it unless the user says otherwise.\n</context>\n\
+             Don't use if the user says so. Else, use it if you agree with the reason. \
+             Don't use other type of workflow unless you have a strong reason to do so\n</context>\n\
              {}",
             workflow_id, reason, base_prompt
         );
