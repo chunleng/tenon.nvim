@@ -190,6 +190,9 @@ pub enum StreamItem {
     Final {
         token_usage: Option<rig::completion::Usage>,
     },
+    CompletionCall {
+        usage: rig::completion::Usage,
+    },
     Other,
 }
 
@@ -228,6 +231,9 @@ macro_rules! convert_stream_item {
             )) => StreamItem::Final {
                 token_usage: Some(final_response.token_usage()),
             },
+            MultiTurnStreamItem::CompletionCall(call) => {
+                StreamItem::CompletionCall { usage: call.usage }
+            }
             MultiTurnStreamItem::FinalResponse(response) => StreamItem::Final {
                 token_usage: Some(response.usage),
             },

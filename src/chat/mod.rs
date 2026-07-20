@@ -526,12 +526,12 @@ impl ChatSession {
                                     });
                                 }
                             }
-                            Ok(StreamItem::Final { token_usage }) => {
-                                if let Some(usage) = token_usage
-                                    && let Ok(mut usage_lock) = usage_clone.write()
-                                {
+                            Ok(StreamItem::CompletionCall { usage }) => {
+                                if let Ok(mut usage_lock) = usage_clone.write() {
                                     usage_lock.add(usage);
                                 }
+                            }
+                            Ok(StreamItem::Final { token_usage: _ }) => {
                                 let history_dir = get_application_config().history.directory;
                                 let title_val = title_clone.read().ok().and_then(|t| t.clone());
                                 if let Ok(log_window) = log_handler.log_window.read() {
