@@ -43,6 +43,22 @@ let line: String = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(|| {
 - Main thread → call API directly
 - Prefer `execute_rust_on_main_thread()` for type safety
 
+## Common AHAs
+
+### Buffer line edit: strings must not contain newlines
+
+`set_lines()` treats each `String` element as a single buffer line. A `\n`
+inside an element causes the edit to fail. Always split text first:
+
+```rust
+// Bad: text may contain a newline → edit fails
+buffer.set_lines(start..end, false, vec![text]);
+
+// Good: split into individual lines first
+let lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
+buffer.set_lines(start..end, false, lines);
+```
+
 ## Deep-Dive Docs
 
 See `.agent/` folder:
