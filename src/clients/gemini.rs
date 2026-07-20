@@ -41,5 +41,8 @@ pub fn get_gemini_agent(
         agent = agent.preamble(&p);
     }
 
-    agent.tools(tools).build()
+    agent
+        .tools(tools)
+        .add_hook(crate::clients::InvalidToolCallHook)
+        .build()
 }

@@ -57,5 +57,8 @@ pub fn get_ollama_agent(
         agent = agent.additional_params(serde_json::json!({ "think": true }));
     }
 
-    agent.tools(tools).build()
+    agent
+        .tools(tools)
+        .add_hook(crate::clients::InvalidToolCallHook)
+        .build()
 }

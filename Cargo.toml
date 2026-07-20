@@ -38,3 +38,6 @@ base64 = "0.22"
 image = "0.25"
 resvg = "0.44"
 rand = "0.9"
+
+[dev-dependencies]
+rig = { version = "0.40.0", features = ["test-utils"] }

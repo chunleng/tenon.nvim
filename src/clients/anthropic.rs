@@ -48,5 +48,8 @@ pub fn get_anthropic_agent(
         }));
     }
 
-    agent.tools(tools).build()
+    agent
+        .tools(tools)
+        .add_hook(crate::clients::InvalidToolCallHook)
+        .build()
 }

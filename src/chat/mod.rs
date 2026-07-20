@@ -381,33 +381,70 @@ impl ChatSession {
                                         // No matching Tool log → record_thought result.
                                         // The tool returns JSON: {"thought": "...", "summary": null|"..."}
                                         let content = tool_result.content.first();
-                                        if let ToolResultContent::Text(text) = content
-                                            && !text.text.starts_with("ToolCallError: ")
-                                            && let Ok(parsed) =
-                                                serde_json::from_str::<serde_json::Value>(
-                                                    &text.text,
-                                                )
-                                        {
-                                            let thought = parsed
-                                                .get("thought")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or_default()
-                                                .to_string();
-                                            let summary = parsed
-                                                .get("summary")
-                                                .and_then(|v| v.as_str())
-                                                .map(|s| s.to_string());
-                                            log_window.logs.push(
-                                                crate::chat::log::indexer::IndexedLog {
-                                                    log: Arc::new(TenonLog::new(
-                                                        TenonLogData::Thought(TenonThoughtLog {
-                                                            thought,
-                                                            summary,
-                                                        }),
-                                                    )),
-                                                    active: true,
-                                                },
-                                            );
+                                        if let ToolResultContent::Text(text) = content {
+                                            if text.text.starts_with("ToolCallError: ") {
+                                                // Invalid tool call was skipped by
+                                                // InvalidToolCallHook — no preceding ToolCall
+                                                // stream item arrived. Fake the tool call so the
+                                                // log is displayable and produces valid LLM
+                                                // history (matching tool_call.id + tool_result.id).
+                                                let tool_name = text
+                                                    .text
+                                                    .strip_prefix("ToolCallError: `")
+                                                    .and_then(|s| s.split('`').next())
+                                                    .unwrap_or("unknown")
+                                                    .to_string();
+                                                log_window.logs.push(
+                                                    crate::chat::log::indexer::IndexedLog {
+                                                        log: Arc::new(TenonLog::new(
+                                                            TenonLogData::Tool(TenonToolLog {
+                                                                tool_call: TenonToolCall {
+                                                                    id: tool_result.id.clone(),
+                                                                    internal_call_id:
+                                                                        internal_call_id.clone(),
+                                                                    name: tool_name,
+                                                                    args: serde_json::Value::Null,
+                                                                },
+                                                                tool_result: Some(Err(
+                                                                    TenonToolError(
+                                                                        text.text.clone(),
+                                                                    ),
+                                                                )),
+                                                            }),
+                                                        )),
+                                                        active: true,
+                                                    },
+                                                );
+                                            } else {
+                                                if let Ok(parsed) =
+                                                    serde_json::from_str::<serde_json::Value>(
+                                                        &text.text,
+                                                    )
+                                                {
+                                                    let thought = parsed
+                                                        .get("thought")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or_default()
+                                                        .to_string();
+                                                    let summary = parsed
+                                                        .get("summary")
+                                                        .and_then(|v| v.as_str())
+                                                        .map(|s| s.to_string());
+                                                    log_window.logs.push(
+                                                        crate::chat::log::indexer::IndexedLog {
+                                                            log: Arc::new(TenonLog::new(
+                                                                TenonLogData::Thought(
+                                                                    TenonThoughtLog {
+                                                                        thought,
+                                                                        summary,
+                                                                    },
+                                                                ),
+                                                            )),
+                                                            active: true,
+                                                        },
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
                                 }

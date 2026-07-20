@@ -5,8 +5,9 @@ mod ollama;
 mod openai;
 
 use crate::directive::Directive;
+use rig::completion::CompletionModel;
 use rig::{
-    agent::Agent,
+    agent::{Agent, AgentHook, Flow, HookContext, StepEvent, StepEventKind},
     message::Message,
     providers::{
         anthropic as rig_anthropic, gemini as rig_gemini, ollama as rig_ollama,
@@ -49,6 +50,33 @@ impl ApiKey {
 impl Default for ApiKey {
     fn default() -> Self {
         ApiKey::Value(String::new())
+    }
+}
+
+/// Treats unknown/disallowed tool calls as recoverable tool failures instead of
+/// fatal streaming errors (rig 0.40.0 default). When the model calls a tool that
+/// is not in the available set, this hook records a synthetic ToolResult telling
+/// the model which tools it may use, then continues the agent loop so the model
+/// can retry with a valid tool — restoring pre-0.40.0 behavior.
+pub struct InvalidToolCallHook;
+
+impl<M> AgentHook<M> for InvalidToolCallHook
+where
+    M: CompletionModel,
+{
+    fn observes(&self, kind: StepEventKind) -> bool {
+        kind == StepEventKind::InvalidToolCall
+    }
+
+    async fn on_event(&self, _ctx: &HookContext, event: StepEvent<'_, M>) -> Flow {
+        if let StepEvent::InvalidToolCall(ctx) = event {
+            return Flow::skip(format!(
+                "ToolCallError: `{}` is not an available tool. Call one of: {}.",
+                ctx.tool_name,
+                ctx.available_tools.join(", ")
+            ));
+        }
+        Flow::cont()
     }
 }
 
@@ -372,5 +400,73 @@ pub fn get_agent(
             tools,
             thinking,
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InvalidToolCallHook;
+    use futures::StreamExt;
+    use rig::agent::{AgentBuilder, MultiTurnStreamItem, StreamingError};
+    use rig::prelude::StreamingPrompt;
+    use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
+    use rig::test_utils::{MockAddTool, MockCompletionModel, MockStreamEvent};
+
+    /// When the LLM calls a tool that is not registered (e.g. `record_workflow`
+    /// when only `add` is available), the `InvalidToolCallHook` should treat it as
+    /// a recoverable tool failure — emitting a synthetic ToolResult so the model
+    /// can continue — rather than terminating the stream with a fatal
+    /// `StreamingError::Prompt(PromptError::UnknownToolCall)`.
+    #[tokio::test]
+    async fn unknown_tool_call_yields_tool_result_not_streaming_error() {
+        let model = MockCompletionModel::from_stream_turns([
+            vec![
+                MockStreamEvent::tool_call("tool_call_1", "record_workflow", serde_json::json!({})),
+                MockStreamEvent::final_response_with_default_usage(),
+            ],
+            vec![
+                MockStreamEvent::text("recovered"),
+                MockStreamEvent::final_response_with_default_usage(),
+            ],
+        ]);
+
+        let agent = AgentBuilder::new(model)
+            .tool(MockAddTool)
+            .add_hook(InvalidToolCallHook)
+            .build();
+
+        let mut stream = agent
+            .stream_prompt("use record_workflow")
+            .max_turns(3)
+            .await;
+
+        let mut saw_tool_result = false;
+        let mut streaming_error: Option<StreamingError> = None;
+
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
+                    ..
+                })) => {
+                    saw_tool_result = true;
+                }
+                Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Final(
+                    _,
+                ))) => {}
+                Ok(MultiTurnStreamItem::FinalResponse(_)) => break,
+                Ok(_) => {}
+                Err(e) => {
+                    streaming_error = Some(e);
+                    break;
+                }
+            }
+        }
+
+        assert!(
+            saw_tool_result,
+            "unknown tool call should yield a synthetic tool result so the model can recover, \
+             not a fatal streaming error. Got: {:?}",
+            streaming_error
+        );
     }
 }

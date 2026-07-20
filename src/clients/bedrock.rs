@@ -41,5 +41,8 @@ pub fn get_bedrock_agent(
         }
     }
 
-    agent.tools(tools).build()
+    agent
+        .tools(tools)
+        .add_hook(crate::clients::InvalidToolCallHook)
+        .build()
 }
