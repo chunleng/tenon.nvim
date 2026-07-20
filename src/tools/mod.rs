@@ -8,6 +8,7 @@ pub mod list_files;
 pub mod move_path;
 pub mod navigate_workflow;
 pub mod read_file;
+pub mod record_thought;
 pub mod remove_path;
 pub mod run_command;
 pub mod search_text;
@@ -23,8 +24,9 @@ pub use fetch_webpage::FetchWebpage;
 pub use list_files::ListFiles;
 pub use move_path::MovePath;
 pub use read_file::ReadFile;
+pub use record_thought::RecordThought;
 pub use remove_path::RemovePath;
-use rig::{tool::ToolDyn, tool::builtin::ThinkTool};
+use rig::tool::ToolDyn;
 pub use run_command::RunCommand;
 pub use search_text::SearchText;
 pub use web_search::WebSearch;
@@ -57,7 +59,7 @@ pub enum ToolClassification {
 ///
 /// Built-in tools have fixed classifications:
 /// - Idempotent: read_file, list_files, search_text
-/// - NonMutating: web_search, fetch_webpage, think
+/// - NonMutating: web_search, fetch_webpage, record_thought
 /// - Mutating: create_file, edit_file, move_path, remove_path, run_command
 /// - System: start_workflow, navigate_workflow, end_workflow
 ///
@@ -68,7 +70,7 @@ pub fn get_tool_classification(name: &str) -> ToolClassification {
         "read_file" | "list_files" | "search_text" => ToolClassification::Idempotent,
 
         // Non-mutating tools: read-only, may produce different results
-        "web_search" | "fetch_webpage" | "think" | "analyze_image" | "ask_question" => {
+        "web_search" | "fetch_webpage" | "record_thought" | "analyze_image" | "ask_question" => {
             ToolClassification::NonMutating
         }
 
@@ -88,7 +90,7 @@ pub fn get_tool_classification(name: &str) -> ToolClassification {
 /// Returns a short human-readable summary of what a tool call is doing,
 /// by extracting the core parameter from its args JSON.
 ///
-/// Returns `None` for tools with no useful display arg (e.g. "think", MCP tools).
+/// Returns `None` for tools with no useful display arg (e.g. "record_thought", MCP tools).
 pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
     // Special case for "run_command": combine command + args for display
     if name == "run_command" {
@@ -143,7 +145,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
 /// Returns the names of all available tools (built-in + MCP).
 ///
 /// Built-in names: "create_file", "edit_file", "fetch_webpage",
-/// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search", "think".
+/// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search", "record_thought".
 /// MCP tool names: "server_name.tool_name".
 pub fn all_tool_names() -> Vec<String> {
     let mut names: Vec<String> = vec![
@@ -157,7 +159,7 @@ pub fn all_tool_names() -> Vec<String> {
         "run_command".into(),
         "search_text".into(),
         "web_search".into(),
-        "think".into(),
+        "record_thought".into(),
         "analyze_image".into(),
     ];
 
@@ -230,7 +232,7 @@ fn select_in_order<T>(mut tools: Vec<Option<(String, T)>>, selectors: &[&str]) -
 /// Resolve a list of tool name strings into concrete `Box<dyn ToolDyn>` instances.
 ///
 /// Built-in names: "create_file", "edit_file", "fetch_webpage",
-/// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search", "think".
+/// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search", "record_thought".
 /// MCP tool names: "server_name.tool_name" for a specific tool,
 /// or "server_name" to include all tools from that server.
 pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
@@ -281,7 +283,6 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
             "web_search".to_string(),
             Box::new(WebSearch) as Box<dyn ToolDyn>,
         )),
-        Some(("think".to_string(), Box::new(ThinkTool) as Box<dyn ToolDyn>)),
     ];
 
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {

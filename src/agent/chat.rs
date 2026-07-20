@@ -1,11 +1,10 @@
 use std::sync::{Arc, RwLock, Weak};
 
 use crate::{
-    chat::workflow::Workflow,
-    chat::{ActiveWorkflow, EventChannel, PendingAction},
+    chat::{ActiveWorkflow, EventChannel, PendingAction, workflow::Workflow},
     clients::{ChatAgent, SupportedModels, get_agent},
     directive::{Directive, DirectiveSource, directive_path},
-    tools::{AskQuestion, resolve_tools},
+    tools::{AskQuestion, RecordThought, resolve_tools},
 };
 
 #[derive(Debug, Clone)]
@@ -48,6 +47,7 @@ impl TenonAgent {
 
         // AskQuestion is a special system tool that is always resolved
         tools.insert(0, Box::new(AskQuestion { event_channel }));
+        tools.insert(0, Box::new(RecordThought));
 
         let has_active = workflow_context
             .read()

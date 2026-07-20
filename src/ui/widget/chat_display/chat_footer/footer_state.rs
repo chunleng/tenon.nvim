@@ -406,7 +406,7 @@ mod tests {
                 "run_command".to_string(),
                 "search_text".to_string(),
                 "web_search".to_string(),
-                "think".to_string(),
+                "record_thought".to_string(),
             ],
             ..FooterValues::test_default()
         };
