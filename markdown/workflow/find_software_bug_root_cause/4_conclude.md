@@ -8,7 +8,7 @@ Remove debugging artifacts and conclude root cause analysis with recommendations
 2. Identify root cause from code inspection + test result
 3. Check if surrounding logic is overly complex
 
-## Workflow Step Output
+## Workflow Step Artifact
 ```yaml
 cause: "root cause write-up"
 recommendation: "test created (if any), fix suggestion, refactoring suggestion if code is complex"

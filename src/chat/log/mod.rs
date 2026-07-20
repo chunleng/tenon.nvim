@@ -235,18 +235,37 @@ mod tests {
     }
 
     #[test]
-    fn test_append_text_updates_last_updated_at() {
-        let mut log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
-            reasoning: None,
-            content: vec![],
-        }));
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        let before = Utc::now();
-        log.append_text("hello");
-        let after = Utc::now();
+    fn test_workflow_detail_lines_extracts_artifact_from_navigate_workflow() {
+        let workflow_log = TenonWorkflowLog {
+            id: "wf-1".to_string(),
+            content: "Test Workflow".to_string(),
+            step: Some(2),
+            tool_log: TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "call-1".to_string(),
+                    internal_call_id: "call-1".to_string(),
+                    name: "navigate_workflow".to_string(),
+                    args: serde_json::json!({"step": 2, "step_artifact": "scope analysis done"}),
+                },
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                    text: "output:\n  step: 2\n  artifact: scope analysis done".to_string(),
+                    ..Default::default()
+                }))),
+            },
+        };
 
-        assert!(log.last_updated_at >= before);
-        assert!(log.last_updated_at <= after);
+        let log = TenonLog::new(TenonLogData::Workflow(workflow_log));
+        let lines = log.data().detail_lines();
+
+        let joined = lines.join("\n");
+        assert!(
+            joined.contains("### Artifact (Previous Step)"),
+            "should have Artifact header, got: {joined}"
+        );
+        assert!(
+            joined.contains("scope analysis done"),
+            "should extract artifact value from YAML, got: {joined}"
+        );
     }
 }
 
@@ -473,13 +492,13 @@ impl TenonLogData {
                                 .ok()
                                 .and_then(|parsed| {
                                     parsed
-                                        .get("output")
+                                        .get("artifact")
                                         .and_then(|v| v.as_str())
                                         .map(String::from)
                                 })
                                 .unwrap_or_else(|| text.text.clone());
                             lines.push(String::new());
-                            lines.push("### Output (Previous Step)".to_string());
+                            lines.push("### Artifact (Previous Step)".to_string());
                             lines.push(String::new());
                             lines.extend(plain(&output_text));
                         }

@@ -22,7 +22,7 @@ Description: {description}
 ### Step 2: ...
 ```
 
-## Workflow Step Output
+## Workflow Step Artifact
 
 ### Changes needed
 ```yaml

@@ -16,7 +16,7 @@
   c. Re-order if dependencies turned out different than expected
 3. Pick the next change to make
 
-## Workflow Step Output
+## Workflow Step Artifact
 ```yaml
 done:
   - "what is done"

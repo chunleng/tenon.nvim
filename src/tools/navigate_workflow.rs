@@ -16,7 +16,7 @@ fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolError {
 #[serde(deny_unknown_fields)]
 pub struct NavigateWorkflowArgs {
     pub step: usize,
-    pub step_output: Option<String>,
+    pub step_artifact: Option<String>,
 }
 
 #[derive(Clone)]
@@ -42,9 +42,9 @@ impl Tool for NavigateWorkflow {
                     "type": "integer",
                     "description": "Step number (1-indexed)"
                 },
-                "step_output": {
+                "step_artifact": {
                     "type": "string",
-                    "description": "Output of current step, according to \"Workflow Step Output\" if available"
+                    "description": "Artifact of current step, according to \"Workflow Step Artifact\" section. If section is missing, this should be omitted"
                 }
             },
             "required": ["step"]
@@ -96,13 +96,15 @@ impl Tool for NavigateWorkflow {
                 .find(|instr| instr.to.resolve_step_index(current_step) == Some(target_step))
         });
 
-        // Store step_output in memory if configured
+        // Store step_artifact in memory if configured
         if let Some(goto_instr) = goto_instruction
             && let Some(ref memory_key) = goto_instr.output_to_workflow_memory
             && let Some(ref mut workflow_ref) = active_workflow_guard.as_mut()
-            && let Some(step_output) = args.step_output.clone()
+            && let Some(step_artifact) = args.step_artifact.clone()
         {
-            workflow_ref.memory.insert(memory_key.clone(), step_output);
+            workflow_ref
+                .memory
+                .insert(memory_key.clone(), step_artifact);
         }
 
         if let Some(ref mut workflow_ref) = active_workflow_guard.as_mut() {
@@ -111,7 +113,7 @@ impl Tool for NavigateWorkflow {
 
         let yaml = serde_yaml::to_string(&json!({
             "step": target_step,
-            "output": args.step_output,
+            "artifact": args.step_artifact,
         }))
         .map_err(|e| lock_err(e, "serialize navigate_workflow output"))?;
         Ok(yaml)
@@ -130,7 +132,7 @@ mod tests {
             id: "test-id".to_string(),
             internal_call_id: "test-internal-id".to_string(),
             name: name.to_string(),
-            args: serde_json::json!({"step": 2, "step_output": "test output from step 1"}),
+            args: serde_json::json!({"step": 2, "step_artifact": "test output from step 1"}),
         }
     }
 
@@ -162,7 +164,7 @@ mod tests {
                 .unwrap()
                 .block_on(tool.call(NavigateWorkflowArgs {
                     step: 2,
-                    step_output: Some("test output from step 1".to_string()),
+                    step_artifact: Some("test output from step 1".to_string()),
                 }));
 
         assert!(result.is_ok());

@@ -15,7 +15,7 @@ Information-gathering only, no code implementation.
   a. User confirmed → next workflow step
   b. User rejects → loop to process step 2
 
-## Workflow Step Output
+## Workflow Step Artifact
 ```yaml
 goal: clear description of the incremental goal to achieve
 sidenotes:

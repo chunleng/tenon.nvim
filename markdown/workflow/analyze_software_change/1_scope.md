@@ -38,7 +38,7 @@ Round 2:
 - Ask: How fast must the notification reach the user? Recommend under 5 seconds, state reasons
 - User: "5 seconds is fine"
 
-## Workflow Step Output
+## Workflow Step Artifact
 Output the complete scope. Never output partial updates — always include the full scope even if only one item changed.
 
 ```yaml

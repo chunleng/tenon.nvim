@@ -12,10 +12,10 @@ Draft workflow structure and each step's instruction content
 
 ## Drafting Guidelines
 - Each step requires a "Process" section.
-- Include "Workflow Step Output" according to workflow memory's goal `steps.output`
+- Include "Workflow Step Artifact" according to workflow memory's goal `steps.artifact`
 - Clear, minimal language
 - Include examples when instruction abstract or complex
-- Define goto_instructions with conditions and outputs
+- Define goto_instructions with conditions and artifacts
 
 ## Understanding Tenon Workflow
 
@@ -42,5 +42,5 @@ Draft workflow structure and each step's instruction content
 - Order conditions before catch-all (null): evaluated in order; null always matches → later conditions blocked
 - `output_to_workflow_memory`: workflow state (e.g., goals) → persists for all steps
 
-## Workflow Step Output
+## Workflow Step Artifact
 None

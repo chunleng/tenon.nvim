@@ -16,7 +16,7 @@ Review drafted workflow content and flag vague, ambiguous, or problematic lines
 - **Redundant**: Same instruction repeated across steps
 - **Contradictory**: Two instructions that conflict
 
-## Workflow Step Output
+## Workflow Step Artifact
 ```yaml
 file: path/to/file.md
 flagged_lines:

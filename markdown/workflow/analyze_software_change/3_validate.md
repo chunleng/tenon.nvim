@@ -9,7 +9,7 @@
   - On scope issue → navigate to scope step
   - On plan issue → navigate to plan step
 
-## Workflow Step Output
+## Workflow Step Artifact
 When scope issues are found:
 ```yaml
 scope_issue:

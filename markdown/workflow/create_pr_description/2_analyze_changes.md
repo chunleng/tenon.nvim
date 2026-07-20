@@ -8,7 +8,7 @@ Build structured understanding of the changes from the diff
 4. Assess scope and impact: which parts of the system are affected
 5. If diff is insufficient to understand intent, ask the user for context
 
-## Workflow Step Output
+## Workflow Step Artifact
 Structured change analysis covering:
 - **What changed**: Logical units of change
 - **Why**: Intent or purpose of each change

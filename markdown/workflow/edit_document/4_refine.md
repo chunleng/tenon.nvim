@@ -19,5 +19,5 @@ Ensure documentation is concise and free of redundancy
 - Active voice preferred
 - Simple words over complex when equivalent
 
-## Workflow Step Output
+## Workflow Step Artifact
 None (document modified in place)

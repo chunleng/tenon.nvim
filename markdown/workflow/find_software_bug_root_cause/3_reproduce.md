@@ -12,7 +12,7 @@ If test passes, either:
 - Test checks wrong thing (revise)
 - Bug elsewhere (re-investigate)
 
-## Workflow Step Output
+## Workflow Step Artifact
 ```yaml
 test_file: "path/to/test/file"
 test_name: "test function name"

@@ -10,6 +10,6 @@ Verify documentation meets the goal defined in Set Goal step
    - Goal achieved → workflow ends
    - Goal not achieved → identify gaps, redirect to Execute
 
-## Workflow Step Output
+## Workflow Step Artifact
 - Goal achieved → `null` (workflow ends)
 - Goal not achieved → `gaps: ["criteria not met and what's missing"]` (redirect to Execute)

@@ -23,7 +23,7 @@
   - Set up database schema for notifications — invisible plumbing
   - Write a data parser — no user-visible output until connected to a UI
 
-## Workflow Step Output
+## Workflow Step Artifact
 Output the complete plan. Never output partial updates — always include every step even if only one changed.
 ```yaml
 steps:

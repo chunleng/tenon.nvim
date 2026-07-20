@@ -12,5 +12,5 @@ Compaction can corrupt meaning when source text carries a double meaning. Resolv
 4. Repeat from process step 2 until no ambiguous sentence remains
 5. When no ambiguity remains, proceed to the next step
 
-## Workflow Step Output
+## Workflow Step Artifact
 None

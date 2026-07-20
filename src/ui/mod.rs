@@ -1215,7 +1215,7 @@ mod tests {
             "should contain content"
         );
         assert!(
-            content.contains("### Output (Previous Step)"),
+            content.contains("### Artifact (Previous Step)"),
             "should show output section for navigate_workflow"
         );
         assert!(

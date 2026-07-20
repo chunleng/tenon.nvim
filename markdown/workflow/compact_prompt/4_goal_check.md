@@ -9,7 +9,7 @@ Determine if texts are compacted properly
     - Technical accuracy intact
     - No ambiguity introduced
 
-## Workflow Step Output
+## Workflow Step Artifact
 
 ### Changes Required
 ```yaml

@@ -18,5 +18,5 @@ For each flagged line:
 - Redundant → remove
 - Contradictory → resolve conflict, update both lines
 
-## Workflow Step Output
+## Workflow Step Artifact
 None

@@ -5,7 +5,7 @@
   b. Do not specify how to check — that is not needed at this stage
 3. Ask the user a question only if there's no sensible default
 
-## Workflow Step Output
+## Workflow Step Artifact
 ```yaml
 goal: "one-sentence statement of what to build or change"
 acceptance_criteria:

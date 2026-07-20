@@ -7,7 +7,7 @@
 3. If tests fail, output `failures` — this routes back to planning
 4. If tests pass, surface any unverifiable items accumulated during Verify steps (from workflow memory) as the final output to the user
 
-## Workflow Step Output
+## Workflow Step Artifact
 
 ### If tests failed
 ```yaml

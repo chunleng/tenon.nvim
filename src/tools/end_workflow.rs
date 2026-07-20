@@ -39,7 +39,7 @@ impl Tool for EndWorkflow {
             "properties": {
                 "output": {
                     "type": "string",
-                    "description": "Result of the workflow"
+                    "description": "Artifact of workflow, according to \"Workflow Step Artifact\" section. If section is missing, this should be omitted"
                 }
             },
             "required": ["output"]

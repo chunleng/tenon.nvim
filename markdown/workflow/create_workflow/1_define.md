@@ -6,15 +6,15 @@ Define workflow goal and step structure through user interaction. Critical: do n
 2. Ask clarifying questions when goal ambiguous, incomplete, or conflicting
 3. Search for `require("tenon")` to find config location, search for existing workflow markdowns to find storage location (ask if ambiguous)
 4. Derive `workflow_id` (snake_case) and `description` from purpose
-5. Propose step structure: `[{"step_title": "...", "purpose": "...", "input": "...", "output": "..."}]`
-6. Present flow: verify step N output → step N+1 input match
+5. Propose step structure: `[{"step_title": "...", "purpose": "...", "input": "...", "artifact": "..."}]`
+6. Present flow: verify step N artifact → step N+1 input match
 7. Iterate until user approves
 
-## Decision Test: Step Output Required?
+## Decision Test: Step Artifact Required?
 
 Does the next step use this step's result as input?
-- Yes → include output
-- No → omit output
+- Yes → include artifact
+- No → omit artifact
 
 ## Clarifying Questions
 
@@ -30,7 +30,7 @@ Does the next step use this step's result as input?
 - Implementation detail: "Which data structure should I use?" → LLM decides
 - Opinion-seeking: "Do you think step 2 is necessary?" → propose, let user reject
 
-## Workflow Step Output
+## Workflow Step Artifact
 ```yaml
 workflow_id: ...
 description: ...
@@ -40,5 +40,5 @@ storage_path: ...
 steps:
   - step_title: ...
     input: ...
-    output: ...
+    artifact: ...
 ```

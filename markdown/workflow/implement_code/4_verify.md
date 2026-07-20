@@ -9,7 +9,7 @@
   c. If neither applies, mark it as unverifiable
 3. Run new verification plus existing checks in the areas you touched
 
-## Workflow Step Output
+## Workflow Step Artifact
 
 ### If verification failed
 ```yaml

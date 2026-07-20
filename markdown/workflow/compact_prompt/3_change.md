@@ -49,7 +49,7 @@ text
 - b
 ```
 
-## Workflow Step Output
+## Workflow Step Artifact
 ```yaml
 compactions:
   - source: "file path or 'inline'"

@@ -33,5 +33,5 @@ Note on work that was planned but not done to keep the scope clear
 - Apart from the content for the Pull Request, reduce commentary such as summarizing thoughts and actions
 - Include optional components only when there is relevant content; omit them otherwise
 
-## Workflow Step Output
+## Workflow Step Artifact
 PR title and description following the output format above

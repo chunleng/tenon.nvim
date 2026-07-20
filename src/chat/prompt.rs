@@ -70,7 +70,7 @@ pub async fn build_workflow_prompt(
                 "<context>\n\
                     Currently in {} step of {} workflow.\n\
                     Execute \"Process\" in `instruction` tag step by step if numbered, not all at once; don't stop partway unless explicitly asked. \
-                    Call a tool from `navigation` tag when the condition matches, using output from the \"Workflow Step Output\" section\n\
+                    Call a tool from `navigation` tag when the condition matches, using artifact from the \"Workflow Step Artifact\" section\n\
                     \n\n\
                     {}\
                     <instruction>\n\

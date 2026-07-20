@@ -41,7 +41,7 @@ Determine if code behavior changes:
 - Changing password length requirement → Modify `test_password_validation` (fails for same reason: invalid length)
 - Adding password complexity check → Create `test_password_complexity` (fails for different reason: missing special character, not length)
 
-## Workflow Step Output
+## Workflow Step Artifact
 ```yaml
 - test_file: path/to/test/file
   test_name: test function name
