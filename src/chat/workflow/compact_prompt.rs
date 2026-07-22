@@ -19,46 +19,35 @@ pub fn workflow() -> Workflow {
                 }],
             },
             WorkflowStep {
-                title: "Hunt Ambiguity".to_string(),
+                title: "Classify & Resolve".to_string(),
                 instruction: Instruction::File {
-                    file: workflow_path("compact_prompt/2_ambiguity_hunt.md"),
-                },
-                goto_instructions: vec![WorkflowGotoInstruction {
-                    to: GotoStep::Next,
-                    condition: Some("ambiguity resolved".to_string()),
-                    output_to_workflow_memory: None,
-                }],
-            },
-            WorkflowStep {
-                title: "Change".to_string(),
-                instruction: Instruction::File {
-                    file: workflow_path("compact_prompt/3_change.md"),
+                    file: workflow_path("compact_prompt/2_classify.md"),
                 },
                 goto_instructions: vec![WorkflowGotoInstruction {
                     to: GotoStep::Next,
                     condition: None,
-                    output_to_workflow_memory: None,
+                    output_to_workflow_memory: Some("classification".to_string()),
                 }],
             },
             WorkflowStep {
-                title: "Goal Check".to_string(),
+                title: "Compact".to_string(),
                 instruction: Instruction::File {
-                    file: workflow_path("compact_prompt/4_goal_check.md"),
+                    file: workflow_path("compact_prompt/3_compact.md"),
                 },
-                goto_instructions: vec![
-                    WorkflowGotoInstruction {
-                        to: GotoStep::Step(3),
-                        condition: Some("texts can be simpler".to_string()),
-                        output_to_workflow_memory: None,
-                    },
-                    WorkflowGotoInstruction {
-                        to: GotoStep::EndWorkflow,
-                        condition: None,
-                        output_to_workflow_memory: None,
-                    },
-                ],
+                goto_instructions: vec![],
+            },
+            WorkflowStep {
+                title: "Verify".to_string(),
+                instruction: Instruction::File {
+                    file: workflow_path("compact_prompt/4_verify.md"),
+                },
+                goto_instructions: vec![WorkflowGotoInstruction {
+                    to: GotoStep::Step(3),
+                    condition: Some("compaction issues found".to_string()),
+                    output_to_workflow_memory: None,
+                }],
             },
         ],
-        description: "Compacts and simplifies text while preserving meaning".to_string(),
+        description: "Compacts prompt and directive text while preserving meaning, conditions, and constraints".to_string(),
     }
 }
