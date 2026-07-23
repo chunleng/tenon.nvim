@@ -8,6 +8,7 @@ mod find_software_bug_root_cause;
 mod implement_code;
 mod implement_code_together;
 mod plan_refactoring;
+mod review_code;
 
 use anyhow::{Result, anyhow};
 use serde::Deserialize;
@@ -74,6 +75,7 @@ pub fn load_system_workflows() -> Vec<Arc<Workflow>> {
         Arc::new(compact_prompt::workflow()),
         Arc::new(implement_code_together::workflow()),
         Arc::new(analyze_software_change::workflow()),
+        Arc::new(review_code::workflow()),
     ]
 }
 
