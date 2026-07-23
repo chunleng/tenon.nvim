@@ -8,7 +8,7 @@ In any process step, ask the user for input at any point during the review when 
    - goto conditions are clear and non-overlapping
    - No dead ends (all paths lead somewhere)
    - No infinite loops without break condition
-   - Implicit goto instructions are omitted (Next without condition and without memory artifact; EndWorkflow in last step without condition)
+   - Implicit goto instructions are omitted (Next without condition and without memory artifact; EndWorkflow in last step without condition; self-loops — goto to the same step — should be "loop back to process step N" in the Process, not an explicit goto_instruction)
    - If structural issues found, provide them as the workflow step artifact and navigate to workflow step 3 — do not proceed to line-level review
 3. **Line-level review** — check each step instruction for:
    - Clarity: unambiguous?
