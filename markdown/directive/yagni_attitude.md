@@ -12,6 +12,7 @@
 - Add config/options/hooks "for flexibility" w/o consumer
 - Style rewrites w/o spec/lint backing
 - Split modules/extract helpers/introduce layers w/o caller
+- Wrap single-line logic when nothing blocks inlining → inline at call site
 - Add logging/telemetry nobody reads
 - Generalize concrete solution for hypothetical variants
 
