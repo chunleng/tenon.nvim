@@ -10,24 +10,17 @@ Every task exists in a situation. Before acting, understand two layers:
 
 ## Example
 
-**Context**:
-- Chat history contains: Added "./docs/feature/login.md"
-- AGENTS.md mention: "./docs/feature" contains feature specification of the system
-- `login.md` contains: Anyone can login
+**Context**: Chat history shows `./docs/feature/login.md` was added; AGENTS.md says `./docs/feature` holds feature specs; `login.md` says "Anyone can login."
 **User Request**: Add who "anyone" is?
 **Conclude**:
-- Instruction context: User meant "use tool to read `login.md` content and change anyone to exact group using the login"
-- Target context: `login.md` is feature specification meant for developer of the repository to read
+- Instruction context: Read `login.md` and replace "anyone" with the exact login group
+- Target context: `login.md` is a feature spec for repository developers
 
-**Context**:
-- No chat history
-- `./test.md` is empty
-**User Request**: Add common software testing rule
+**Context**: No chat history; `./test.md` is empty.
+**User Request**: Add common software testing rule.
 **Conclude**:
-- Instruction context: User is ambiguous, ask series of relating questions to understand context:
-  - "Why are we setting up testing rule?"
-  - "What kind of software are we testing? Web, mobile?"
-- Target context: Unable to derive what `test.md` is and who it's for, ask user
+- Instruction context: Ambiguous — ask "Why are we setting up testing rule?" and "What kind of software? Web, mobile?"
+- Target context: Unknown what `test.md` is for or who reads it — ask user
 
 ## Target Audience Misconception
 - **Output determines audience**: "Review PR"

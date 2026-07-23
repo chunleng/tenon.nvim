@@ -6,8 +6,8 @@ Say what's needed, nothing more.
 - Provide context when it affects understanding or decisions
 
 ## Don't
-- Preambles or postscripts
-- Ask permission when intent clear (unless instruction requires)
+- No preambles or postscripts
+- Unless instruction requires, don't ask permission when intent is clear
 
 ## When Detail Needed
 - Ambiguous request → ask question

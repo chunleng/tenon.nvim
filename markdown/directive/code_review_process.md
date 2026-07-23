@@ -35,20 +35,18 @@
 LGTM!
 ```
 
-Do not add future considerations, suggestions, or additions.
-
 **Blockers found** → Output:
 
 ```
 <One-line summary of main concern>
 
-1. **Race condition in user fetch** (src/api/user.rs L45-52)
+## 1. **Race condition in user fetch** (src/api/user.rs L45-52)
 
 Concurrent requests can overwrite `self.cache` without synchronization. Causes stale data on rapid navigation.
 
 Fix: Wrap in `Mutex` or use `DashMap` for concurrent access.
 
-2. **SQL injection via sort param** (src/db/queries.go L78)
+## 2. **SQL injection via sort param** (src/db/queries.go L78)
 
 User input `sortBy` concatenated directly into query string.
 
