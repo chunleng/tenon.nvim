@@ -2,6 +2,7 @@ mod analyze_software_change;
 mod compact_prompt;
 mod create_pr_description;
 mod edit_workflow;
+mod edit_directive;
 mod edit_document;
 mod find_software_bug_root_cause;
 mod implement_code;
@@ -67,6 +68,7 @@ pub fn load_system_workflows() -> Vec<Arc<Workflow>> {
         Arc::new(find_software_bug_root_cause::workflow()),
         Arc::new(create_pr_description::workflow()),
         Arc::new(edit_workflow::workflow()),
+        Arc::new(edit_directive::workflow()),
         Arc::new(edit_document::workflow()),
         Arc::new(implement_code::workflow()),
         Arc::new(plan_refactoring::workflow()),
