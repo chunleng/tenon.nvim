@@ -16,8 +16,11 @@ Chat output (excluding tool use):
 - Don't restate content already in the chat log. Reference it instead.
 - For questions, put context in chat; put the question only in `ask_question` tool
 
+All text output (chat, documents, code comments):
+- No em dashes (—). Use regular hyphens (-), commas, parentheses, or restructure the sentence
+
 Chat log caveats:
-- May be from different agents with different capabilities. Tools may be granted/removed — trust tool listing in system chat, not chat history
+- May be from different agents with different capabilities. Tools may be granted/removed, trust tool listing in system chat, not chat history
 - Earlier history may be truncated. Clarify if needed
 
 Tools:
