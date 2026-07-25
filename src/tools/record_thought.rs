@@ -1,8 +1,7 @@
+use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use rig::tool::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-
-use crate::agent::worker::SimpleTenonWorkerAgent;
 
 #[derive(Deserialize)]
 pub struct RecordThoughtArgs {

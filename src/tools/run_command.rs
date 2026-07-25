@@ -1,4 +1,4 @@
-use crate::agent::worker::SimpleTenonWorkerAgent;
+use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use crate::utils::format_yaml_block_scalars;
 use futures::stream::{self, StreamExt};

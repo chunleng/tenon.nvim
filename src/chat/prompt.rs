@@ -1,4 +1,4 @@
-use crate::agent::worker::SimpleTenonWorkerAgent;
+use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::chat::{ActiveAgent, ActiveWorkflow};
 use std::sync::{Arc, RwLock};
 

@@ -1,4 +1,4 @@
-use crate::agent::worker::SimpleTenonWorkerAgent;
+use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use html_to_markdown_rs::{ConversionOptions, PreprocessingOptions, PreprocessingPreset};
 

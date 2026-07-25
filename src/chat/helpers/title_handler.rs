@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use crate::agent::worker::SimpleTenonWorkerAgent;
+use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::chat::log::TenonLogData;
 use crate::chat::log::window::LogWindow;
 use crate::get_application_config;

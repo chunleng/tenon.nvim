@@ -1,4 +1,4 @@
-use crate::agent::worker::SimpleTenonWorkerAgent;
+use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use crate::utils::path_from_str;
 use base64::{Engine, engine::general_purpose::STANDARD};
