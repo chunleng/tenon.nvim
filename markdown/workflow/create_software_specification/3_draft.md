@@ -1,0 +1,9 @@
+## Process
+1. On re-entry from workflow step 4 (Review), address the identified gaps rather than rewriting from scratch
+2. Using the decision frame (workflow step 1) and alternatives analysis (workflow step 2), structure the document for decision-readiness
+3. The document must enable a reader to reach or evaluate a decision:
+   - **Problem statement**: clear and concise — what's being decided and why it matters
+   - **Alternatives**: presented honestly with trade-offs, not strawmanned
+   - **Recommendation**: with rationale, if one option is clearly best
+   - **Open questions**: explicit, if the decision genuinely needs more input
+4. Write the document to the file path from the decision frame
