@@ -86,7 +86,7 @@ async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, Tool
     let config = get_application_config();
     let worker = SimpleTenonWorkerAgent::new(
         config.tools.fetch_webpage.model.clone(),
-        "Use only the webpage content. If the prompt cannot be answered from the content, say \"Not found in page.\" Do not infer or fabricate. Webpage content only. No preamble/hedge/commentary/source refs. Preserve format: code→code blocks, steps→numbered lists, comparisons→tables, items→bullets",
+        "Use only the webpage content. If the prompt cannot be answered from the content, say \"The page loaded successfully but does not contain the requested information.\" Do not infer or fabricate. Webpage content only. No preamble/hedge/commentary/source refs. Preserve format: code→code blocks, steps→numbered lists, comparisons→tables, items→bullets",
         true,
     )
     .map_err(|e| {
