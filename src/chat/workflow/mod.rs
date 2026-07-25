@@ -1,9 +1,9 @@
 mod analyze_software_change;
 mod compact_prompt;
 mod create_pr_description;
-mod edit_workflow;
 mod edit_directive;
 mod edit_document;
+mod edit_workflow;
 mod find_software_bug_root_cause;
 mod implement_code;
 mod implement_code_together;
