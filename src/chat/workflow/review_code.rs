@@ -23,13 +23,20 @@ pub fn workflow() -> Workflow {
                 instruction: Instruction::File {
                     file: workflow_path("review_code/2_generate_findings.md"),
                 },
-                goto_instructions: vec![WorkflowGotoInstruction {
-                    to: GotoStep::EndWorkflow,
-                    condition: Some(
-                        "No findings were generated".to_string(),
-                    ),
-                    output_to_workflow_memory: None,
-                }],
+                goto_instructions: vec![
+                    WorkflowGotoInstruction {
+                        to: GotoStep::EndWorkflow,
+                        condition: Some(
+                            "No findings were generated".to_string(),
+                        ),
+                        output_to_workflow_memory: None,
+                    },
+                    WorkflowGotoInstruction {
+                        to: GotoStep::Next,
+                        condition: None,
+                        output_to_workflow_memory: Some("review_state".to_string()),
+                    },
+                ],
             },
             WorkflowStep {
                 title: "Filter & Report".to_string(),
@@ -38,16 +45,16 @@ pub fn workflow() -> Workflow {
                 },
                 goto_instructions: vec![
                     WorkflowGotoInstruction {
-                        to: GotoStep::EndWorkflow,
-                        condition: Some(
-                            "No blockers remain after filtering or discussion".to_string(),
-                        ),
-                        output_to_workflow_memory: None,
-                    },
-                    WorkflowGotoInstruction {
                         to: GotoStep::Step(2),
                         condition: Some(
-                            "The user indicates they have made code changes to address the blockers".to_string(),
+                            "Any finding has been resolved via code changes".to_string(),
+                        ),
+                        output_to_workflow_memory: Some("review_state".to_string()),
+                    },
+                    WorkflowGotoInstruction {
+                        to: GotoStep::EndWorkflow,
+                        condition: Some(
+                            "All blockers have been resolved or dropped with no code changes".to_string(),
                         ),
                         output_to_workflow_memory: None,
                     },

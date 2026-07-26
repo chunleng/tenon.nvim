@@ -16,16 +16,18 @@
      | Core library | All, strict |
      | Data layer | Correctness + security |
      | Scripts/utilities | Correctness only |
-3. Output the review to chat:
-   - No blockers → Output exactly `LGTM!`
-   - Blockers found → Output a one-line summary, then numbered findings, each with title and file path + line numbers, the problem/impact, and the fix (See "Output examples" section)
-4. After reporting, handle the user's response:
-   - If the user indicates they have made code changes → go to workflow step 2 (re-gather and re-review the updated diff)
-   - If the user disagrees with a finding by providing reasoning → evaluate the reasoning:
-     - Accept the reasoning → drop the finding, update the review
-     - Maintain the finding → explain why
-   - If all findings are dropped through accepted reasoning → output `LGTM!`
-   - Continue discussing until the user fixes code or all findings are resolved
+3. Output the review to chat, including only findings not marked `dropped`:
+   - No such findings remain → Output exactly `LGTM!`. End the workflow here.
+   - Such findings remain → Output a one-line summary, then numbered findings, each with title and file path + line numbers, the problem/impact, and the fix (See "Output examples" section)
+4. After reporting blockers, ask the user to address findings by fixing or let you know if they decide to not fix it.
+5. When the user responds, assign a decision to EVERY finding before navigating:
+   - **resolved-via-code**: the user made code changes addressing this finding. A generic statement not naming a specific finding (e.g., "I've made the necessary code changes") → mark all outstanding findings as `resolved-via-code`
+   - **dropped**: the user disagreed with reasoning you accept — drop the finding
+   - **pending**: the user disagreed with reasoning you reject (explain why), or did not address this finding
+6. Only after every finding has a decision, determine the action (first match wins):
+   - Any finding marked `resolved-via-code` → go to workflow step 2 (re-review the updated diff)
+   - All findings `dropped` with no code changes → output `LGTM!` and end
+   - Any finding still `pending` → prompt the user about the pending findings, then wait for their next response and repeat from process step 5
 
 ### Output examples
 
@@ -44,3 +46,17 @@ Concurrent requests can overwrite `self.cache` without synchronization. Causes s
 
 Fix: Wrap in `Mutex` or use `DashMap` for concurrent access.
 ```
+
+## Workflow Step Artifact
+### If navigating to workflow step 2 (code changes resolved)
+```yaml
+findings:
+  - category: Correctness | Security | Clarity | Maintainability | Style
+    title: Short description of the issue
+    file: File path
+    lines: Line number(s)
+    decision: resolved-via-code | dropped | pending
+```
+
+### If navigating to end (all resolved or dropped, no code changes)
+No artifact
