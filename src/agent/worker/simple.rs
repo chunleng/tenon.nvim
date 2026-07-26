@@ -1,6 +1,7 @@
 use std::io;
 
-use crate::clients::{ChatAgent, SupportedModels, get_agent};
+use crate::agent::runtime::{ChatAgent, get_agent};
+use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource};
 use crate::get_application_config;
 use rig::message::Message;

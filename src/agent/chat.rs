@@ -1,8 +1,9 @@
 use std::sync::{Arc, RwLock, Weak};
 
 use crate::{
+    agent::runtime::{ChatAgent, get_agent},
     chat::{ActiveWorkflow, EventChannel, PendingAction, workflow::Workflow},
-    clients::{ChatAgent, SupportedModels, get_agent},
+    clients::SupportedModels,
     directive::{Directive, DirectiveSource, directive_path},
     tools::{AskQuestion, RecordThought, resolve_tools},
 };
