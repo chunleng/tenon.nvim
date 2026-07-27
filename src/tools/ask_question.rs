@@ -77,7 +77,9 @@ impl Tool for AskQuestion {
         match result {
             Ok(result) => match result.response {
                 Some(text) if text == ANSWER_BY_CHAT => Ok(
-                    "<context>User will directly answer, just say \"I am listening\" and stop</context>"
+                    "<context>The user chose to answer via chat instead of selecting an option. \
+                     Stop your response with \"I am listening\" and wait for the user's \
+                     message. Do not call ask_question again.</context>"
                         .to_string(),
                 ),
                 Some(text) => Ok(text),
