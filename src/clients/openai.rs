@@ -51,5 +51,6 @@ pub fn get_openai_agent(
     agent
         .tools(tools)
         .add_hook(crate::clients::InvalidToolCallHook)
+        .add_hook(crate::clients::ToolErrorHook)
         .build()
 }

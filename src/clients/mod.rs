@@ -4,8 +4,8 @@ mod gemini;
 mod ollama;
 mod openai;
 
-use rig::completion::CompletionModel;
 use rig::agent::{AgentHook, Flow, HookContext, StepEvent, StepEventKind};
+use rig::completion::CompletionModel;
 use serde::Deserialize;
 
 /// API key that can be either a direct value or an environment variable reference.
@@ -70,6 +70,34 @@ where
     }
 }
 
+/// Prefixes tool error and denied results with `ToolCallError: ` so Tenon's chat
+/// handler classifies them as errors. In rig 0.40.0's structured execution path,
+/// arg parse failures and some tool errors produce result text without this
+/// prefix (e.g. `failed to parse tool arguments: ...`), causing the chat handler
+/// to misclassify them as successful results.
+pub struct ToolErrorHook;
+
+impl<M> AgentHook<M> for ToolErrorHook
+where
+    M: CompletionModel,
+{
+    fn observes(&self, kind: StepEventKind) -> bool {
+        kind == StepEventKind::ToolResult
+    }
+
+    async fn on_event(&self, _ctx: &HookContext, event: StepEvent<'_, M>) -> Flow {
+        if let StepEvent::ToolResult {
+            result, outcome, ..
+        } = event
+            && (outcome.is_error() || outcome.is_denied())
+            && !result.starts_with("ToolCallError: ")
+        {
+            return Flow::rewrite_result(format!("ToolCallError: {result}"));
+        }
+        Flow::cont()
+    }
+}
+
 pub use anthropic::{AnthropicProviderConfig, get_anthropic_agent};
 pub use bedrock::get_bedrock_agent;
 pub use gemini::{GeminiProviderConfig, get_gemini_agent};
@@ -106,7 +134,7 @@ pub enum ProviderConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::InvalidToolCallHook;
+    use super::{InvalidToolCallHook, ToolErrorHook};
     use futures::StreamExt;
     use rig::agent::{AgentBuilder, MultiTurnStreamItem, StreamingError};
     use rig::prelude::StreamingPrompt;
@@ -168,6 +196,120 @@ mod tests {
             "unknown tool call should yield a synthetic tool result so the model can recover, \
              not a fatal streaming error. Got: {:?}",
             streaming_error
+        );
+    }
+
+    /// When the LLM calls a valid tool with invalid arguments (e.g. missing a
+    /// required field), the tool result delivered to the model and shown in the
+    /// UI must be prefixed with `ToolCallError: ` so Tenon's chat handler
+    /// classifies it as an error. In rig 0.40.0's structured execution path, arg
+    /// parse failures produce `failed to parse tool arguments: ...` without the
+    /// prefix, causing the error to be misclassified as a successful tool result.
+    #[tokio::test]
+    async fn invalid_tool_args_yield_toolcallerror_prefix() {
+        let model = MockCompletionModel::from_stream_turns([
+            vec![
+                // Call `add` with missing `y` field
+                MockStreamEvent::tool_call("tool_call_1", "add", serde_json::json!({"x": 1})),
+                MockStreamEvent::final_response_with_default_usage(),
+            ],
+            vec![
+                MockStreamEvent::text("recovered"),
+                MockStreamEvent::final_response_with_default_usage(),
+            ],
+        ]);
+
+        let agent = AgentBuilder::new(model)
+            .tool(MockAddTool)
+            .add_hook(InvalidToolCallHook)
+            .add_hook(ToolErrorHook)
+            .build();
+
+        let mut stream = agent.stream_prompt("add x and y").max_turns(3).await;
+
+        let mut tool_result_text: Option<String> = None;
+
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
+                    tool_result,
+                    ..
+                })) => {
+                    if let Some(rig::message::ToolResultContent::Text(text)) =
+                        tool_result.content.first().into()
+                    {
+                        tool_result_text = Some(text.text.clone());
+                    }
+                }
+                Ok(MultiTurnStreamItem::FinalResponse(_)) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+
+        let text = tool_result_text.expect("should have received a tool result");
+        assert!(
+            text.starts_with("ToolCallError: "),
+            "tool result for invalid args should be prefixed with 'ToolCallError: ' so the \
+             chat handler classifies it as an error, but got: {}",
+            text
+        );
+    }
+
+    /// When both `InvalidToolCallHook` and `ToolErrorHook` are registered, an
+    /// unknown tool call skipped by `InvalidToolCallHook` (which already prefixes
+    /// with `ToolCallError: `) must NOT be double-prefixed by `ToolErrorHook`.
+    #[tokio::test]
+    async fn skipped_tool_result_not_double_prefixed() {
+        let model = MockCompletionModel::from_stream_turns([
+            vec![
+                MockStreamEvent::tool_call("tool_call_1", "record_workflow", serde_json::json!({})),
+                MockStreamEvent::final_response_with_default_usage(),
+            ],
+            vec![
+                MockStreamEvent::text("recovered"),
+                MockStreamEvent::final_response_with_default_usage(),
+            ],
+        ]);
+
+        let agent = AgentBuilder::new(model)
+            .tool(MockAddTool)
+            .add_hook(InvalidToolCallHook)
+            .add_hook(ToolErrorHook)
+            .build();
+
+        let mut stream = agent
+            .stream_prompt("use record_workflow")
+            .max_turns(3)
+            .await;
+
+        let mut tool_result_text: Option<String> = None;
+
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
+                    tool_result,
+                    ..
+                })) => {
+                    if let Some(rig::message::ToolResultContent::Text(text)) =
+                        tool_result.content.first().into()
+                    {
+                        tool_result_text = Some(text.text.clone());
+                    }
+                }
+                Ok(MultiTurnStreamItem::FinalResponse(_)) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+
+        let text = tool_result_text.expect("should have received a tool result");
+        let prefix_count = text.matches("ToolCallError: ").count();
+        assert_eq!(
+            prefix_count, 1,
+            "skipped tool result should have exactly one 'ToolCallError: ' prefix, not \
+             double-prefixed. Got: {}",
+            text
         );
     }
 }
