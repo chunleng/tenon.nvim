@@ -31,7 +31,7 @@ pub fn get_ollama_agent(
     model_name: String,
     preamble: Option<String>,
     tools: Vec<Box<dyn ToolDyn>>,
-    thinking: bool,
+    mut params: serde_json::Map<String, serde_json::Value>,
 ) -> Agent<ollama::CompletionModel> {
     let mut headers = HeaderMap::new();
     if let Some(bearer) = config.bearer
@@ -52,9 +52,11 @@ pub fn get_ollama_agent(
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
-
-    if thinking {
-        agent = agent.additional_params(serde_json::json!({ "think": true }));
+    if let Some(max_tokens) = params.remove("max_tokens").and_then(|v| v.as_u64()) {
+        agent = agent.max_tokens(max_tokens);
+    }
+    if !params.is_empty() {
+        agent = agent.additional_params(serde_json::Value::Object(params));
     }
 
     agent

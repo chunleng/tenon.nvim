@@ -14,7 +14,7 @@ impl SimpleTenonWorkerAgent {
     pub fn new(
         model: Option<SupportedModels>,
         directive_text: &str,
-        thinking: bool,
+        override_params: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> io::Result<Self> {
         let config = get_application_config();
         let model = match model {
@@ -35,7 +35,7 @@ impl SimpleTenonWorkerAgent {
             },
         };
 
-        let agent = get_agent(model, vec![directive], vec![], thinking);
+        let agent = get_agent(model, vec![directive], vec![], override_params);
         Ok(Self { agent })
     }
 

@@ -156,7 +156,7 @@ decision: allow
 Output (deny):
 decision: deny
 reason: ..."#,
-        true,
+        None,
     )
     .map_err(|e| {
         ToolError::ToolCallError(Box::new(e))

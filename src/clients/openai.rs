@@ -25,7 +25,7 @@ pub fn get_openai_agent(
     model_name: String,
     preamble: Option<String>,
     tools: Vec<Box<dyn ToolDyn>>,
-    thinking: bool,
+    mut params: serde_json::Map<String, serde_json::Value>,
 ) -> Agent<openai::CompletionModel> {
     let api_key = config.api_key.resolve().unwrap_or_else(|e| {
         eprintln!("[tenon] {}", e);
@@ -37,15 +37,15 @@ pub fn get_openai_agent(
         .build()
         .unwrap()
         .completions_api();
-    let mut agent = client.agent(model_name.clone());
+    let mut agent = client.agent(model_name);
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
-    // non-exhaustive for thinking model for now
-    if thinking && ["gpt-5.4", "o3", "o1"].contains(&model_name.as_str()) {
-        agent = agent.additional_params(serde_json::json!({
-            "reasoning_effort": "high"
-        }));
+    if let Some(max_tokens) = params.remove("max_tokens").and_then(|v| v.as_u64()) {
+        agent = agent.max_tokens(max_tokens);
+    }
+    if !params.is_empty() {
+        agent = agent.additional_params(serde_json::Value::Object(params));
     }
 
     agent

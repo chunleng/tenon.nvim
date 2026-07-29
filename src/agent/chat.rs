@@ -81,6 +81,6 @@ impl TenonAgent {
             );
         }
 
-        get_agent(self.model.clone(), combined, tools, true)
+        get_agent(self.model.clone(), combined, tools, None)
     }
 }

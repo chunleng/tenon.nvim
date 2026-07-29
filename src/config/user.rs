@@ -80,6 +80,8 @@ pub struct TenonAgentConfig {
 pub struct ModelConfig {
     connector: String,
     name: String,
+    #[serde(default)]
+    default_parameters: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Describes a directive source as provided in user configuration.
@@ -197,6 +199,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                                 connector_name: v.model.connector.clone(),
                                 config: model_config.to_owned(),
                                 model_name: v.model.name,
+                                default_parameters: v.model.default_parameters,
                             },
                             directives,
                             &v.tool_names,
@@ -229,6 +232,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         connector_name: m.connector.clone(),
                         config: provider_config.to_owned(),
                         model_name: m.name,
+                        default_parameters: m.default_parameters,
                     })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -251,6 +255,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                     connector_name: model.connector.clone(),
                     config: provider_config.to_owned(),
                     model_name: model.name,
+                    default_parameters: model.default_parameters,
                 });
             }
             if let Some(analyze_image) = tools.analyze_image
@@ -269,6 +274,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                     connector_name: model.connector.clone(),
                     config: provider_config.to_owned(),
                     model_name: model.name,
+                    default_parameters: model.default_parameters,
                 });
             }
             if let Some(run) = tools.run_command {
@@ -290,6 +296,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                             connector_name: m.connector.clone(),
                             config: provider_config.to_owned(),
                             model_name: m.name,
+                            default_parameters: m.default_parameters,
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -312,6 +319,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                     connector_name: model.connector.clone(),
                     config: provider_config.to_owned(),
                     model_name: model.name,
+                    default_parameters: model.default_parameters,
                 });
             }
             if let Some(prompt) = title.prompt {

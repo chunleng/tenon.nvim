@@ -110,6 +110,7 @@ pub struct SupportedModels {
     pub connector_name: String,
     pub config: ProviderConfig,
     pub model_name: String,
+    pub default_parameters: serde_json::Map<String, serde_json::Value>,
 }
 
 impl SupportedModels {

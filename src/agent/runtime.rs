@@ -244,7 +244,7 @@ pub fn get_agent(
     model: SupportedModels,
     directive: Vec<Directive>,
     tools: Vec<Box<dyn ToolDyn>>,
-    thinking: bool,
+    override_params: Option<serde_json::Map<String, serde_json::Value>>,
 ) -> ChatAgent {
     let resolved_directive = if directive.is_empty() {
         None
@@ -266,40 +266,41 @@ pub fn get_agent(
                 .join("\n"),
         )
     };
+    let params = override_params.unwrap_or_else(|| model.default_parameters.clone());
     match model.config {
         ProviderConfig::Ollama(config) => ChatAgent::Ollama(get_ollama_agent(
             config,
             model.model_name,
             resolved_directive,
             tools,
-            thinking,
+            params,
         )),
         ProviderConfig::Gemini(config) => ChatAgent::Gemini(get_gemini_agent(
             config,
             model.model_name,
             resolved_directive,
             tools,
-            thinking,
+            params,
         )),
         ProviderConfig::OpenAI(config) => ChatAgent::OpenAI(get_openai_agent(
             config,
             model.model_name,
             resolved_directive,
             tools,
-            thinking,
+            params,
         )),
         ProviderConfig::Anthropic(config) => ChatAgent::Anthropic(get_anthropic_agent(
             config,
             model.model_name,
             resolved_directive,
             tools,
-            thinking,
+            params,
         )),
         ProviderConfig::Bedrock(_config) => ChatAgent::Bedrock(get_bedrock_agent(
             model.model_name,
             resolved_directive,
             tools,
-            thinking,
+            params,
         )),
     }
 }

@@ -93,6 +93,7 @@ impl Default for TenonConfig {
             connector_name: "ollama_cloud".to_string(),
             config: ollama_cloud_provider.clone(),
             model_name: "glm-5.1".to_string(),
+            default_parameters: serde_json::Map::new(),
         };
         let mut default_agents: HashMap<String, TenonAgent> = HashMap::new();
         let default_agent_name = "default".to_string();

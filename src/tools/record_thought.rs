@@ -56,7 +56,7 @@ async fn summarize_thought(thought: &str) -> Option<String> {
          Use '-' for bullet points. \
          Output must be shorter than original message \
          Output only the bullet points, nothing else.",
-        false,
+        Some(serde_json::Map::new()),
     )
     .ok()?;
 

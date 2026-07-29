@@ -106,7 +106,7 @@ impl TitleHandler {
                         .to_string()
                 });
 
-                let worker = match SimpleTenonWorkerAgent::new(Some(model), &directive_text, false) {
+                let worker = match SimpleTenonWorkerAgent::new(Some(model), &directive_text, Some(serde_json::Map::new())) {
                     Ok(w) => w,
                     Err(_) => return,
                 };

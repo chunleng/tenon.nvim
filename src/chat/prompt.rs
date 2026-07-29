@@ -145,7 +145,7 @@ async fn classify_workflow(active_agent: &ActiveAgent, prompt: &str) -> Option<(
     let agent = SimpleTenonWorkerAgent::new(
         Some(active_agent.inner.model.clone()),
         &directive_text,
-        false,
+        Some(serde_json::Map::new()),
     )
     .ok()?;
 
@@ -181,6 +181,7 @@ mod tests {
                     connector_name: "test".to_string(),
                     config: ProviderConfig::Ollama(OllamaProviderConfig::default()),
                     model_name: "test".to_string(),
+                    default_parameters: serde_json::Map::new(),
                 },
                 vec![],
                 &[] as &[&str],
