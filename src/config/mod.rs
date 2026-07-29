@@ -66,7 +66,7 @@ pub struct TenonConfig {
     pub connectors: HashMap<String, ProviderConfig>,
     pub agents: HashMap<String, TenonAgent>,
     pub default_agent: String,
-    pub models: Vec<SupportedModels>,
+    pub models: HashMap<String, SupportedModels>,
     pub tools: ToolsConfig,
     pub history: HistoryConfig,
     pub title: TitleConfig,
@@ -117,11 +117,13 @@ impl Default for TenonConfig {
                 vec![],
             ),
         );
+        let mut default_models: HashMap<String, SupportedModels> = HashMap::new();
+        default_models.insert("default".to_string(), default_model);
         TenonConfig {
             connectors: default_providers,
             agents: default_agents,
             default_agent: default_agent_name,
-            models: vec![default_model],
+            models: default_models,
             tools: ToolsConfig::default(),
             history: HistoryConfig::default(),
             title: TitleConfig::default(),

@@ -15,7 +15,7 @@ use crate::{
 pub struct TenonUserConfig {
     pub connectors: Option<HashMap<String, ProviderConfig>>,
     pub agents: Option<HashMap<String, TenonAgentConfig>>,
-    pub models: Option<Vec<ModelConfig>>,
+    pub models: Option<HashMap<String, ModelConfig>>,
     pub tools: Option<ToolsUserConfig>,
     pub history: Option<HistoryUserConfig>,
     pub title: Option<TitleUserConfig>,
@@ -30,7 +30,7 @@ pub struct HistoryUserConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TitleUserConfig {
-    pub model: Option<ModelConfig>,
+    pub model: Option<Model>,
     pub prompt: Option<String>,
 }
 
@@ -48,24 +48,24 @@ pub struct RunCommandUserConfig {
     pub whitelist: Vec<String>,
 
     #[serde(default)]
-    pub check_models: Vec<ModelConfig>,
+    pub check_models: Vec<Model>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FetchWebpageUserConfig {
-    pub model: Option<ModelConfig>,
+    pub model: Option<Model>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnalyzeImageUserConfig {
-    pub model: Option<ModelConfig>,
+    pub model: Option<Model>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TenonAgentConfig {
-    model: ModelConfig,
+    model: Model,
     #[serde(default)]
     directive: Vec<DirectiveConfig>,
     #[serde(default)]
@@ -83,6 +83,11 @@ pub struct ModelConfig {
     #[serde(default)]
     default_parameters: serde_json::Map<String, serde_json::Value>,
 }
+
+/// A named reference to a model in the models registry.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(transparent)]
+pub struct Model(pub String);
 
 /// Describes a directive source as provided in user configuration.
 #[derive(Debug, Clone, Deserialize)]
@@ -145,6 +150,31 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
         if let Some(connectors) = value.connectors {
             conf.connectors = connectors;
         }
+        if let Some(models) = value.models {
+            conf.models = models
+                .into_iter()
+                .map(
+                    |(name, m)| -> Result<(String, SupportedModels), nvim_oxi::Error> {
+                        let provider_config: &ProviderConfig = conf
+                            .connectors
+                            .get(&m.connector)
+                            .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                                msg: format!("unknown connector for model: {}", m.connector),
+                            }))?;
+                        Ok((
+                            name,
+                            SupportedModels {
+                                connector_name: m.connector.clone(),
+                                config: provider_config.to_owned(),
+                                model_name: m.name,
+                                default_parameters: m.default_parameters,
+                            },
+                        ))
+                    },
+                )
+                .collect::<Result<HashMap<_, _>, _>>()?;
+        }
+
         if let Some(agents) = value.agents {
             if agents.is_empty() {
                 return Err(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
@@ -154,11 +184,11 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
             conf.agents = agents
                 .into_iter()
                 .map(|(k, v)| -> Result<_, nvim_oxi::Error> {
-                    let model_config: &ProviderConfig = conf
-                        .connectors
-                        .get(&v.model.connector)
+                    let model = conf
+                        .models
+                        .get(&v.model.0)
                         .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                            msg: format!("unknown connector: {}", v.model.connector),
+                            msg: format!("unknown model: {}", v.model.0),
                         }))?;
                     if v.default {
                         match &default_agent {
@@ -194,17 +224,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         .collect();
                     Ok((
                         k,
-                        TenonAgent::new(
-                            SupportedModels {
-                                connector_name: v.model.connector.clone(),
-                                config: model_config.to_owned(),
-                                model_name: v.model.name,
-                                default_parameters: v.model.default_parameters,
-                            },
-                            directives,
-                            &v.tool_names,
-                            workflows,
-                        ),
+                        TenonAgent::new(model.clone(), directives, &v.tool_names, workflows),
                     ))
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?;
@@ -218,64 +238,24 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
             }
         }
 
-        if let Some(models) = value.models {
-            conf.models = models
-                .into_iter()
-                .map(|m| -> Result<SupportedModels, nvim_oxi::Error> {
-                    let provider_config: &ProviderConfig = conf
-                        .connectors
-                        .get(&m.connector)
-                        .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                            msg: format!("unknown connector for model: {}", m.connector),
-                        }))?;
-                    Ok(SupportedModels {
-                        connector_name: m.connector.clone(),
-                        config: provider_config.to_owned(),
-                        model_name: m.name,
-                        default_parameters: m.default_parameters,
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-        }
-
         if let Some(tools) = value.tools {
             if let Some(fetch_webpage) = tools.fetch_webpage
                 && let Some(model) = fetch_webpage.model
             {
-                let provider_config: &ProviderConfig = conf
-                    .connectors
-                    .get(&model.connector)
-                    .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                        msg: format!(
-                            "unknown connector for fetch_webpage model: {}",
-                            model.connector
-                        ),
-                    }))?;
-                conf.tools.fetch_webpage.model = Some(SupportedModels {
-                    connector_name: model.connector.clone(),
-                    config: provider_config.to_owned(),
-                    model_name: model.name,
-                    default_parameters: model.default_parameters,
-                });
+                conf.tools.fetch_webpage.model = Some(conf.models.get(&model.0).cloned().ok_or(
+                    nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                        msg: format!("unknown model for fetch_webpage: {}", model.0),
+                    }),
+                )?);
             }
             if let Some(analyze_image) = tools.analyze_image
                 && let Some(model) = analyze_image.model
             {
-                let provider_config: &ProviderConfig = conf
-                    .connectors
-                    .get(&model.connector)
-                    .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                        msg: format!(
-                            "unknown connector for analyze_image model: {}",
-                            model.connector
-                        ),
-                    }))?;
-                conf.tools.analyze_image.model = Some(SupportedModels {
-                    connector_name: model.connector.clone(),
-                    config: provider_config.to_owned(),
-                    model_name: model.name,
-                    default_parameters: model.default_parameters,
-                });
+                conf.tools.analyze_image.model = Some(conf.models.get(&model.0).cloned().ok_or(
+                    nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                        msg: format!("unknown model for analyze_image: {}", model.0),
+                    }),
+                )?);
             }
             if let Some(run) = tools.run_command {
                 conf.tools.run_command.whitelist = run.whitelist;
@@ -283,21 +263,12 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                     .check_models
                     .into_iter()
                     .map(|m| -> Result<_, nvim_oxi::Error> {
-                        let provider_config: &ProviderConfig = conf
-                            .connectors
-                            .get(&m.connector)
+                        conf.models
+                            .get(&m.0)
+                            .cloned()
                             .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                                msg: format!(
-                                    "unknown connector for run check model: {}",
-                                    m.connector
-                                ),
-                            }))?;
-                        Ok(SupportedModels {
-                            connector_name: m.connector.clone(),
-                            config: provider_config.to_owned(),
-                            model_name: m.name,
-                            default_parameters: m.default_parameters,
-                        })
+                                msg: format!("unknown model for run_command check: {}", m.0),
+                            }))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
             }
@@ -309,18 +280,11 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
 
         if let Some(title) = value.title {
             if let Some(model) = title.model {
-                let provider_config: &ProviderConfig = conf
-                    .connectors
-                    .get(&model.connector)
-                    .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                        msg: format!("unknown connector for title model: {}", model.connector),
-                    }))?;
-                conf.title.model = Some(SupportedModels {
-                    connector_name: model.connector.clone(),
-                    config: provider_config.to_owned(),
-                    model_name: model.name,
-                    default_parameters: model.default_parameters,
-                });
+                conf.title.model = Some(conf.models.get(&model.0).cloned().ok_or(
+                    nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                        msg: format!("unknown model for title: {}", model.0),
+                    }),
+                )?);
             }
             if let Some(prompt) = title.prompt {
                 conf.title.prompt = Some(prompt);
@@ -334,6 +298,249 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn try_from_models_builds_hashmap_with_names() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+        let mut connectors = HashMap::new();
+        connectors.insert(
+            "ollama".to_string(),
+            ProviderConfig::Ollama(Default::default()),
+        );
+
+        let mut models = HashMap::new();
+        let mut params = serde_json::Map::new();
+        params.insert("temperature".to_string(), serde_json::json!(0.7));
+        models.insert(
+            "fast".to_string(),
+            ModelConfig {
+                connector: "ollama".to_string(),
+                name: "llama3".to_string(),
+                default_parameters: params,
+            },
+        );
+        models.insert(
+            "smart".to_string(),
+            ModelConfig {
+                connector: "ollama".to_string(),
+                name: "gpt-4".to_string(),
+                default_parameters: serde_json::Map::new(),
+            },
+        );
+
+        let config = TenonUserConfig {
+            connectors: Some(connectors),
+            agents: None,
+            models: Some(models),
+            tools: None,
+            history: None,
+            title: None,
+        };
+
+        let result = TenonConfig::try_from(config).unwrap();
+        assert_eq!(result.models.len(), 2);
+
+        let fast = result.models.get("fast").unwrap();
+        assert_eq!(fast.connector_name, "ollama");
+        assert_eq!(fast.model_name, "llama3");
+        assert_eq!(
+            fast.default_parameters.get("temperature").unwrap(),
+            &serde_json::json!(0.7)
+        );
+
+        let smart = result.models.get("smart").unwrap();
+        assert_eq!(smart.model_name, "gpt-4");
+    }
+
+    #[test]
+    fn try_from_models_error_on_unknown_connector() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+
+        let mut models = HashMap::new();
+        models.insert(
+            "bad".to_string(),
+            ModelConfig {
+                connector: "nonexistent".to_string(),
+                name: "model".to_string(),
+                default_parameters: serde_json::Map::new(),
+            },
+        );
+
+        let config = TenonUserConfig {
+            connectors: None,
+            agents: None,
+            models: Some(models),
+            tools: None,
+            history: None,
+            title: None,
+        };
+
+        let result = TenonConfig::try_from(config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn try_from_agent_resolves_model_from_registry() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+
+        let mut connectors = HashMap::new();
+        connectors.insert(
+            "ollama".to_string(),
+            ProviderConfig::Ollama(Default::default()),
+        );
+
+        let mut models = HashMap::new();
+        models.insert(
+            "fast".to_string(),
+            ModelConfig {
+                connector: "ollama".to_string(),
+                name: "llama3".to_string(),
+                default_parameters: serde_json::Map::new(),
+            },
+        );
+
+        let mut agents = HashMap::new();
+        agents.insert(
+            "main".to_string(),
+            TenonAgentConfig {
+                model: Model("fast".to_string()),
+                directive: vec![],
+                tool_names: vec![],
+                default: true,
+                workflows: vec![],
+            },
+        );
+
+        let config = TenonUserConfig {
+            connectors: Some(connectors),
+            agents: Some(agents),
+            models: Some(models),
+            tools: None,
+            history: None,
+            title: None,
+        };
+
+        let result = TenonConfig::try_from(config).unwrap();
+        let agent = result.agents.get("main").unwrap();
+        assert_eq!(agent.model.connector_name, "ollama");
+        assert_eq!(agent.model.model_name, "llama3");
+    }
+
+    #[test]
+    fn try_from_agent_error_on_unknown_model() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+
+        let mut agents = HashMap::new();
+        agents.insert(
+            "main".to_string(),
+            TenonAgentConfig {
+                model: Model("nonexistent".to_string()),
+                directive: vec![],
+                tool_names: vec![],
+                default: true,
+                workflows: vec![],
+            },
+        );
+
+        let config = TenonUserConfig {
+            connectors: None,
+            agents: Some(agents),
+            models: None,
+            tools: None,
+            history: None,
+            title: None,
+        };
+
+        let result = TenonConfig::try_from(config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn try_from_tools_resolves_model_from_registry() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+        let mut connectors = HashMap::new();
+        connectors.insert(
+            "ollama".to_string(),
+            ProviderConfig::Ollama(Default::default()),
+        );
+
+        let mut models = HashMap::new();
+        models.insert(
+            "fast".to_string(),
+            ModelConfig {
+                connector: "ollama".to_string(),
+                name: "llama3".to_string(),
+                default_parameters: serde_json::Map::new(),
+            },
+        );
+
+        let tools = ToolsUserConfig {
+            fetch_webpage: Some(FetchWebpageUserConfig {
+                model: Some(Model("fast".to_string())),
+            }),
+            analyze_image: Some(AnalyzeImageUserConfig {
+                model: Some(Model("fast".to_string())),
+            }),
+            run_command: Some(RunCommandUserConfig {
+                whitelist: vec![],
+                check_models: vec![Model("fast".to_string())],
+            }),
+        };
+
+        let title = TitleUserConfig {
+            model: Some(Model("fast".to_string())),
+            prompt: None,
+        };
+
+        let config = TenonUserConfig {
+            connectors: Some(connectors),
+            agents: None,
+            models: Some(models),
+            tools: Some(tools),
+            history: None,
+            title: Some(title),
+        };
+
+        let result = TenonConfig::try_from(config).unwrap();
+
+        let fw = result.tools.fetch_webpage.model.unwrap();
+        assert_eq!(fw.model_name, "llama3");
+
+        let ai = result.tools.analyze_image.model.unwrap();
+        assert_eq!(ai.model_name, "llama3");
+
+        let rc = &result.tools.run_command.check_models;
+        assert_eq!(rc.len(), 1);
+        assert_eq!(rc[0].model_name, "llama3");
+
+        let title_model = result.title.model.unwrap();
+        assert_eq!(title_model.model_name, "llama3");
+    }
+
+    #[test]
+    fn try_from_tools_error_on_unknown_model() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+
+        let tools = ToolsUserConfig {
+            fetch_webpage: Some(FetchWebpageUserConfig {
+                model: Some(Model("nonexistent".to_string())),
+            }),
+            analyze_image: None,
+            run_command: None,
+        };
+
+        let config = TenonUserConfig {
+            connectors: None,
+            agents: None,
+            models: None,
+            tools: Some(tools),
+            history: None,
+            title: None,
+        };
+
+        let result = TenonConfig::try_from(config);
+        assert!(result.is_err());
+    }
 
     #[test]
     fn try_from_text_config_preserves_condition() {

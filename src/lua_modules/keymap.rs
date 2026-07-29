@@ -3,6 +3,7 @@ use nvim_oxi::{Dictionary, Function, Object, api::types::LogLevel};
 use crate::{
     chat::ActiveAgent,
     chat::history::{SessionMetadata, save_to_history},
+    clients::SupportedModels,
     get_application_config, get_chat_window,
     tools::all_tool_names,
     ui::picker::{pick, pick_multi},
@@ -198,18 +199,40 @@ fn select_agent_fn() -> Function<(), ()> {
     })
 }
 
+fn format_model_display(name: &str, model: &SupportedModels) -> String {
+    let fixed_name: String = if name.chars().count() > 20 {
+        name.chars().take(20).collect()
+    } else {
+        format!("{:<20}", name)
+    };
+    format!("{} | {}/{}", fixed_name, model.connector_name, model.model_name)
+}
+
 fn select_model_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
             let config = get_application_config();
-            let model_list: Vec<String> = config.models.iter().map(|m| m.display_name()).collect();
+            let entries: Vec<(String, SupportedModels)> = config
+                .models
+                .iter()
+                .map(|(name, m)| (name.clone(), m.clone()))
+                .collect();
+            let model_list: Vec<String> = entries
+                .iter()
+                .map(|(name, m)| format_model_display(name, m))
+                .collect();
 
             let current_model_display: Option<String> = (|| {
                 let win_arc = get_chat_window();
                 let win = win_arc.lock().ok()?;
                 let loaded = win.loaded_chat_session.read().ok()?;
                 let session = loaded.read().ok()?;
-                Some(session.active_agent.inner.model.display_name())
+                let current = &session.active_agent.inner.model;
+                entries.iter().find_map(|(name, m)| {
+                    (m.connector_name == current.connector_name
+                        && m.model_name == current.model_name)
+                        .then(|| format_model_display(name, m))
+                })
             })();
 
             let options: Vec<&str> = model_list.iter().map(|s| s.as_str()).collect();
@@ -218,23 +241,19 @@ fn select_model_fn() -> Function<(), ()> {
                 "Select Model",
                 &options,
                 current_model_display.as_deref(),
-                |selected| {
-                    if let Some(display_name) = selected {
-                        let config = get_application_config();
-                        if let Some(model) = config
-                            .models
+                move |selected| {
+                    if let Some(display) = selected
+                        && let Some((_, model)) = entries
                             .iter()
-                            .find(|m| m.display_name() == display_name)
-                            .cloned()
+                            .find(|(name, m)| format_model_display(name, m) == display)
+                    {
+                        let win_arc = get_chat_window();
+                        if let Ok(win) = win_arc.lock()
+                            && let Ok(loaded) = win.loaded_chat_session.read()
+                            && let Ok(mut session) = loaded.write()
                         {
-                            let win_arc = get_chat_window();
-                            if let Ok(win) = win_arc.lock()
-                                && let Ok(loaded) = win.loaded_chat_session.read()
-                                && let Ok(mut session) = loaded.write()
-                            {
-                                session.active_agent.inner.model = model;
-                                win.force_render();
-                            }
+                            session.active_agent.inner.model = model.clone();
+                            win.force_render();
                         }
                     }
                 },
