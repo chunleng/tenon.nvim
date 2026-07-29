@@ -1,7 +1,8 @@
 ## Process
 Information-gathering only, no code implementation.
 1. Determine what user wants, from:
-  - What user specified before the workflow starts
+  - First round (no `goal` in workflow memory): what user specified before the workflow starts
+  - Returning round (`goal` in workflow memory, after implementation confirmed): the `goal` belongs to the previous cycle, ignore it
   - Otherwise → ask: "What to implement next?"
 2. Ensure the goal is clear
   a. Requirement clarity
