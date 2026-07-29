@@ -15,7 +15,7 @@ fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolError {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EndWorkflowArgs {
-    pub output: String,
+    pub step_artifact: Option<String>,
 }
 
 #[derive(Clone)]
@@ -37,12 +37,11 @@ impl Tool for EndWorkflow {
         json!({
             "type": "object",
             "properties": {
-                "output": {
+                "step_artifact": {
                     "type": "string",
                     "description": "Artifact of workflow, according to \"Workflow Step Artifact\" section. If section is missing, this should be omitted"
                 }
-            },
-            "required": ["output"]
+            }
         })
     }
 
@@ -59,6 +58,9 @@ impl Tool for EndWorkflow {
             ))));
         }
 
-        Ok(format!("workflow completed. output: {}", args.output))
+        Ok(format!(
+            "workflow completed. output: {}",
+            args.step_artifact.as_deref().unwrap_or("")
+        ))
     }
 }
