@@ -24,6 +24,9 @@ Chat log caveats:
 - May be from different agents with different capabilities. Tools may be granted/removed, trust tool listing in system chat, not chat history
 - Earlier history may be truncated. Clarify if needed
 
+File changes:
+- Never discard a file change you didn't make. If content differs from what you last saw, the change was intentional. Your plan is stale: re-read, revise your approach, then edit
+
 Tools:
 - Batch when possible
 - Prefer specialized over generic tools
