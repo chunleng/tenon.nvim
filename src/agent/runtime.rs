@@ -1,6 +1,6 @@
 use crate::clients::{
     ProviderConfig, SupportedModels, get_anthropic_agent, get_bedrock_agent, get_gemini_agent,
-    get_ollama_agent, get_openai_agent,
+    get_ollama_agent, get_openai_completion_api_agent, get_openai_response_api_agent,
 };
 use crate::directive::Directive;
 use rig::agent::Agent;
@@ -14,7 +14,8 @@ use rig::tool::ToolDyn;
 pub enum ChatAgent {
     Ollama(Agent<rig_ollama::CompletionModel>),
     Gemini(Agent<rig_gemini::CompletionModel>),
-    OpenAI(Agent<rig_openai::CompletionModel>),
+    OpenAICompletion(Agent<rig_openai::CompletionModel>),
+    OpenAIResponse(Agent<rig_openai::responses_api::ResponsesCompletionModel>),
     Anthropic(Agent<rig_anthropic::completion::CompletionModel>),
     Bedrock(Agent<rig_bedrock::completion::CompletionModel>),
 }
@@ -38,11 +39,22 @@ pub enum ChatStream {
             >,
         >,
     ),
-    OpenAI(
+    OpenAICompletion(
         futures::stream::BoxStream<
             'static,
             Result<
                 rig::agent::MultiTurnStreamItem<rig_openai::streaming::StreamingCompletionResponse>,
+                rig::agent::StreamingError,
+            >,
+        >,
+    ),
+    OpenAIResponse(
+        futures::stream::BoxStream<
+            'static,
+            Result<
+                rig::agent::MultiTurnStreamItem<
+                    rig_openai::responses_api::streaming::StreamingCompletionResponse,
+                >,
                 rig::agent::StreamingError,
             >,
         >,
@@ -151,7 +163,11 @@ impl ChatStream {
                 Ok(item) => Ok(convert_stream_item!(item)),
                 Err(e) => Err(e),
             }),
-            ChatStream::OpenAI(stream) => stream.next().await.map(|result| match result {
+            ChatStream::OpenAICompletion(stream) => stream.next().await.map(|result| match result {
+                Ok(item) => Ok(convert_stream_item!(item)),
+                Err(e) => Err(e),
+            }),
+            ChatStream::OpenAIResponse(stream) => stream.next().await.map(|result| match result {
                 Ok(item) => Ok(convert_stream_item!(item)),
                 Err(e) => Err(e),
             }),
@@ -190,7 +206,14 @@ impl ChatAgent {
                     .tool_concurrency(tool_concurrency)
                     .await,
             ),
-            ChatAgent::OpenAI(agent) => ChatStream::OpenAI(
+            ChatAgent::OpenAICompletion(agent) => ChatStream::OpenAICompletion(
+                agent
+                    .stream_chat(message, history)
+                    .max_turns(multi_turn)
+                    .tool_concurrency(tool_concurrency)
+                    .await,
+            ),
+            ChatAgent::OpenAIResponse(agent) => ChatStream::OpenAIResponse(
                 agent
                     .stream_chat(message, history)
                     .max_turns(multi_turn)
@@ -282,13 +305,24 @@ pub fn get_agent(
             tools,
             params,
         )),
-        ProviderConfig::OpenAI(config) => ChatAgent::OpenAI(get_openai_agent(
-            config,
-            model.model_name,
-            resolved_directive,
-            tools,
-            params,
-        )),
+        ProviderConfig::OpenAICompletion(config) => {
+            ChatAgent::OpenAICompletion(get_openai_completion_api_agent(
+                config,
+                model.model_name,
+                resolved_directive,
+                tools,
+                params,
+            ))
+        }
+        ProviderConfig::OpenAIResponse(config) => {
+            ChatAgent::OpenAIResponse(get_openai_response_api_agent(
+                config,
+                model.model_name,
+                resolved_directive,
+                tools,
+                params,
+            ))
+        }
         ProviderConfig::Anthropic(config) => ChatAgent::Anthropic(get_anthropic_agent(
             config,
             model.model_name,

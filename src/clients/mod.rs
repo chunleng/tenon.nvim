@@ -102,7 +102,9 @@ pub use anthropic::{AnthropicProviderConfig, get_anthropic_agent};
 pub use bedrock::get_bedrock_agent;
 pub use gemini::{GeminiProviderConfig, get_gemini_agent};
 pub use ollama::{OllamaProviderConfig, get_ollama_agent};
-pub use openai::{OpenAIProviderConfig, get_openai_agent};
+pub use openai::{
+    OpenAIProviderConfig, get_openai_completion_api_agent, get_openai_response_api_agent,
+};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -128,7 +130,10 @@ pub struct NoProviderConfig;
 pub enum ProviderConfig {
     Ollama(OllamaProviderConfig),
     Gemini(GeminiProviderConfig),
-    OpenAI(OpenAIProviderConfig),
+    #[serde(rename = "openai_completion")]
+    OpenAICompletion(OpenAIProviderConfig),
+    #[serde(rename = "openai_response")]
+    OpenAIResponse(OpenAIProviderConfig),
     Anthropic(AnthropicProviderConfig),
     Bedrock(NoProviderConfig),
 }

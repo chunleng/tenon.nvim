@@ -97,10 +97,13 @@ pub struct TenonToolLog {
 
 impl From<TenonToolLog> for Vec<Message> {
     fn from(value: TenonToolLog) -> Self {
+        // Prefix with "fc_" to fit the most troublesome OpenAI response API
+        let call_id = format!("fc_{}", &value.tool_call.id);
         let mut messages = vec![Message::Assistant {
             id: None,
-            content: OneOrMany::one(AssistantContent::tool_call(
-                value.tool_call.id.clone(),
+            content: OneOrMany::one(AssistantContent::tool_call_with_call_id(
+                &call_id,
+                call_id.clone(),
                 value.tool_call.name,
                 value.tool_call.args,
             )),
@@ -117,8 +120,8 @@ impl From<TenonToolLog> for Vec<Message> {
             };
             messages.push(Message::User {
                 content: OneOrMany::one(UserContent::ToolResult(ToolResult {
-                    id: value.tool_call.id,
-                    call_id: None,
+                    id: call_id.clone(),
+                    call_id: Some(call_id),
                     content: tool_result_content,
                 })),
             });
