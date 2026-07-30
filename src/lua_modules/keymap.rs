@@ -205,7 +205,10 @@ fn format_model_display(name: &str, model: &SupportedModels) -> String {
     } else {
         format!("{:<20}", name)
     };
-    format!("{} | {}/{}", fixed_name, model.connector_name, model.model_name)
+    format!(
+        "{} | {}/{}",
+        fixed_name, model.connector_name, model.model_name
+    )
 }
 
 fn select_model_fn() -> Function<(), ()> {
