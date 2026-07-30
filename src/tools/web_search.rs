@@ -1,5 +1,5 @@
 use rand::Rng;
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::LazyLock;
@@ -74,7 +74,7 @@ struct WebPageValue {
 
 impl Tool for WebSearch {
     const NAME: &'static str = "web_search";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = WebSearchArgs;
     type Output = String;
 
@@ -104,13 +104,13 @@ impl Tool for WebSearch {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let api_key = std::env::var("LANGSEARCH_API_KEY").map_err(|_| {
-            ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "LANGSEARCH_API_KEY not set",
-            )))
-        })?;
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        let api_key = std::env::var("LANGSEARCH_API_KEY")
+            .map_err(|_| ToolExecutionError::not_found("LANGSEARCH_API_KEY not set"))?;
 
         let count = args.count.unwrap_or(10).clamp(1, 10);
 
@@ -139,12 +139,7 @@ impl Tool for WebSearch {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| {
-                    ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-                        "Request failed: {}",
-                        e
-                    ))))
-                })?;
+                .map_err(|e| ToolExecutionError::other(format!("Request failed: {}", e)))?;
 
             let status = resp.status();
             if status.is_success() {
@@ -169,17 +164,16 @@ impl Tool for WebSearch {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::other(
-                format!("API {} → {}", status, text),
-            ))));
+            return Err(ToolExecutionError::other(format!(
+                "API {} → {}",
+                status, text
+            )));
         }
 
-        let search_resp: LangSearchResponse = resp.json().await.map_err(|e| {
-            ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("Bad response: {}", e),
-            )))
-        })?;
+        let search_resp: LangSearchResponse = resp
+            .json()
+            .await
+            .map_err(|e| ToolExecutionError::other(format!("Bad response: {}", e)))?;
 
         let results: Vec<serde_json::Value> = search_resp
             .data

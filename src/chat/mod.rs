@@ -309,6 +309,14 @@ impl ChatSession {
                                             ToolResultContent::Image(img) => {
                                                 Ok(TenonToolResult::Image(img))
                                             }
+                                            // TODO: we might want to use this for easy to pass
+                                            // error and such
+                                            ToolResultContent::Json { value } => {
+                                                Ok(TenonToolResult::Text(rig::agent::Text {
+                                                    text: value.to_string(),
+                                                    ..Default::default()
+                                                }))
+                                            }
                                         };
 
                                         log.set_tool_result(Some(result.clone()));

@@ -2,7 +2,7 @@ use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use html_to_markdown_rs::{ConversionOptions, PreprocessingOptions, PreprocessingPreset};
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -18,7 +18,7 @@ pub struct FetchWebpage;
 
 impl Tool for FetchWebpage {
     const NAME: &'static str = "fetch_webpage";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = FetchWebpageArgs;
     type Output = String;
 
@@ -44,12 +44,13 @@ impl Tool for FetchWebpage {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let response = reqwest::get(&args.url).await.map_err(|e| {
-            ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-                "Fetch failed: '{}' → {}",
-                args.url, e
-            ))))
+            ToolExecutionError::other(format!("Fetch failed: '{}' → {}", args.url, e))
         })?;
 
         let content_type = response
@@ -58,20 +59,16 @@ impl Tool for FetchWebpage {
             .and_then(|v| v.to_str().ok());
 
         let markdown = if is_pdf_content_type(content_type) {
-            let bytes = response.bytes().await.map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-                    "Read body failed: {}",
-                    e
-                ))))
-            })?;
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|e| ToolExecutionError::other(format!("Read body failed: {}", e)))?;
             process_pdf(bytes)
         } else {
-            let html = response.text().await.map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-                    "Read body failed: {}",
-                    e
-                ))))
-            })?;
+            let html = response
+                .text()
+                .await
+                .map_err(|e| ToolExecutionError::other(format!("Read body failed: {}", e)))?;
             process_html(&html)
         }?;
 
@@ -82,7 +79,7 @@ impl Tool for FetchWebpage {
     }
 }
 
-async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, ToolError> {
+async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, ToolExecutionError> {
     let config = get_application_config();
     let worker = SimpleTenonWorkerAgent::new(
         config.tools.fetch_webpage.model.clone(),
@@ -90,17 +87,15 @@ async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, Tool
         None,
     )
     .map_err(|e| {
-        ToolError::ToolCallError(Box::new(e))
+        ToolExecutionError::from_error(e)
     })?;
 
     let user_message = format!("{}\n\nWebpage content:\n\n{}", prompt, markdown);
 
-    let response = worker.chat(user_message).await.map_err(|e| {
-        ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-            "Agent fail to run prompt: {}",
-            e
-        ))))
-    })?;
+    let response = worker
+        .chat(user_message)
+        .await
+        .map_err(|e| ToolExecutionError::other(format!("Agent fail to run prompt: {}", e)))?;
 
     Ok(response)
 }
@@ -168,7 +163,7 @@ fn is_pdf_content_type(content_type: Option<&str>) -> bool {
 }
 
 /// Process HTML content into markdown.
-fn process_html(html: &str) -> Result<String, ToolError> {
+fn process_html(html: &str) -> Result<String, ToolExecutionError> {
     html_to_markdown_rs::convert(
         html,
         Some(ConversionOptions {
@@ -181,27 +176,14 @@ fn process_html(html: &str) -> Result<String, ToolError> {
             ..Default::default()
         }),
     )
-    .map_err(|e| {
-        ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-            "HTML→markdown failed: {}",
-            e
-        ))))
-    })
+    .map_err(|e| ToolExecutionError::other(format!("HTML→markdown failed: {}", e)))
 }
 
 /// Process PDF bytes into markdown.
-fn process_pdf(bytes: bytes::Bytes) -> Result<String, ToolError> {
-    let doc = unpdf::parse_bytes(&bytes).map_err(|e| {
-        ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-            "PDF parse failed: {}",
-            e
-        ))))
-    })?;
+fn process_pdf(bytes: bytes::Bytes) -> Result<String, ToolExecutionError> {
+    let doc = unpdf::parse_bytes(&bytes)
+        .map_err(|e| ToolExecutionError::other(format!("PDF parse failed: {}", e)))?;
 
-    unpdf::render::to_markdown(&doc, &unpdf::render::RenderOptions::default()).map_err(|e| {
-        ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-            "PDF→markdown failed: {}",
-            e
-        ))))
-    })
+    unpdf::render::to_markdown(&doc, &unpdf::render::RenderOptions::default())
+        .map_err(|e| ToolExecutionError::other(format!("PDF→markdown failed: {}", e)))
 }

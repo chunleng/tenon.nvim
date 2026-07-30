@@ -1,6 +1,6 @@
 use crate::utils::path_from_str;
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -18,7 +18,7 @@ pub struct ReadFile;
 
 impl Tool for ReadFile {
     const NAME: &'static str = "read_file";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = ReadFileArgs;
     type Output = String;
 
@@ -47,7 +47,11 @@ impl Tool for ReadFile {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let path = path_from_str(&args.filepath);
 
         match fs::read_to_string(path) {
@@ -68,20 +72,21 @@ impl Tool for ReadFile {
                 let end = end_line.unwrap_or(total_lines).min(total_lines);
 
                 if start >= total_lines {
-                    return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        format!("start_line {} > file_len {}", start + 1, total_lines),
-                    ))));
+                    return Err(ToolExecutionError::invalid_args(format!(
+                        "start_line {} > file_len {}",
+                        start + 1,
+                        total_lines
+                    )));
                 }
 
                 let selected_lines = lines[start..end].join("\n");
 
                 Ok(selected_lines)
             }
-            Err(e) => Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                e.kind(),
-                format!("read_file '{}': {}", args.filepath, e),
-            )))),
+            Err(e) => Err(ToolExecutionError::other(format!(
+                "read_file '{}': {}",
+                args.filepath, e
+            ))),
         }
     }
 }
@@ -89,6 +94,7 @@ impl Tool for ReadFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rig::tool::ToolContext;
 
     fn write_temp_file(name: &str, content: &str) -> std::path::PathBuf {
         let path =
@@ -104,11 +110,14 @@ mod tests {
         let filepath = path.to_string_lossy().to_string();
 
         let result = ReadFile
-            .call(ReadFileArgs {
-                filepath,
-                start_line: Some(5),
-                end_line: Some(2),
-            })
+            .call(
+                &mut ToolContext::new(),
+                ReadFileArgs {
+                    filepath,
+                    start_line: Some(5),
+                    end_line: Some(2),
+                },
+            )
             .await;
 
         std::fs::remove_file(&path).ok();
@@ -123,11 +132,14 @@ mod tests {
         let filepath = path.to_string_lossy().to_string();
 
         let result = ReadFile
-            .call(ReadFileArgs {
-                filepath,
-                start_line: Some(2),
-                end_line: Some(2),
-            })
+            .call(
+                &mut ToolContext::new(),
+                ReadFileArgs {
+                    filepath,
+                    start_line: Some(2),
+                    end_line: Some(2),
+                },
+            )
             .await;
 
         std::fs::remove_file(&path).ok();

@@ -2,9 +2,9 @@ use crate::clients::ApiKey;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use rig::{
     agent::Agent,
-    client::{CompletionClient, Nothing},
+    client::{AgentClientExt, Nothing},
     providers::ollama,
-    tool::ToolDyn,
+    tool::DynamicTool,
 };
 use serde::Deserialize;
 
@@ -30,7 +30,7 @@ pub fn get_ollama_agent(
     config: OllamaProviderConfig,
     model_name: String,
     preamble: Option<String>,
-    tools: Vec<Box<dyn ToolDyn>>,
+    tools: Vec<DynamicTool>,
     mut params: serde_json::Map<String, serde_json::Value>,
 ) -> Agent<ollama::CompletionModel> {
     let mut headers = HeaderMap::new();
@@ -60,7 +60,7 @@ pub fn get_ollama_agent(
     }
 
     agent
-        .tools(tools)
+        .dynamic_tools(tools)
         .add_hook(crate::clients::InvalidToolCallHook)
         .add_hook(crate::clients::ToolErrorHook)
         .build()

@@ -5,7 +5,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use rig::OneOrMany;
 
 use rig::message::{ImageMediaType, Message, MimeType, UserContent};
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -73,7 +73,7 @@ pub struct AnalyzeImage;
 
 impl Tool for AnalyzeImage {
     const NAME: &'static str = "analyze_image";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = AnalyzeImageArgs;
     type Output = String;
 
@@ -99,16 +99,17 @@ impl Tool for AnalyzeImage {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let image_content = if is_url(&args.image) {
             UserContent::image_url(&args.image, None, None)
         } else {
             let image_path = path_from_str(&args.image);
             let bytes = std::fs::read(&image_path).map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-                    "Failed to read image '{}': {}",
-                    args.image, e
-                ))))
+                ToolExecutionError::other(format!("Failed to read image '{}': {}", args.image, e))
             })?;
             let processed = rasterize_if_svg(&bytes);
             let base64_data = STANDARD.encode(&processed);
@@ -126,11 +127,7 @@ impl Tool for AnalyzeImage {
         };
 
         let content = OneOrMany::many(vec![UserContent::text(&args.prompt), image_content])
-            .map_err(|_| {
-                ToolError::ToolCallError(Box::new(std::io::Error::other(
-                    "Failed to build message content",
-                )))
-            })?;
+            .map_err(|_| ToolExecutionError::other("Failed to build message content"))?;
 
         let message = Message::User { content };
 
@@ -140,13 +137,10 @@ impl Tool for AnalyzeImage {
             "Answer based on the image content. No preamble or hedge.",
             None,
         )
-        .map_err(|e| ToolError::ToolCallError(Box::new(e)))?;
+        .map_err(|e| ToolExecutionError::from_error(e))?;
 
         let response = worker.chat(message).await.map_err(|e| {
-            ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-                "Agent failed to analyze image: {}",
-                e
-            ))))
+            ToolExecutionError::other(format!("Agent failed to analyze image: {}", e))
         })?;
 
         Ok(response)

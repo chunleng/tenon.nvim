@@ -3,7 +3,7 @@ use crate::get_application_config;
 use crate::utils::format_yaml_block_scalars;
 use futures::stream::{self, StreamExt};
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -126,7 +126,7 @@ struct CommandSafetyResponse {
 async fn check_command_safety_with_llm(
     command: &str,
     model: &crate::clients::SupportedModels,
-) -> Result<(bool, Option<String>), ToolError> {
+) -> Result<(bool, Option<String>), ToolExecutionError> {
     let worker = SimpleTenonWorkerAgent::new(
         Some(model.clone()),
         r#"Judge command safety. Output YAML only.
@@ -159,27 +159,22 @@ reason: ..."#,
         None,
     )
     .map_err(|e| {
-        ToolError::ToolCallError(Box::new(e))
+        ToolExecutionError::from_error(e)
     })?;
 
     let user_message = format!("Command: {}", command);
 
-    let response = worker.chat(user_message).await.map_err(|e| {
-        ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-            "LLM safety check failed: {}",
-            e
-        ))))
-    })?;
+    let response = worker
+        .chat(user_message)
+        .await
+        .map_err(|e| ToolExecutionError::other(format!("LLM safety check failed: {}", e)))?;
 
     // Parse YAML response
     let safety: CommandSafetyResponse = serde_yaml::from_str(&response).map_err(|e| {
-        ToolError::ToolCallError(Box::new(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!(
-                "Failed to parse LLM response as YAML: {} (response: {})",
-                e, response
-            ),
-        )))
+        ToolExecutionError::other(format!(
+            "Failed to parse LLM response as YAML: {} (response: {})",
+            e, response
+        ))
     })?;
 
     let allowed = safety.decision == "allow";
@@ -189,16 +184,14 @@ reason: ..."#,
 /// Check command safety using one LLM call per model in parallel.
 /// All models must allow for the command to proceed.
 /// Returns Ok(()) if allowed, or Err with the first denial reason.
-async fn check_command_safety(command: &str) -> Result<(), ToolError> {
+async fn check_command_safety(command: &str) -> Result<(), ToolExecutionError> {
     let config = get_application_config();
 
     let models = &config.tools.run_command.check_models;
     if models.is_empty() {
-        return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "Command not in whitelist and no check_models configured for LLM safety check"
-                .to_string(),
-        ))));
+        return Err(ToolExecutionError::permission_denied(
+            "Command not in whitelist and no check_models configured for LLM safety check",
+        ));
     }
 
     // Run checks in parallel, process results as they arrive
@@ -216,9 +209,7 @@ async fn check_command_safety(command: &str) -> Result<(), ToolError> {
                     }
                 }
                 Err(last_error.unwrap_or_else(|| {
-                    ToolError::ToolCallError(Box::new(std::io::Error::other(
-                        "LLM safety check failed after 3 attempts",
-                    )))
+                    ToolExecutionError::other("LLM safety check failed after 3 attempts")
                 }))
             }
         })
@@ -230,13 +221,10 @@ async fn check_command_safety(command: &str) -> Result<(), ToolError> {
         match result {
             Ok((allowed, reason)) => {
                 if !allowed {
-                    return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::PermissionDenied,
-                        format!(
-                            "Command denied by safety check: {}",
-                            reason.unwrap_or_else(|| "Unknown reason".to_string())
-                        ),
-                    ))));
+                    return Err(ToolExecutionError::permission_denied(format!(
+                        "Command denied by safety check: {}",
+                        reason.unwrap_or_else(|| "Unknown reason".to_string())
+                    )));
                 }
                 // allowed, continue checking other models
             }
@@ -283,7 +271,7 @@ fn truncate_output(output: &str) -> (String, bool) {
 
 impl Tool for RunCommand {
     const NAME: &'static str = "run_command";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = RunCommandArgs;
     type Output = String;
 
@@ -335,21 +323,21 @@ impl Tool for RunCommand {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         // Validate mutual exclusivity of head and tail
         if args.head.is_some() && args.tail.is_some() {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
+            return Err(ToolExecutionError::invalid_args(
                 "Cannot set both 'head' and 'tail'. Use only one.",
-            ))));
+            ));
         }
 
         // Command is required and must not be empty
         if args.command.trim().is_empty() {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Empty command".to_string(),
-            ))));
+            return Err(ToolExecutionError::invalid_args("Empty command"));
         }
 
         // Build command tokens for whitelist matching: [command, ...args]
@@ -393,10 +381,7 @@ impl Tool for RunCommand {
         }
 
         let child = cmd.spawn().map_err(|e| {
-            ToolError::ToolCallError(Box::new(std::io::Error::new(
-                e.kind(),
-                format!("Failed to spawn '{}': {}", program, e),
-            )))
+            ToolExecutionError::other(format!("Failed to spawn '{}': {}", program, e))
         })?;
 
         // Run with timeout
@@ -406,20 +391,14 @@ impl Tool for RunCommand {
         let output = match result {
             Ok(Ok(out)) => out,
             Ok(Err(e)) => {
-                return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    e.kind(),
-                    format!("Process error: {}", e),
-                ))));
+                return Err(ToolExecutionError::other(format!("Process error: {}", e)));
             }
             Err(_) => {
                 // Timeout — try to get partial output by killing
-                return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    format!(
-                        "Command timed out after {}s: '{}'",
-                        timeout_secs, args.command
-                    ),
-                ))));
+                return Err(ToolExecutionError::timeout(format!(
+                    "Command timed out after {}s: '{}'",
+                    timeout_secs, args.command
+                )));
             }
         };
 

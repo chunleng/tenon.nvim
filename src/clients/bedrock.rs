@@ -1,13 +1,13 @@
 use rig::{
     agent::Agent,
-    client::{CompletionClient, ProviderClient},
-    tool::ToolDyn,
+    client::{AgentClientExt, ProviderClient},
+    tool::DynamicTool,
 };
 
 pub fn get_bedrock_agent(
     model_name: String,
     preamble: Option<String>,
-    tools: Vec<Box<dyn ToolDyn>>,
+    tools: Vec<DynamicTool>,
     mut params: serde_json::Map<String, serde_json::Value>,
 ) -> Agent<rig_bedrock::completion::CompletionModel> {
     // There's no config provider because bedrock is configured solely by env. Following are some
@@ -29,7 +29,7 @@ pub fn get_bedrock_agent(
     }
 
     agent
-        .tools(tools)
+        .dynamic_tools(tools)
         .add_hook(crate::clients::InvalidToolCallHook)
         .add_hook(crate::clients::ToolErrorHook)
         .build()

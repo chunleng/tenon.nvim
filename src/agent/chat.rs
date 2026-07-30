@@ -5,7 +5,7 @@ use crate::{
     chat::{ActiveWorkflow, EventChannel, PendingAction, workflow::Workflow},
     clients::SupportedModels,
     directive::{Directive, DirectiveSource, directive_path},
-    tools::{AskQuestion, RecordThought, resolve_tools},
+    tools::{AskQuestion, RecordThought, into_dynamic_tool, resolve_tools},
 };
 
 #[derive(Debug, Clone)]
@@ -47,8 +47,8 @@ impl TenonAgent {
         let mut tools = resolve_tools(&self.tool_names);
 
         // AskQuestion is a special system tool that is always resolved
-        tools.insert(0, Box::new(AskQuestion { event_channel }));
-        tools.insert(0, Box::new(RecordThought));
+        tools.insert(0, into_dynamic_tool(AskQuestion { event_channel }));
+        tools.insert(0, into_dynamic_tool(RecordThought));
 
         let has_active = workflow_context
             .read()
@@ -60,13 +60,13 @@ impl TenonAgent {
             use crate::tools::navigate_workflow::NavigateWorkflow;
             tools.insert(
                 0,
-                Box::new(NavigateWorkflow {
+                into_dynamic_tool(NavigateWorkflow {
                     active_workflow: workflow_context.clone(),
                 }),
             );
             tools.insert(
                 0,
-                Box::new(EndWorkflow {
+                into_dynamic_tool(EndWorkflow {
                     active_workflow: workflow_context,
                 }),
             );
@@ -74,7 +74,7 @@ impl TenonAgent {
             use crate::tools::start_workflow::StartWorkflow;
             tools.insert(
                 0,
-                Box::new(StartWorkflow {
+                into_dynamic_tool(StartWorkflow {
                     workflows: self.workflows.clone(),
                     active_workflow: workflow_context.clone(),
                 }),

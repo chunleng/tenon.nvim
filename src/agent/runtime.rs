@@ -9,7 +9,7 @@ use rig::providers::{
     anthropic as rig_anthropic, gemini as rig_gemini, ollama as rig_ollama, openai as rig_openai,
 };
 use rig::streaming::StreamingChat;
-use rig::tool::ToolDyn;
+use rig::tool::DynamicTool;
 
 pub enum ChatAgent {
     Ollama(Agent<rig_ollama::CompletionModel>),
@@ -163,10 +163,12 @@ impl ChatStream {
                 Ok(item) => Ok(convert_stream_item!(item)),
                 Err(e) => Err(e),
             }),
-            ChatStream::OpenAICompletion(stream) => stream.next().await.map(|result| match result {
-                Ok(item) => Ok(convert_stream_item!(item)),
-                Err(e) => Err(e),
-            }),
+            ChatStream::OpenAICompletion(stream) => {
+                stream.next().await.map(|result| match result {
+                    Ok(item) => Ok(convert_stream_item!(item)),
+                    Err(e) => Err(e),
+                })
+            }
             ChatStream::OpenAIResponse(stream) => stream.next().await.map(|result| match result {
                 Ok(item) => Ok(convert_stream_item!(item)),
                 Err(e) => Err(e),
@@ -266,7 +268,7 @@ impl ChatAgent {
 pub fn get_agent(
     model: SupportedModels,
     directive: Vec<Directive>,
-    tools: Vec<Box<dyn ToolDyn>>,
+    tools: Vec<DynamicTool>,
     override_params: Option<serde_json::Map<String, serde_json::Value>>,
 ) -> ChatAgent {
     let resolved_directive = if directive.is_empty() {

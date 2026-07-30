@@ -1,5 +1,5 @@
 use crate::agent::worker::simple::SimpleTenonWorkerAgent;
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -13,7 +13,7 @@ pub struct RecordThought;
 
 impl Tool for RecordThought {
     const NAME: &'static str = "record_thought";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = RecordThoughtArgs;
     type Output = String;
 
@@ -34,7 +34,11 @@ impl Tool for RecordThought {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let summary = if args.thought.len() < 100 {
             None
         } else {
@@ -70,16 +74,19 @@ async fn summarize_thought(thought: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rig::tool::Tool;
+    use rig::tool::{Tool, ToolContext};
 
     #[tokio::test]
     async fn test_short_thought_skips_summarization() {
         let tool = RecordThought;
         let short_thought = "This is a short thought under 100 chars.";
         let output = tool
-            .call(RecordThoughtArgs {
-                thought: short_thought.to_string(),
-            })
+            .call(
+                &mut ToolContext::new(),
+                RecordThoughtArgs {
+                    thought: short_thought.to_string(),
+                },
+            )
             .await
             .unwrap();
 

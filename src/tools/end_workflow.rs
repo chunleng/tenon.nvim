@@ -1,15 +1,12 @@
 use crate::chat::ActiveWorkflow;
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::{Arc, RwLock};
 
-fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolError {
-    ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-        "Failed to {}: {}",
-        context, e
-    ))))
+fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolExecutionError {
+    ToolExecutionError::other(format!("Failed to {}: {}", context, e))
 }
 
 #[derive(Deserialize)]
@@ -25,7 +22,7 @@ pub struct EndWorkflow {
 
 impl Tool for EndWorkflow {
     const NAME: &'static str = "end_workflow";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = EndWorkflowArgs;
     type Output = String;
 
@@ -45,17 +42,18 @@ impl Tool for EndWorkflow {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let active_workflow_guard = self
             .active_workflow
             .read()
             .map_err(|e| lock_err(e, "read active_workflow"))?;
 
         if active_workflow_guard.is_none() {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "No active workflow",
-            ))));
+            return Err(ToolExecutionError::invalid_args("No active workflow"));
         }
 
         Ok(format!(

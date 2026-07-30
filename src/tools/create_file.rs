@@ -1,7 +1,7 @@
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::path_from_str;
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -17,7 +17,7 @@ pub struct CreateFile;
 
 impl Tool for CreateFile {
     const NAME: &'static str = "create_file";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = CreateFileArgs;
     type Output = String;
 
@@ -38,24 +38,28 @@ impl Tool for CreateFile {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let path = path_from_str(&args.filepath);
 
         if path.exists() {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                format!("exists: '{}'", args.filepath),
-            ))));
+            return Err(ToolExecutionError::invalid_args(format!(
+                "exists: '{}'",
+                args.filepath
+            )));
         }
 
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
             && let Err(e) = fs::create_dir_all(parent)
         {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                e.kind(),
-                format!("mkdir fail '{}': {}", args.filepath, e),
-            ))));
+            return Err(ToolExecutionError::other(format!(
+                "mkdir fail '{}': {}",
+                args.filepath, e
+            )));
         }
 
         match fs::File::create_new(path) {
@@ -63,10 +67,10 @@ impl Tool for CreateFile {
                 let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread("vim.cmd('checktime')");
                 Ok(format!("created '{}'", args.filepath))
             }
-            Err(e) => Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                e.kind(),
-                format!("create fail '{}': {}", args.filepath, e),
-            )))),
+            Err(e) => Err(ToolExecutionError::other(format!(
+                "create fail '{}': {}",
+                args.filepath, e
+            ))),
         }
     }
 }

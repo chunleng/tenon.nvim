@@ -2,7 +2,7 @@ use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::path_from_str;
 use regex::RegexBuilder;
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -139,7 +139,7 @@ pub struct EditFile;
 
 impl Tool for EditFile {
     const NAME: &'static str = "edit_file";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = EditFileArgs;
     type Output = String;
 
@@ -169,32 +169,30 @@ impl Tool for EditFile {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let replace_mode = args.replace_mode.unwrap_or_else(|| "one".to_string());
         let path = path_from_str(&args.filepath);
 
         if !["one", "all"].contains(&replace_mode.as_str()) {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("Bad replace_mode '{}'. Use 'one' or 'all'", replace_mode),
-            ))));
+            return Err(ToolExecutionError::invalid_args(format!(
+                "Bad replace_mode '{}'. Use 'one' or 'all'",
+                replace_mode
+            )));
         }
 
         if !["literal", "regex"].contains(&args.search_mode.as_str()) {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "Bad search_mode '{}'. Use 'literal' or 'regex'",
-                    args.search_mode
-                ),
-            ))));
+            return Err(ToolExecutionError::invalid_args(format!(
+                "Bad search_mode '{}'. Use 'literal' or 'regex'",
+                args.search_mode
+            )));
         }
 
         let content = fs::read_to_string(&path).map_err(|e| {
-            ToolError::ToolCallError(Box::new(std::io::Error::new(
-                e.kind(),
-                format!("Read fail '{}': {}", args.filepath, e),
-            )))
+            ToolExecutionError::other(format!("Read fail '{}': {}", args.filepath, e))
         })?;
 
         let (final_content, edits) = perform_edit(
@@ -204,13 +202,10 @@ impl Tool for EditFile {
             &replace_mode,
             &args.search_mode,
         )
-        .map_err(|e| ToolError::ToolCallError(Box::new(e)))?;
+        .map_err(|e| ToolExecutionError::other(e.to_string()))?;
 
         fs::write(path, &final_content).map_err(|e| {
-            ToolError::ToolCallError(Box::new(std::io::Error::new(
-                e.kind(),
-                format!("Write fail '{}': {}", args.filepath, e),
-            )))
+            ToolExecutionError::other(format!("Write fail '{}': {}", args.filepath, e))
         })?;
 
         let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread("vim.cmd('checktime')");
@@ -219,12 +214,7 @@ impl Tool for EditFile {
             "successful_edits": edits,
             "count": edits.len(),
         }))
-        .map_err(|e| {
-            ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-                "Serialize failed: {}",
-                e
-            ))))
-        })
+        .map_err(|e| ToolExecutionError::other(format!("Serialize failed: {}", e)))
     }
 }
 

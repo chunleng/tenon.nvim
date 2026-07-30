@@ -1,16 +1,13 @@
 use crate::chat::ActiveWorkflow;
 use crate::chat::workflow::Workflow;
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::{Arc, RwLock};
 
-fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolError {
-    ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-        "Failed to {}: {}",
-        context, e
-    ))))
+fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolExecutionError {
+    ToolExecutionError::other(format!("Failed to {}: {}", context, e))
 }
 
 #[derive(Deserialize)]
@@ -27,7 +24,7 @@ pub struct StartWorkflow {
 
 impl Tool for StartWorkflow {
     const NAME: &'static str = "start_workflow";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = StartWorkflowArgs;
     type Output = String;
 
@@ -56,25 +53,26 @@ impl Tool for StartWorkflow {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         // Find the workflow by id from the agent's configured workflows
         let workflow = self
             .workflows
             .iter()
             .find(|wf| wf.id == args.workflow_id)
             .ok_or_else(|| {
-                ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!(
-                        "Workflow '{}' is not available for this agent. Available workflows: {}",
-                        args.workflow_id,
-                        self.workflows
-                            .iter()
-                            .map(|wf| wf.id.clone())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                )))
+                ToolExecutionError::invalid_args(format!(
+                    "Workflow '{}' is not available for this agent. Available workflows: {}",
+                    args.workflow_id,
+                    self.workflows
+                        .iter()
+                        .map(|wf| wf.id.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
             })?
             .clone();
 

@@ -2,7 +2,7 @@ use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::format_yaml_block_scalars;
 use crate::utils::path_from_str;
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -62,7 +62,7 @@ fn collect_files_recursive(
 
 impl Tool for MovePath {
     const NAME: &'static str = "move_path";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = MovePathArgs;
     type Output = String;
 
@@ -87,23 +87,24 @@ impl Tool for MovePath {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let source = path_from_str(&args.source);
 
         // 1. Source must exist
         if !source.exists() {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("not found: '{}'", args.source),
-            ))));
+            return Err(ToolExecutionError::not_found(format!(
+                "not found: '{}'",
+                args.source
+            )));
         }
 
-        let source_abs = source.canonicalize().map_err(|e| {
-            ToolError::ToolCallError(Box::new(std::io::Error::new(
-                e.kind(),
-                format!("resolve '{}': {}", args.source, e),
-            )))
-        })?;
+        let source_abs = source
+            .canonicalize()
+            .map_err(|e| ToolExecutionError::other(format!("resolve '{}': {}", args.source, e)))?;
 
         // 2. Resolve destination
         let dest = path_from_str(&args.destination);
@@ -111,10 +112,10 @@ impl Tool for MovePath {
             // Move into directory — append source filename
             dest.join(source.file_name().unwrap_or_default())
         } else if dest.exists() {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                format!("dest exists: '{}'", args.destination),
-            ))));
+            return Err(ToolExecutionError::invalid_args(format!(
+                "dest exists: '{}'",
+                args.destination
+            )));
         } else {
             dest.to_path_buf()
         };
@@ -126,10 +127,10 @@ impl Tool for MovePath {
                 .zip(actual_dest.to_str())
                 .is_some_and(|(s, d)| s == d)
         {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("same path: '{}'", args.source),
-            ))));
+            return Err(ToolExecutionError::invalid_args(format!(
+                "same path: '{}'",
+                args.source
+            )));
         }
 
         // 4. Create destination parent dirs if missing
@@ -137,19 +138,15 @@ impl Tool for MovePath {
             && !parent.as_os_str().is_empty()
             && let Err(e) = fs::create_dir_all(parent)
         {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                e.kind(),
-                format!("mkdir fail: {} {}", args.destination, e),
-            ))));
+            return Err(ToolExecutionError::other(format!(
+                "mkdir fail: {} {}",
+                args.destination, e
+            )));
         }
 
         // 5. Collect files before move
-        let source_files = collect_files(&source_abs).map_err(|e| {
-            ToolError::ToolCallError(Box::new(std::io::Error::new(
-                e.kind(),
-                format!("walk '{}': {}", args.source, e),
-            )))
-        })?;
+        let source_files = collect_files(&source_abs)
+            .map_err(|e| ToolExecutionError::other(format!("walk '{}': {}", args.source, e)))?;
 
         // 6. Attempt rename
         if let Err(e) = fs::rename(source, &actual_dest) {
@@ -158,10 +155,7 @@ impl Tool for MovePath {
             } else {
                 format!("move fail: {} {}", args.source, e)
             };
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                e.kind(),
-                msg,
-            ))));
+            return Err(ToolExecutionError::other(msg));
         }
 
         // 7. Build structured output

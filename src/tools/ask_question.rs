@@ -1,4 +1,4 @@
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use std::sync::{Arc, Mutex, Weak};
 
@@ -28,7 +28,7 @@ pub struct AskQuestion {
 
 impl Tool for AskQuestion {
     const NAME: &'static str = "ask_question";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = AskQuestionArgs;
     type Output = String;
 
@@ -57,7 +57,11 @@ impl Tool for AskQuestion {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let options = args.options;
 
         let (tx, rx) = tokio::sync::oneshot::channel::<QuestionResult>();

@@ -26,7 +26,7 @@ pub use move_path::MovePath;
 pub use read_file::ReadFile;
 pub use record_thought::RecordThought;
 pub use remove_path::RemovePath;
-use rig::tool::ToolDyn;
+use rig::tool::{DynamicTool, IntoToolOutput, Tool, ToolExecutionError};
 pub use run_command::RunCommand;
 pub use search_text::SearchText;
 pub use web_search::WebSearch;
@@ -165,7 +165,7 @@ pub fn all_tool_names() -> Vec<String> {
 
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {
         for tool in mcp_tools {
-            names.push(tool.name());
+            names.push(tool.tool_name());
         }
     }
 
@@ -229,65 +229,55 @@ fn select_in_order<T>(mut tools: Vec<Option<(String, T)>>, selectors: &[&str]) -
     result
 }
 
-/// Resolve a list of tool name strings into concrete `Box<dyn ToolDyn>` instances.
+/// Wrap a built-in `Tool` implementation into a `DynamicTool` for runtime
+/// registration.
+pub(crate) fn into_dynamic_tool<T: Tool + 'static>(tool: T) -> DynamicTool {
+    let name = T::NAME.to_string();
+    let description = tool.description();
+    let parameters = tool.parameters();
+    let tool = std::sync::Arc::new(tool);
+
+    DynamicTool::new(name, description, parameters, move |context, args| {
+        let tool = std::sync::Arc::clone(&tool);
+        Box::pin(async move {
+            let args: T::Args = serde_json::from_value(args).map_err(|e| {
+                ToolExecutionError::invalid_args(format!("Failed to deserialize args: {}", e))
+            })?;
+            let output = tool
+                .call(context, args)
+                .await
+                .map_err(|e| tool.map_error(e))?;
+            output.into_tool_output()
+        })
+    })
+}
+
+/// Resolve a list of tool name strings into concrete `DynamicTool` instances.
 ///
 /// Built-in names: "create_file", "edit_file", "fetch_webpage",
 /// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search", "record_thought".
 /// MCP tool names: "server_name.tool_name" for a specific tool,
 /// or "server_name" to include all tools from that server.
-pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<Box<dyn ToolDyn>> {
+pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<DynamicTool> {
     let name_refs: Vec<&str> = names.iter().map(|n| n.as_ref()).collect();
 
-    let mut all_tools: Vec<Option<(String, Box<dyn ToolDyn>)>> = vec![
-        Some((
-            "create_file".to_string(),
-            Box::new(CreateFile) as Box<dyn ToolDyn>,
-        )),
-        Some((
-            "edit_file".to_string(),
-            Box::new(EditFile) as Box<dyn ToolDyn>,
-        )),
-        Some((
-            "fetch_webpage".to_string(),
-            Box::new(FetchWebpage) as Box<dyn ToolDyn>,
-        )),
-        Some((
-            "analyze_image".to_string(),
-            Box::new(AnalyzeImage) as Box<dyn ToolDyn>,
-        )),
-        Some((
-            "list_files".to_string(),
-            Box::new(ListFiles) as Box<dyn ToolDyn>,
-        )),
-        Some((
-            "move_path".to_string(),
-            Box::new(MovePath) as Box<dyn ToolDyn>,
-        )),
-        Some((
-            "read_file".to_string(),
-            Box::new(ReadFile) as Box<dyn ToolDyn>,
-        )),
-        Some((
-            "remove_path".to_string(),
-            Box::new(RemovePath) as Box<dyn ToolDyn>,
-        )),
-        Some((
-            "run_command".to_string(),
-            Box::new(RunCommand) as Box<dyn ToolDyn>,
-        )),
-        Some((
-            "search_text".to_string(),
-            Box::new(SearchText) as Box<dyn ToolDyn>,
-        )),
-        Some((
-            "web_search".to_string(),
-            Box::new(WebSearch) as Box<dyn ToolDyn>,
-        )),
+    let mut all_tools: Vec<Option<(String, DynamicTool)>> = vec![
+        Some(("create_file".to_string(), into_dynamic_tool(CreateFile))),
+        Some(("edit_file".to_string(), into_dynamic_tool(EditFile))),
+        Some(("fetch_webpage".to_string(), into_dynamic_tool(FetchWebpage))),
+        Some(("analyze_image".to_string(), into_dynamic_tool(AnalyzeImage))),
+        Some(("list_files".to_string(), into_dynamic_tool(ListFiles))),
+        Some(("move_path".to_string(), into_dynamic_tool(MovePath))),
+        Some(("read_file".to_string(), into_dynamic_tool(ReadFile))),
+        Some(("remove_path".to_string(), into_dynamic_tool(RemovePath))),
+        Some(("run_command".to_string(), into_dynamic_tool(RunCommand))),
+        Some(("search_text".to_string(), into_dynamic_tool(SearchText))),
+        Some(("web_search".to_string(), into_dynamic_tool(WebSearch))),
     ];
 
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {
         for tool in mcp_tools {
-            all_tools.push(Some((tool.name(), Box::new(tool) as Box<dyn ToolDyn>)));
+            all_tools.push(Some((tool.tool_name(), tool.into_dynamic_tool())));
         }
     }
 

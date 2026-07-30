@@ -1,5 +1,5 @@
 use crate::clients::ApiKey;
-use rig::{agent::Agent, client::CompletionClient, providers::anthropic, tool::ToolDyn};
+use rig::{agent::Agent, client::AgentClientExt, providers::anthropic, tool::DynamicTool};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -24,7 +24,7 @@ pub fn get_anthropic_agent(
     config: AnthropicProviderConfig,
     model_name: String,
     preamble: Option<String>,
-    tools: Vec<Box<dyn ToolDyn>>,
+    tools: Vec<DynamicTool>,
     mut params: serde_json::Map<String, serde_json::Value>,
 ) -> Agent<anthropic::completion::CompletionModel> {
     let api_key = config.api_key.resolve().unwrap_or_else(|e| {
@@ -48,7 +48,7 @@ pub fn get_anthropic_agent(
     }
 
     agent
-        .tools(tools)
+        .dynamic_tools(tools)
         .add_hook(crate::clients::InvalidToolCallHook)
         .add_hook(crate::clients::ToolErrorHook)
         .build()

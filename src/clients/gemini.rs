@@ -1,5 +1,5 @@
 use crate::clients::ApiKey;
-use rig::{agent::Agent, client::CompletionClient, providers::gemini, tool::ToolDyn};
+use rig::{agent::Agent, client::AgentClientExt, providers::gemini, tool::DynamicTool};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -24,7 +24,7 @@ pub fn get_gemini_agent(
     config: GeminiProviderConfig,
     model_name: String,
     preamble: Option<String>,
-    tools: Vec<Box<dyn ToolDyn>>,
+    tools: Vec<DynamicTool>,
     mut params: serde_json::Map<String, serde_json::Value>,
 ) -> Agent<gemini::CompletionModel> {
     let api_key = config.api_key.resolve().unwrap_or_else(|e| {
@@ -48,7 +48,7 @@ pub fn get_gemini_agent(
     }
 
     agent
-        .tools(tools)
+        .dynamic_tools(tools)
         .add_hook(crate::clients::InvalidToolCallHook)
         .add_hook(crate::clients::ToolErrorHook)
         .build()

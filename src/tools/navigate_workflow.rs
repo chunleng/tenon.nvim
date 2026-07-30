@@ -1,15 +1,12 @@
 use crate::chat::ActiveWorkflow;
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::{Arc, RwLock};
 
-fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolError {
-    ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-        "Failed to {}: {}",
-        context, e
-    ))))
+fn lock_err(e: impl std::fmt::Display, context: &str) -> ToolExecutionError {
+    ToolExecutionError::other(format!("Failed to {}: {}", context, e))
 }
 
 #[derive(Deserialize)]
@@ -26,7 +23,7 @@ pub struct NavigateWorkflow {
 
 impl Tool for NavigateWorkflow {
     const NAME: &'static str = "navigate_workflow";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = NavigateWorkflowArgs;
     type Output = String;
 
@@ -51,7 +48,11 @@ impl Tool for NavigateWorkflow {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         // Acquire write lock upfront so check-and-mutate is atomic (no TOCTOU gap)
         let mut active_workflow_guard = self
             .active_workflow
@@ -61,10 +62,7 @@ impl Tool for NavigateWorkflow {
         let active_workflow = match active_workflow_guard.as_ref() {
             Some(w) => w.clone(),
             None => {
-                return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "No active workflow",
-                ))));
+                return Err(ToolExecutionError::invalid_args("No active workflow"));
             }
         };
 
@@ -80,13 +78,10 @@ impl Tool for NavigateWorkflow {
             target_step > 0 && target_step <= current_step + 1 && target_step <= total_steps;
 
         if !is_valid_navigation {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "Invalid navigation from step {} to step {}",
-                    current_step, target_step
-                ),
-            ))));
+            return Err(ToolExecutionError::invalid_args(format!(
+                "Invalid navigation from step {} to step {}",
+                current_step, target_step
+            )));
         }
 
         // Find matching goto_instruction from current step
@@ -125,6 +120,7 @@ mod tests {
     use super::*;
     use crate::chat::log::window::LogWindow;
     use crate::chat::{TenonLog, TenonLogData, TenonToolCall};
+    use rig::tool::ToolContext;
     use std::collections::HashMap;
 
     fn dummy_tool_call(name: &str) -> TenonToolCall {
@@ -159,13 +155,13 @@ mod tests {
         };
 
         // Navigate to step 2 with output
-        let result =
-            tokio::runtime::Runtime::new()
-                .unwrap()
-                .block_on(tool.call(NavigateWorkflowArgs {
-                    step: 2,
-                    step_artifact: Some("test output from step 1".to_string()),
-                }));
+        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.call(
+            &mut ToolContext::new(),
+            NavigateWorkflowArgs {
+                step: 2,
+                step_artifact: Some("test output from step 1".to_string()),
+            },
+        ));
 
         assert!(result.is_ok());
 

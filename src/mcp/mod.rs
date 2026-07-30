@@ -1,6 +1,6 @@
 use nvim_oxi::Result as OxiResult;
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
 
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
@@ -26,6 +26,11 @@ impl McpHubCaller {
             description: description.into(),
             input_schema,
         }
+    }
+
+    /// Registration name used by the tool system: `server_name____tool_name`.
+    pub fn tool_name(&self) -> String {
+        format!("{}____{}", self.server_name, self.tool_name)
     }
 
     pub fn from_mcp_tools() -> OxiResult<Vec<Self>> {
@@ -90,42 +95,28 @@ return result"#;
 
         Ok(mcp_tools)
     }
-}
 
-impl Tool for McpHubCaller {
-    const NAME: &'static str = "mcp_tool";
-    type Error = ToolError;
-    type Args = Value;
-    type Output = String;
-
-    fn name(&self) -> String {
-        format!("{}____{}", self.server_name, self.tool_name)
-    }
-
-    fn description(&self) -> String {
-        self.description.clone()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        self.input_schema.clone()
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    pub fn into_dynamic_tool(self) -> DynamicTool {
+        let name = self.tool_name();
+        let description = self.description.clone();
+        let parameters = self.input_schema.clone();
         let server_name = self.server_name.clone();
         let tool_name = self.tool_name.clone();
 
-        let args_json = serde_json::to_string(&args)
-            .map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("Failed to serialize args: {}", e),
-                )))
-            })?
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"");
+        DynamicTool::new(name, description, parameters, move |_context, args| {
+            let server_name = server_name.clone();
+            let tool_name = tool_name.clone();
 
-        let lua_code = format!(
-            r#"
+            Box::pin(async move {
+                let args_json = serde_json::to_string(&args)
+                    .map_err(|e| {
+                        ToolExecutionError::invalid_args(format!("Failed to serialize args: {}", e))
+                    })?
+                    .replace("\\", "\\\\")
+                    .replace("\"", "\\\"");
+
+                let lua_code = format!(
+                    r#"
 local mcphub = require('mcphub').get_hub_instance()
 if not mcphub then
     resolve({{error = "MCPHub instance not available"}})
@@ -152,26 +143,28 @@ local opts = {{parse_response = true, callback = function(response, err)
 end}}
 mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
 "#,
-            args_json, server_name, tool_name
-        );
+                    args_json, server_name, tool_name
+                );
 
-        let result = GLOBAL_EXECUTION_HANDLER
-            .execute_on_main_thread_async(&lua_code)
-            .map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::other(format!(
-                    "Failed to execute Lua code: {}",
-                    e
-                ))))
-            })?;
+                let result = GLOBAL_EXECUTION_HANDLER
+                    .execute_on_main_thread_async(&lua_code)
+                    .map_err(|e| {
+                        ToolExecutionError::other(format!("Failed to execute Lua code: {}", e))
+                    })?;
 
-        if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::other(
-                format!("MCP tool {}:{} failed: {}", server_name, tool_name, error),
-            ))));
-        }
+                if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
+                    return Err(ToolExecutionError::other(format!(
+                        "MCP tool {}:{} failed: {}",
+                        server_name, tool_name, error
+                    )));
+                }
 
-        let response = result.get("response").unwrap_or(&Value::Null).clone();
+                let response = result.get("response").unwrap_or(&Value::Null).clone();
 
-        Ok(serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string()))
+                Ok(ToolOutput::text(
+                    serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string()),
+                ))
+            })
+        })
     }
 }

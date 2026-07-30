@@ -3,7 +3,7 @@ use globset::GlobBuilder;
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -62,7 +62,7 @@ fn truncate_line(line: &str) -> String {
 
 impl Tool for SearchText {
     const NAME: &'static str = "search_text";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = SearchTextArgs;
     type Output = String;
 
@@ -107,15 +107,19 @@ impl Tool for SearchText {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let search_dir = args.path.unwrap_or_else(|| ".".to_string());
         let search_path = path_from_str(&search_dir);
 
         if !search_path.exists() {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("Directory '{}' not found", search_dir),
-            ))));
+            return Err(ToolExecutionError::not_found(format!(
+                "Directory '{}' not found",
+                search_dir
+            )));
         }
 
         let is_regex = args.is_regex;
@@ -133,10 +137,10 @@ impl Tool for SearchText {
             .case_insensitive(ignore_case)
             .build()
             .map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("Invalid regex pattern '{}': {}", args.pattern, e),
-                )))
+                ToolExecutionError::invalid_args(format!(
+                    "Invalid regex pattern '{}': {}",
+                    args.pattern, e
+                ))
             })?;
 
         let glob_matcher = args
@@ -148,10 +152,10 @@ impl Tool for SearchText {
                     .literal_separator(true)
                     .build()
                     .map_err(|e| {
-                        ToolError::ToolCallError(Box::new(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            format!("Invalid glob pattern '{}': {}", g, e),
-                        )))
+                        ToolExecutionError::invalid_args(format!(
+                            "Invalid glob pattern '{}': {}",
+                            g, e
+                        ))
                     })
                     .map(|compiled| compiled.compile_matcher())
             })

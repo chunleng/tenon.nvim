@@ -4,8 +4,10 @@ mod gemini;
 mod ollama;
 mod openai;
 
-use rig::agent::{AgentHook, Flow, HookContext, StepEvent, StepEventKind};
-use rig::completion::CompletionModel;
+use rig::agent::{
+    AgentHook, HookContext, InvalidToolCallAction, InvalidToolCallContext, StepEventKind,
+    ToolResultAction, ToolResultEvent,
+};
 use serde::Deserialize;
 
 /// API key that can be either a direct value or an environment variable reference.
@@ -50,23 +52,21 @@ impl Default for ApiKey {
 /// can retry with a valid tool — restoring pre-0.40.0 behavior.
 pub struct InvalidToolCallHook;
 
-impl<M> AgentHook<M> for InvalidToolCallHook
-where
-    M: CompletionModel,
-{
+impl AgentHook for InvalidToolCallHook {
     fn observes(&self, kind: StepEventKind) -> bool {
         kind == StepEventKind::InvalidToolCall
     }
 
-    async fn on_event(&self, _ctx: &HookContext, event: StepEvent<'_, M>) -> Flow {
-        if let StepEvent::InvalidToolCall(ctx) = event {
-            return Flow::skip(format!(
-                "ToolCallError: `{}` is not an available tool. Call one of: {}.",
-                ctx.tool_name,
-                ctx.available_tools.join(", ")
-            ));
-        }
-        Flow::cont()
+    async fn on_invalid_tool_call(
+        &self,
+        _ctx: &HookContext,
+        event: &InvalidToolCallContext,
+    ) -> Option<InvalidToolCallAction> {
+        Some(InvalidToolCallAction::skip(format!(
+            "ToolCallError: `{}` is not an available tool. Call one of: {}.",
+            event.tool_name,
+            event.available_tools.join(", ")
+        )))
     }
 }
 
@@ -77,24 +77,22 @@ where
 /// to misclassify them as successful results.
 pub struct ToolErrorHook;
 
-impl<M> AgentHook<M> for ToolErrorHook
-where
-    M: CompletionModel,
-{
+impl AgentHook for ToolErrorHook {
     fn observes(&self, kind: StepEventKind) -> bool {
         kind == StepEventKind::ToolResult
     }
 
-    async fn on_event(&self, _ctx: &HookContext, event: StepEvent<'_, M>) -> Flow {
-        if let StepEvent::ToolResult {
-            result, outcome, ..
-        } = event
-            && (outcome.is_error() || outcome.is_denied())
-            && !result.starts_with("ToolCallError: ")
-        {
-            return Flow::rewrite_result(format!("ToolCallError: {result}"));
+    async fn on_tool_result(
+        &self,
+        _ctx: &HookContext,
+        event: ToolResultEvent<'_>,
+    ) -> ToolResultAction {
+        let is_error = event.raw_result.is_error() || event.raw_result.is_refused();
+        let presentation_text = event.presentation.as_text().unwrap_or("");
+        if is_error && !presentation_text.starts_with("ToolCallError: ") {
+            return ToolResultAction::rewrite(format!("ToolCallError: {presentation_text}"));
         }
-        Flow::cont()
+        ToolResultAction::keep()
     }
 }
 

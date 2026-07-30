@@ -2,7 +2,7 @@ use crate::utils::{normalize_glob, path_from_str};
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 
-use rig::tool::{Tool, ToolError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -23,7 +23,7 @@ pub struct ListFiles;
 
 impl Tool for ListFiles {
     const NAME: &'static str = "list_files";
-    type Error = ToolError;
+    type Error = ToolExecutionError;
     type Args = ListFilesArgs;
     type Output = String;
 
@@ -56,17 +56,21 @@ impl Tool for ListFiles {
         })
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
         let max_count = args.max_count.unwrap_or(20);
         let show_gitignored = args.show_gitignored.unwrap_or(false);
         let search_dir = args.path.unwrap_or_else(|| ".".to_string());
         let search_path = path_from_str(&search_dir);
 
         if !search_path.exists() {
-            return Err(ToolError::ToolCallError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("Directory '{}' not found", search_dir),
-            ))));
+            return Err(ToolExecutionError::not_found(format!(
+                "Directory '{}' not found",
+                search_dir
+            )));
         }
 
         let pattern = normalize_glob(&args.pattern);
@@ -74,10 +78,10 @@ impl Tool for ListFiles {
             .literal_separator(true)
             .build()
             .map_err(|e| {
-                ToolError::ToolCallError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("Invalid glob pattern '{}': {}", args.pattern, e),
-                )))
+                ToolExecutionError::invalid_args(format!(
+                    "Invalid glob pattern '{}': {}",
+                    args.pattern, e
+                ))
             })?
             .compile_matcher();
 
