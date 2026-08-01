@@ -18,30 +18,37 @@ Off-thread code → **never** call Neovim APIs directly.
 
 Bridge: off-thread → main-thread. Lives in `src/utils.rs`.
 
-**Three methods:**
+1. `execute_rust_on_main_thread(closure)` → Rust closure (sync)
+2. `execute_rust_on_main_thread_async(closure)` → Rust closure with `Resolver<T>` (async)
 
-1. `execute_on_main_thread(lua_code)` → sync Lua
-2. `execute_on_main_thread_async(lua_code)` → async Lua, receives `resolve`
-3. `execute_rust_on_main_thread(closure)` → Rust closure (type-safe, preferred)
+The async variant passes a `Resolver<T>` to the closure. `Resolver<T>` is `Clone`
+and resolves only once - subsequent calls to `resolve()` are no-ops.
 
 **Usage:**
 
 ```rust
-// Lua API from off-thread
-let line: Value = GLOBAL_EXECUTION_HANDLER
-    .execute_on_main_thread("vim.api.nvim_get_current_line()")?;
-
-// Rust API from off-thread (preferred)
+// Sync: returns result directly
 let line: String = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(|| {
     api::get_current_line()
 })?;
+
+// Async: callbacks that resolve later
+let result: OxiResult<String> = GLOBAL_EXECUTION_HANDLER
+    .execute_rust_on_main_thread_async(|resolver: Resolver<String>| {
+        let lua = lua();
+        let resolve_fn = lua.create_function(move |_, val: String| {
+            resolver.resolve(Ok(val));
+            Ok(())
+        })?;
+        let _ = lua.load("vim.defer_fn").call::<()>((resolve_fn, 0));
+        Ok(())
+    })?;
 ```
 
 **Guide:**
 
-- Off-thread → use GLOBAL_EXECUTION_HANDLER
-- Main thread → call API directly
-- Prefer `execute_rust_on_main_thread()` for type safety
+- Sync operations → `execute_rust_on_main_thread()`
+- Callbacks that resolve later (e.g. `vim.ui.input`) → `execute_rust_on_main_thread_async()` with `Resolver<T>`
 
 ## Common AHAs
 
@@ -51,9 +58,6 @@ let line: String = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(|| {
 inside an element causes the edit to fail. Always split text first:
 
 ```rust
-// Bad: text may contain a newline → edit fails
-buffer.set_lines(start..end, false, vec![text]);
-
 // Good: split into individual lines first
 let lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
 buffer.set_lines(start..end, false, lines);
