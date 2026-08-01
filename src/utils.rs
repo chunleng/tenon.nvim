@@ -398,6 +398,64 @@ impl NeovimExecutionHandler {
                 })
             })
     }
+
+    /// Execute a Rust closure on the main thread asynchronously and return the result.
+    ///
+    /// The closure receives a `resolve` callback. Call `resolve(result)` when
+    /// the async work completes to send the result back. This allows scheduling
+    /// work via `schedule`, timers, or other async mechanisms while still
+    /// running on the main thread where all Neovim API calls are safe.
+    ///
+    /// # Example
+    /// ```rust
+    /// let line: String = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(|resolve| {
+    ///     schedule(move |_| {
+    ///         resolve(api::get_current_line());
+    ///     });
+    /// })?;
+    /// ```
+    pub fn execute_rust_on_main_thread_async<F, T>(&self, f: F) -> OxiResult<T>
+    where
+        F: FnOnce(Box<dyn FnOnce(OxiResult<T>) + Send>) + Send + 'static,
+        T: serde::Serialize + for<'de> serde::Deserialize<'de>,
+    {
+        let (tx, rx) = mpsc::channel::<Result<String, String>>();
+
+        let closure = move || {
+            let resolve: Box<dyn FnOnce(OxiResult<T>) + Send> =
+                Box::new(move |result: OxiResult<T>| match result {
+                    Ok(val) => match serde_json::to_string(&val) {
+                        Ok(json) => {
+                            let _ = tx.send(Ok(json));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(e.to_string()));
+                        }
+                    },
+                    Err(e) => {
+                        let _ = tx.send(Err(format!("{:?}", e)));
+                    }
+                });
+            f(resolve);
+        };
+
+        self.rust_sender.send(Box::new(closure)).unwrap();
+        self.rust_handle.send()?;
+
+        rx.recv()
+            .map_err(|e| nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(e.to_string())))
+            .and_then(|result| {
+                result.map_err(|e| nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(e)))
+            })
+            .and_then(|json_str| {
+                serde_json::from_str::<T>(&json_str).map_err(|e| {
+                    nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(format!(
+                        "Failed to parse JSON: {}",
+                        e
+                    )))
+                })
+            })
+    }
 }
 
 #[cfg(test)]
