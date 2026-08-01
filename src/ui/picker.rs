@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 use nvim_oxi::{
     Result as OxiResult,
@@ -7,7 +6,7 @@ use nvim_oxi::{
     mlua::{LuaSerdeExt, lua},
 };
 
-use crate::utils::GLOBAL_EXECUTION_HANDLER;
+use crate::utils::{GLOBAL_EXECUTION_HANDLER, Resolver};
 
 pub enum FzfAction {
     Fn(ActionBuilder),
@@ -56,8 +55,6 @@ impl Default for FzfOption {
     }
 }
 
-type ResolveCell = Arc<Mutex<Option<Box<dyn FnOnce(OxiResult<Vec<String>>) + Send>>>>;
-
 pub type ActionBuilder =
     Box<dyn FnOnce(&mlua::Lua, mlua::Function) -> OxiResult<mlua::Function> + Send>;
 
@@ -67,18 +64,18 @@ pub fn action(
     Box::new(f)
 }
 
-/// Creates a Lua `resolve` function bridging to the Rust resolve callback.
-/// The resolve_cell ensures resolve is only called once (take() returns None
-/// after the first call), replacing the Lua `resolved` flag.
-fn create_resolve_fn(lua: &mlua::Lua, resolve_cell: &ResolveCell) -> OxiResult<mlua::Function> {
-    let cell = resolve_cell.clone();
+/// Creates a Lua `resolve` function bridging to the Rust resolver.
+/// The resolver ensures resolve is only called once.
+fn create_resolve_fn(
+    lua: &mlua::Lua,
+    resolver: &Resolver<Vec<String>>,
+) -> OxiResult<mlua::Function> {
+    let resolver = resolver.clone();
     Ok(lua.create_function(move |lua, value: mlua::Value| {
-        if let Some(r) = cell.lock().ok().and_then(|mut g| g.take()) {
-            let result = lua
-                .from_value::<Vec<String>>(value)
-                .map_err(nvim_oxi::Error::Mlua);
-            r(result);
-        }
+        let result = lua
+            .from_value::<Vec<String>>(value)
+            .map_err(nvim_oxi::Error::Mlua);
+        resolver.resolve(result);
         Ok(())
     })?)
 }
@@ -89,13 +86,13 @@ fn create_resolve_fn(lua: &mlua::Lua, resolve_cell: &ResolveCell) -> OxiResult<m
 /// to let fzf's selection action fire first.
 fn create_on_create_fn(
     lua_ref: &mlua::Lua,
-    resolve_cell: &ResolveCell,
+    resolver: &Resolver<Vec<String>>,
 ) -> OxiResult<mlua::Function> {
-    let cell = resolve_cell.clone();
+    let resolver = resolver.clone();
     Ok(lua_ref.create_function(move |_, ()| {
         let winid = api::get_current_win();
         let winid_str = winid.to_string();
-        let cell = cell.clone();
+        let resolver = resolver.clone();
         let _ = api::create_autocmd(
             ["WinClosed"],
             &CreateAutocmdOpts::builder()
@@ -104,13 +101,11 @@ fn create_on_create_fn(
                 .callback(move |_| {
                     let lua = lua();
                     let callback = lua.create_function({
-                        let cell = cell.clone();
+                        let resolver = resolver.clone();
                         move |_, ()| {
-                            if let Some(r) = cell.lock().ok().and_then(|mut g| g.take()) {
-                                r(Err(nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(
-                                    "cancelled".to_string(),
-                                ))));
-                            }
+                            resolver.resolve(Err(nvim_oxi::Error::Mlua(
+                                mlua::Error::RuntimeError("cancelled".to_string()),
+                            )));
                             Ok(())
                         }
                     });
@@ -131,13 +126,12 @@ fn create_on_create_fn(
 fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
     let select_mode = fzf_option.select_mode.clone();
     let callback = fzf_option.callback;
-    let result = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(move |resolve| {
+    let result = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(move |resolver| {
         let lua = lua();
-        let resolve_cell: ResolveCell = Arc::new(Mutex::new(Some(resolve)));
 
         let result: OxiResult<()> = (|| {
-            let resolve_fn = create_resolve_fn(&lua, &resolve_cell)?;
-            let on_create_fn = create_on_create_fn(&lua, &resolve_cell)?;
+            let resolve_fn = create_resolve_fn(&lua, &resolver)?;
+            let on_create_fn = create_on_create_fn(&lua, &resolver)?;
             let opts = lua.create_table()?;
 
             opts.set("prompt", format!("{}> ", fzf_option.prompt))?;
@@ -251,9 +245,7 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
         })();
 
         if let Err(e) = result {
-            if let Some(r) = resolve_cell.lock().ok().and_then(|mut g| g.take()) {
-                r(Err(e));
-            }
+            resolver.resolve(Err(e));
         }
     });
 

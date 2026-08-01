@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{
-    LazyLock, OnceLock,
+    Arc, LazyLock, Mutex, OnceLock,
     mpsc::{self, Sender},
 };
 
@@ -8,10 +8,8 @@ use nvim_oxi::{
     Result as OxiResult,
     api::{self, types::LogLevel},
     libuv::AsyncHandle,
-    mlua::lua,
     schedule,
 };
-use serde_json::Value;
 
 pub static PLUGIN_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
@@ -200,54 +198,13 @@ pub static GLOBAL_EXECUTION_HANDLER: LazyLock<NeovimExecutionHandler> =
 type RustCallback = Box<dyn FnOnce() + Send>;
 
 pub struct NeovimExecutionHandler {
-    async_handle: AsyncHandle,
     rust_handle: AsyncHandle,
-    async_sender: Sender<(String, Sender<String>)>,
     rust_sender: Sender<RustCallback>,
 }
 
 impl NeovimExecutionHandler {
     pub fn new() -> Self {
-        let (async_tx, async_rx) = mpsc::channel::<(String, Sender<String>)>();
         let (rust_tx, rust_rx) = mpsc::channel::<RustCallback>();
-
-        let async_handle = AsyncHandle::new(move || {
-            while let Ok((code, result_tx)) = async_rx.try_recv() {
-                let result_tx = result_tx.clone();
-                schedule(move |_| {
-                    let lua = lua();
-
-                    // Create a resolve callback that sends the Lua value back to Rust
-                    let tx_clone = result_tx.clone();
-                    let resolve = lua.create_function(move |_, value: mlua::Value| {
-                        if let Ok(serialized) = serde_json::to_string(&value) {
-                            let _ = tx_clone.send(serialized);
-                        }
-                        Ok(())
-                    });
-
-                    match resolve {
-                        Ok(resolve_fn) => {
-                            // Wrap user code in an IIFE that receives `resolve` as a parameter,
-                            // avoiding global pollution and supporting concurrent async calls.
-                            let wrapped = format!("(function(resolve) {} end)(...)", code.trim());
-
-                            let res = lua.load(&wrapped).call::<()>(resolve_fn);
-                            if let Err(e) = res {
-                                notify(format!("{:?}", e), LogLevel::Error);
-                            }
-                        }
-                        Err(e) => {
-                            notify(
-                                format!("Failed to create resolve callback: {:?}", e),
-                                LogLevel::Error,
-                            );
-                        }
-                    }
-                });
-            }
-        })
-        .unwrap();
 
         let rust_handle = AsyncHandle::new(move || {
             while let Ok(callback) = rust_rx.try_recv() {
@@ -259,40 +216,9 @@ impl NeovimExecutionHandler {
         .unwrap();
 
         Self {
-            async_handle,
             rust_handle,
-            async_sender: async_tx,
             rust_sender: rust_tx,
         }
-    }
-
-    /// Execute asynchronous Lua code on the main thread and return the result.
-    ///
-    /// The Lua code receives a `resolve` callback as a parameter.
-    /// Call `resolve(value)` when the async work completes to send the result back.
-    ///
-    /// # Example Lua code
-    /// ```lua
-    /// vim.defer_fn(function()
-    ///     resolve(vim.fn.getcwd())
-    /// end, 0)
-    /// ```
-    pub fn execute_on_main_thread_async(&self, lua_code: &str) -> OxiResult<Value> {
-        let (tx, rx) = mpsc::channel::<String>();
-
-        self.async_sender.send((lua_code.to_string(), tx)).unwrap();
-        self.async_handle.send()?;
-
-        rx.recv()
-            .map_err(|e| nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(e.to_string())))
-            .and_then(|json_str| {
-                serde_json::from_str::<Value>(&json_str).map_err(|e| {
-                    nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(format!(
-                        "Failed to parse JSON: {}",
-                        e
-                    )))
-                })
-            })
     }
 
     pub fn notify_on_main_thread(&self, message: impl Into<String>, log_level: LogLevel) {
@@ -352,25 +278,55 @@ impl NeovimExecutionHandler {
                 })
             })
     }
+}
 
+/// Encapsulates the resolve-once pattern for `execute_rust_on_main_thread_async`.
+/// Clones share the same cell, so resolving from any clone prevents all others.
+pub struct Resolver<T> {
+    cell: Arc<Mutex<Option<Box<dyn FnOnce(OxiResult<T>) + Send>>>>,
+}
+
+impl<T> Resolver<T> {
+    pub fn new(f: Box<dyn FnOnce(OxiResult<T>) + Send>) -> Self {
+        Self {
+            cell: Arc::new(Mutex::new(Some(f))),
+        }
+    }
+
+    pub fn resolve(&self, result: OxiResult<T>) {
+        if let Some(f) = self.cell.lock().ok().and_then(|mut g| g.take()) {
+            f(result);
+        }
+    }
+}
+
+impl<T> Clone for Resolver<T> {
+    fn clone(&self) -> Self {
+        Self {
+            cell: self.cell.clone(),
+        }
+    }
+}
+
+impl NeovimExecutionHandler {
     /// Execute a Rust closure on the main thread asynchronously and return the result.
     ///
-    /// The closure receives a `resolve` callback. Call `resolve(result)` when
-    /// the async work completes to send the result back. This allows scheduling
-    /// work via `schedule`, timers, or other async mechanisms while still
-    /// running on the main thread where all Neovim API calls are safe.
+    /// The closure receives a [`Resolver<T>`]. Call `resolver.resolve(result)`
+    /// when the async work completes to send the result back. This allows
+    /// scheduling work via `schedule`, timers, or other async mechanisms while
+    /// still running on the main thread where all Neovim API calls are safe.
     ///
     /// # Example
     /// ```rust
-    /// let line: String = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(|resolve| {
+    /// let line: String = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(|resolver| {
     ///     schedule(move |_| {
-    ///         resolve(api::get_current_line());
+    ///         resolver.resolve(api::get_current_line());
     ///     });
     /// })?;
     /// ```
     pub fn execute_rust_on_main_thread_async<F, T>(&self, f: F) -> OxiResult<T>
     where
-        F: FnOnce(Box<dyn FnOnce(OxiResult<T>) + Send>) + Send + 'static,
+        F: FnOnce(Resolver<T>) + Send + 'static,
         T: serde::Serialize + for<'de> serde::Deserialize<'de>,
     {
         let (tx, rx) = mpsc::channel::<Result<String, String>>();
@@ -390,7 +346,7 @@ impl NeovimExecutionHandler {
                         let _ = tx.send(Err(format!("{:?}", e)));
                     }
                 });
-            f(resolve);
+            f(Resolver::new(resolve));
         };
 
         self.rust_sender.send(Box::new(closure)).unwrap();
@@ -478,6 +434,24 @@ count: 5"#;
     fn test_normalize_glob_single_dot_unchanged() {
         assert_eq!(normalize_glob("."), ".");
         assert_eq!(normalize_glob("./"), "./");
+    }
+
+    #[test]
+    fn test_resolver_resolves_once() {
+        let captured = Arc::new(Mutex::new(None::<String>));
+        let c = captured.clone();
+        let resolver = Resolver::new(Box::new(move |result: OxiResult<String>| {
+            if let Ok(val) = result {
+                *c.lock().unwrap() = Some(val);
+            }
+        }));
+
+        resolver.resolve(Ok("hello".to_string()));
+        assert_eq!(captured.lock().unwrap().take(), Some("hello".to_string()));
+
+        // Second resolve is a no-op
+        resolver.resolve(Ok("world".to_string()));
+        assert!(captured.lock().unwrap().is_none());
     }
 
     #[test]

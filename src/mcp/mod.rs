@@ -1,4 +1,5 @@
 use nvim_oxi::Result as OxiResult;
+use nvim_oxi::mlua::{LuaSerdeExt, lua};
 
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
@@ -154,7 +155,32 @@ mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
                 );
 
                 let result = GLOBAL_EXECUTION_HANDLER
-                    .execute_on_main_thread_async(&lua_code)
+                    .execute_rust_on_main_thread_async(move |resolver| {
+                        let lua = lua();
+                        let resolver_clone = resolver.clone();
+
+                        let result: OxiResult<()> = (|| {
+                            let lua_clone = lua.clone();
+                            let resolve_fn =
+                                lua.create_function(move |_, value: mlua::Value| {
+                                    let json_val = lua_clone
+                                        .from_value::<Value>(value)
+                                        .map_err(nvim_oxi::Error::Mlua);
+                                    resolver.resolve(json_val);
+                                    Ok(())
+                                })?;
+
+                            let wrapped =
+                                format!("return (function(resolve)\n{}\nend)(...)", lua_code);
+                            lua.load(&wrapped).call::<()>(resolve_fn)?;
+
+                            Ok(())
+                        })();
+
+                        if let Err(e) = result {
+                            resolver_clone.resolve(Err(e));
+                        }
+                    })
                     .map_err(|e| {
                         ToolExecutionError::other(format!("Failed to execute Lua code: {}", e))
                     })?;

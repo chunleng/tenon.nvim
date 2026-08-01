@@ -1,4 +1,6 @@
-use nvim_oxi::{Dictionary, Function, Object, api::types::LogLevel};
+use nvim_oxi::{
+    Dictionary, Function, Object, Result as OxiResult, api::types::LogLevel, mlua::lua,
+};
 
 use crate::{
     chat::ActiveAgent,
@@ -298,29 +300,42 @@ fn rename_fn() -> Function<(), ()> {
                 session.title_handler.title()
             })();
 
-            let default_lua =
-                serde_json::to_string(&current_title).unwrap_or_else(|_| "null".into());
-
             std::thread::spawn(move || {
-                let lua_code = format!(
-                    r#"
-vim.ui.input({{ prompt = 'Rename chat: ', default = {} }}, function(input)
-    resolve({{ response = input }})
-end)
-"#,
-                    default_lua
-                );
+                let result =
+                    GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(move |resolver| {
+                        let lua = lua();
 
-                let result = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread_async(&lua_code);
+                        let result: OxiResult<()> = (|| {
+                            let input_opts = lua.create_table()?;
+                            input_opts.set("prompt", "Rename chat: ")?;
+                            if let Some(title) = &current_title {
+                                input_opts.set("default", title.clone())?;
+                            }
 
-                if let Ok(res) = result
-                    && let Some(response) = res.get("response")
-                    && !response.is_null()
-                {
-                    let new_title: Option<String> = response
-                        .as_str()
-                        .filter(|s| !s.trim().is_empty())
-                        .map(|s| s.trim().to_string());
+                            let resolver_clone = resolver.clone();
+                            let callback =
+                                lua.create_function(move |_, input: Option<String>| {
+                                    resolver_clone.resolve(Ok(input));
+                                    Ok(())
+                                })?;
+
+                            let vim_ui_input =
+                                lua.load("return vim.ui.input").eval::<mlua::Function>()?;
+                            vim_ui_input.call::<()>((input_opts, callback))?;
+                            Ok(())
+                        })();
+
+                        if let Err(e) = result {
+                            resolver.resolve(Err(e));
+                        }
+                    });
+
+                if let Ok(Some(input)) = result {
+                    let new_title: Option<String> = if input.trim().is_empty() {
+                        None
+                    } else {
+                        Some(input.trim().to_string())
+                    };
 
                     let win_arc = get_chat_window();
                     if let Ok(win) = win_arc.lock()
