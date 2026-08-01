@@ -200,39 +200,16 @@ pub static GLOBAL_EXECUTION_HANDLER: LazyLock<NeovimExecutionHandler> =
 type RustCallback = Box<dyn FnOnce() + Send>;
 
 pub struct NeovimExecutionHandler {
-    handle: AsyncHandle,
     async_handle: AsyncHandle,
     rust_handle: AsyncHandle,
-    sender: Sender<(String, Sender<String>)>,
     async_sender: Sender<(String, Sender<String>)>,
     rust_sender: Sender<RustCallback>,
 }
 
 impl NeovimExecutionHandler {
     pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel::<(String, Sender<String>)>();
         let (async_tx, async_rx) = mpsc::channel::<(String, Sender<String>)>();
         let (rust_tx, rust_rx) = mpsc::channel::<RustCallback>();
-
-        let handle = AsyncHandle::new(move || {
-            while let Ok((data, tx)) = rx.try_recv() {
-                let tx = tx.clone();
-                schedule(move |_| {
-                    let res = lua().load(data.trim()).eval::<mlua::Value>();
-                    match res {
-                        Ok(x) => {
-                            if let Ok(serialized) = serde_json::to_string(&x) {
-                                let _ = tx.send(serialized);
-                            }
-                        }
-                        Err(e) => {
-                            notify(format!("{:?}", e), LogLevel::Error);
-                        }
-                    }
-                });
-            }
-        })
-        .unwrap();
 
         let async_handle = AsyncHandle::new(move || {
             while let Ok((code, result_tx)) = async_rx.try_recv() {
@@ -282,34 +259,11 @@ impl NeovimExecutionHandler {
         .unwrap();
 
         Self {
-            handle,
             async_handle,
             rust_handle,
-            sender: tx,
             async_sender: async_tx,
             rust_sender: rust_tx,
         }
-    }
-
-    /// Execute synchronous Lua code on the main thread and return the result.
-    ///
-    /// The Lua code should use `return` to send back a value.
-    pub fn execute_on_main_thread(&self, lua_code: &str) -> OxiResult<Value> {
-        let (tx, rx) = mpsc::channel::<String>();
-
-        self.sender.send((lua_code.to_string(), tx)).unwrap();
-        self.handle.send()?;
-
-        rx.recv()
-            .map_err(|e| nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(e.to_string())))
-            .and_then(|json_str| {
-                serde_json::from_str::<Value>(&json_str).map_err(|e| {
-                    nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(format!(
-                        "Failed to parse JSON: {}",
-                        e
-                    )))
-                })
-            })
     }
 
     /// Execute asynchronous Lua code on the main thread and return the result.
@@ -345,8 +299,8 @@ impl NeovimExecutionHandler {
         let msg = message.into();
         let lua_level = log_level_to_lua(log_level);
         let escaped = escape_lua_string(&msg);
-        let lua_code = format!("vim.notify(\"{}\", {})", escaped, lua_level);
-        let _ = self.execute_on_main_thread(&lua_code);
+        let lua_code = format!("lua vim.notify(\"{}\", {})", escaped, lua_level);
+        let _ = self.execute_rust_on_main_thread(move || Ok(api::command(&lua_code)?));
     }
 
     /// Execute a Rust closure on the main thread and return the result.

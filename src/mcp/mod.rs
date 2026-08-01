@@ -51,7 +51,14 @@ for _, tool in ipairs(tools) do
 end
 return result"#;
 
-        let result = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread(lua_code)?;
+        let result: Value = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(move || {
+            let val = nvim_oxi::mlua::lua()
+                .load(lua_code)
+                .eval::<mlua::Value>()
+                .map_err(nvim_oxi::Error::Mlua)?;
+            serde_json::to_value(&val)
+                .map_err(|e| nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(e.to_string())))
+        })?;
 
         let tools_array =
             result

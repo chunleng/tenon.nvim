@@ -208,7 +208,8 @@ impl Tool for EditFile {
             ToolExecutionError::other(format!("Write fail '{}': {}", args.filepath, e))
         })?;
 
-        let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread("vim.cmd('checktime')");
+        let _ = GLOBAL_EXECUTION_HANDLER
+            .execute_rust_on_main_thread(|| Ok(nvim_oxi::api::command("checktime")?));
 
         serde_yaml::to_string(&json!({
             "successful_edits": edits,

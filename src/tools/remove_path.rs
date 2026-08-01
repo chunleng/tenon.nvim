@@ -60,7 +60,8 @@ impl Tool for RemovePath {
 
         match result {
             Ok(()) => {
-                let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread("vim.cmd('checktime')");
+                let _ = GLOBAL_EXECUTION_HANDLER
+                    .execute_rust_on_main_thread(|| Ok(nvim_oxi::api::command("checktime")?));
                 Ok(format!("removed '{}'", args.filepath))
             }
             Err(e) => Err(ToolExecutionError::other(format!(

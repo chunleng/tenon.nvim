@@ -196,7 +196,8 @@ impl Tool for MovePath {
             &serde_yaml::to_string(&result).unwrap_or_else(|_| format!("moved {}", args.source)),
         );
 
-        let _ = GLOBAL_EXECUTION_HANDLER.execute_on_main_thread("vim.cmd('checktime')");
+        let _ = GLOBAL_EXECUTION_HANDLER
+            .execute_rust_on_main_thread(|| Ok(nvim_oxi::api::command("checktime")?));
 
         Ok(output)
     }
