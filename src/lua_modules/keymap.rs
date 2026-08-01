@@ -5,7 +5,7 @@ use crate::{
     chat::history::{SessionMetadata, save_to_history},
     clients::SupportedModels,
     get_application_config, get_chat_window,
-    tools::all_tool_names,
+    tools::{all_tool_names, tool_matches_selectors},
     ui::picker::{pick, pick_multi},
     utils::{GLOBAL_EXECUTION_HANDLER, notify},
 };
@@ -131,19 +131,26 @@ fn select_tools_fn() -> Function<(), ()> {
                 let options: Vec<&str> = all_names.iter().map(|s| s.as_str()).collect();
                 let current_refs: Vec<&str> =
                     current_tool_names.iter().map(|s| s.as_str()).collect();
+                let resolved_current: Vec<&str> = options
+                    .iter()
+                    .filter(|o| tool_matches_selectors(o, &current_refs))
+                    .copied()
+                    .collect();
 
-                if let Err(e) = pick_multi("Select Tools", &options, &current_refs, |selected| {
-                    if let Some(tools) = selected {
-                        let win_arc = get_chat_window();
-                        if let Ok(win) = win_arc.lock()
-                            && let Ok(loaded) = win.loaded_chat_session.read()
-                            && let Ok(mut session) = loaded.write()
-                        {
-                            session.active_agent.inner.tool_names = tools;
-                            win.force_render();
+                if let Err(e) =
+                    pick_multi("Select Tools", &options, &resolved_current, |selected| {
+                        if let Some(tools) = selected {
+                            let win_arc = get_chat_window();
+                            if let Ok(win) = win_arc.lock()
+                                && let Ok(loaded) = win.loaded_chat_session.read()
+                                && let Ok(mut session) = loaded.write()
+                            {
+                                session.active_agent.inner.tool_names = tools;
+                                win.force_render();
+                            }
                         }
-                    }
-                }) {
+                    })
+                {
                     GLOBAL_EXECUTION_HANDLER
                         .notify_on_main_thread(format!("picker error: {}", e), LogLevel::Error);
                 }

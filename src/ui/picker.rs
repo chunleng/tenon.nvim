@@ -1,7 +1,245 @@
-use nvim_oxi::Result as OxiResult;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
-use crate::tools::tool_matches_selectors;
+use nvim_oxi::{
+    Result as OxiResult,
+    api::{self, opts::CreateAutocmdOpts},
+    mlua::{LuaSerdeExt, lua},
+};
+
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
+
+enum FzfAction {
+    Fn(ActionBuilder),
+    Str(String),
+}
+
+#[derive(Clone)]
+enum SelectMode {
+    Single { current_selected: Option<String> },
+    Multi { current_selected: Vec<String> },
+}
+
+struct FzfOption {
+    prompt: String,
+    sorting: bool,
+    select_mode: SelectMode,
+    actions: HashMap<String, FzfAction>,
+    callback: Box<dyn FnOnce(Option<Vec<String>>) + Send>,
+}
+
+type ResolveCell = Arc<Mutex<Option<Box<dyn FnOnce(OxiResult<Vec<String>>) + Send>>>>;
+
+type ActionBuilder =
+    Box<dyn FnOnce(&mlua::Lua, mlua::Function) -> OxiResult<mlua::Function> + Send>;
+
+fn action(
+    f: impl FnOnce(&mlua::Lua, mlua::Function) -> OxiResult<mlua::Function> + Send + 'static,
+) -> ActionBuilder {
+    Box::new(f)
+}
+
+/// Creates a Lua `resolve` function bridging to the Rust resolve callback.
+/// The resolve_cell ensures resolve is only called once (take() returns None
+/// after the first call), replacing the Lua `resolved` flag.
+fn create_resolve_fn(lua: &mlua::Lua, resolve_cell: &ResolveCell) -> OxiResult<mlua::Function> {
+    let cell = resolve_cell.clone();
+    Ok(lua.create_function(move |lua, value: mlua::Value| {
+        if let Some(r) = cell.lock().ok().and_then(|mut g| g.take()) {
+            let result = lua
+                .from_value::<Vec<String>>(value)
+                .map_err(nvim_oxi::Error::Mlua);
+            r(result);
+        }
+        Ok(())
+    })?)
+}
+
+/// Creates the `on_create` callback that registers a WinClosed autocmd.
+/// When the fzf window closes without a selection, resolves with
+/// `{error = "cancelled"}` after a 3-second delay (via `vim.defer_fn`)
+/// to let fzf's selection action fire first.
+fn create_on_create_fn(
+    lua_ref: &mlua::Lua,
+    resolve_cell: &ResolveCell,
+) -> OxiResult<mlua::Function> {
+    let cell = resolve_cell.clone();
+    Ok(lua_ref.create_function(move |_, ()| {
+        let winid = api::get_current_win();
+        let winid_str = winid.to_string();
+        let cell = cell.clone();
+        let _ = api::create_autocmd(
+            ["WinClosed"],
+            &CreateAutocmdOpts::builder()
+                .patterns([winid_str.as_str()])
+                .once(true)
+                .callback(move |_| {
+                    let lua = lua();
+                    let callback = lua.create_function({
+                        let cell = cell.clone();
+                        move |_, ()| {
+                            if let Some(r) = cell.lock().ok().and_then(|mut g| g.take()) {
+                                r(Err(nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(
+                                    "cancelled".to_string(),
+                                ))));
+                            }
+                            Ok(())
+                        }
+                    });
+                    if let Ok(callback) = callback {
+                        let _ = lua.load("vim.defer_fn").call::<()>((callback, 3000));
+                    }
+                    false
+                })
+                .build(),
+        );
+        Ok(())
+    })?)
+}
+
+/// Runs fzf-lua on the main thread asynchronously. Builds the fzf options
+/// table from `FzfOption` (prompt, fzf_opts, keymap, actions, winopts).
+/// Returns the selected items as a list of strings.
+fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
+    let select_mode = fzf_option.select_mode.clone();
+    let callback = fzf_option.callback;
+    let result = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(move |resolve| {
+        let lua = lua();
+        let resolve_cell: ResolveCell = Arc::new(Mutex::new(Some(resolve)));
+
+        let result: OxiResult<()> = (|| {
+            let resolve_fn = create_resolve_fn(&lua, &resolve_cell)?;
+            let on_create_fn = create_on_create_fn(&lua, &resolve_cell)?;
+            let opts = lua.create_table()?;
+
+            opts.set("prompt", format!("{}> ", fzf_option.prompt))?;
+
+            let fzf_opts = lua.create_table()?;
+            if !fzf_option.sorting {
+                fzf_opts.set("--no-sort", "")?;
+            }
+
+            let actions = lua.create_table()?;
+            let default_resolve = resolve_fn.clone();
+            let default_fn = lua.create_function(move |_, sel: Vec<String>| {
+                default_resolve.call::<()>(sel)?;
+                Ok(())
+            })?;
+            actions.set("default", default_fn)?;
+
+            let mut fzf_keymap = None::<mlua::Table>;
+
+            match fzf_option.select_mode {
+                SelectMode::Multi { current_selected } => {
+                    fzf_opts.set("--multi", "")?;
+                    fzf_opts.set("--marker", "✓")?;
+                    fzf_opts.set("--header", "(use <TAB> to toggle  <ENTER> to confirm)")?;
+
+                    // Sort: current selections first, then the rest.
+                    let mut sorted: Vec<String> = options
+                        .iter()
+                        .filter(|o| current_selected.contains(o))
+                        .cloned()
+                        .collect();
+                    sorted.extend(
+                        options
+                            .iter()
+                            .filter(|o| !current_selected.contains(o))
+                            .cloned(),
+                    );
+                    options = sorted;
+
+                    let keymap = lua.create_table()?;
+                    keymap.set("tab", "toggle+down")?;
+                    if !current_selected.is_empty() {
+                        let load_action = "select+down+".repeat(current_selected.len());
+                        keymap.set("load", load_action.trim_end_matches('+'))?;
+                    }
+                    fzf_keymap = Some(keymap);
+
+                    let ctrl_x_resolve = resolve_fn.clone();
+                    let ctrl_x_fn = lua.create_function(move |_, ()| {
+                        ctrl_x_resolve.call::<()>(Vec::<String>::new())?;
+                        Ok(())
+                    })?;
+                    actions.set("ctrl-x", ctrl_x_fn)?;
+                }
+                SelectMode::Single { current_selected } => {
+                    fzf_opts.set("--no-multi", "")?;
+                    options = options
+                        .iter()
+                        .map(|opt| {
+                            if current_selected.as_deref() == Some(opt.as_str()) {
+                                format!("{}{}", CURRENT_MARKER, opt)
+                            } else {
+                                format!("{}{}", OTHER_MARKER, opt)
+                            }
+                        })
+                        .collect();
+                }
+            }
+            opts.set("fzf_opts", fzf_opts)?;
+
+            for (key, action) in fzf_option.actions {
+                match action {
+                    FzfAction::Fn(builder) => {
+                        let action_fn = builder(&lua, resolve_fn.clone())?;
+                        actions.set(key, action_fn)?;
+                    }
+                    FzfAction::Str(s) => {
+                        let keymap = match &fzf_keymap {
+                            Some(t) => t,
+                            None => {
+                                let t = lua.create_table()?;
+                                fzf_keymap = Some(t);
+                                fzf_keymap.as_ref().unwrap()
+                            }
+                        };
+                        keymap.set(key, s)?;
+                    }
+                }
+            }
+            opts.set("actions", actions)?;
+            if let Some(fzf_keymap) = fzf_keymap {
+                let keymap = lua.create_table()?;
+                keymap.set("fzf", fzf_keymap)?;
+                opts.set("keymap", keymap)?;
+            }
+
+            let winopts = lua.create_table()?;
+            winopts.set("on_create", on_create_fn)?;
+            opts.set("winopts", winopts)?;
+
+            let options_table = lua.create_table()?;
+            for (i, opt) in options.into_iter().enumerate() {
+                options_table.set(i + 1, opt)?;
+            }
+
+            let fzf_exec = lua
+                .load("return require('fzf-lua').fzf_exec")
+                .eval::<mlua::Function>()?;
+            fzf_exec.call::<()>((options_table, opts))?;
+            Ok(())
+        })();
+
+        if let Err(e) = result {
+            if let Some(r) = resolve_cell.lock().ok().and_then(|mut g| g.take()) {
+                r(Err(e));
+            }
+        }
+    });
+
+    let result = match select_mode {
+        SelectMode::Single { .. } => {
+            result.map(|items| items.into_iter().map(|s| clean_marker(&s)).collect())
+        }
+        SelectMode::Multi { .. } => result,
+    };
+
+    callback(result.ok());
+
+    Ok(())
+}
 
 const CURRENT_MARKER: &str = "> ";
 const OTHER_MARKER: &str = "  ";
@@ -21,85 +259,23 @@ pub fn pick(
     current: Option<&str>,
     on_select: impl FnOnce(Option<String>) + Send + 'static,
 ) -> OxiResult<()> {
-    let marked_options: Vec<String> = options
-        .iter()
-        .map(|opt| {
-            if current == Some(*opt) {
-                format!("{}{}", CURRENT_MARKER, opt)
-            } else {
-                format!("{}{}", OTHER_MARKER, opt)
-            }
-        })
-        .collect();
+    let options: Vec<String> = options.iter().map(|s| s.to_string()).collect();
+    let current_selected = current.map(|s| s.to_string());
 
-    let options_lua = format!(
-        "{{ {} }}",
-        marked_options
-            .iter()
-            .map(|o| format!("[[{}]]", o))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-
-    let prompt_escaped = prompt.replace('\'', "\\'");
-
-    let lua_code = format!(
-        r#"
-local fzf = require('fzf-lua')
-local resolved = false
-
-fzf.fzf_exec({options}, {{
-    prompt = '{prompt}> ',
-    fzf_opts = {{
-        ['--no-sort'] = '',
-        ['--no-multi'] = '',
-    }},
-    winopts = {{
-        on_create = function()
-            local winid = vim.api.nvim_get_current_win()
-            vim.api.nvim_create_autocmd('WinClosed', {{
-                pattern = tostring(winid),
-                once = true,
-                callback = function()
-                    vim.defer_fn(function()
-                        if not resolved then
-                            resolved = true
-                            resolve({{error = "cancelled"}})
-                        end
-                    end, 3000)
-                end,
-            }})
-        end,
-    }},
-    actions = {{
-        ['default'] = function(sel)
-            if not resolved then
-                resolved = true
-                resolve({{response = sel and sel[1] or nil}})
-            end
-        end,
-    }},
-}})
-"#,
-        options = options_lua,
-        prompt = prompt_escaped,
-    );
-
+    let prompt_clone = prompt.to_string();
     std::thread::spawn(move || {
-        let selected = match GLOBAL_EXECUTION_HANDLER.execute_on_main_thread_async(&lua_code) {
-            Ok(result) => {
-                if result.get("error").is_some() {
-                    None
-                } else {
-                    result
-                        .get("response")
-                        .and_then(|v| v.as_str())
-                        .map(clean_marker)
-                }
-            }
-            Err(_) => None,
-        };
-        on_select(selected);
+        let _ = run_fzf(
+            options,
+            FzfOption {
+                prompt: prompt_clone,
+                sorting: false,
+                select_mode: SelectMode::Single { current_selected },
+                actions: HashMap::new(),
+                callback: Box::new(move |items| {
+                    on_select(items.and_then(|v| v.into_iter().next()));
+                }),
+            },
+        );
     });
 
     Ok(())
@@ -129,115 +305,21 @@ pub fn pick_multi(
     current: &[&str],
     on_select: impl FnOnce(Option<Vec<String>>) + Send + 'static,
 ) -> OxiResult<()> {
-    // Sort: current tools first, then the rest.
-    let mut sorted: Vec<&str> = options
-        .iter()
-        .filter(|o| tool_matches_selectors(o, current))
-        .copied()
-        .collect();
-    let current_count = sorted.len();
-    sorted.extend(
-        options
-            .iter()
-            .filter(|o| !tool_matches_selectors(o, current))
-            .copied(),
-    );
+    let current_selected: Vec<String> = current.iter().map(|s| s.to_string()).collect();
+    let raw_options: Vec<String> = options.iter().map(|s| s.to_string()).collect();
 
-    let options_lua = format!(
-        "{{ {} }}",
-        sorted
-            .iter()
-            .map(|o| format!("[[{}]]", o))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-
-    let prompt_escaped = prompt.replace('\'', "\\'");
-
-    // Build fzf keymap: tab always toggles+down, load pre-selects current tools.
-    let load_entry = if current_count > 0 {
-        let action = "select+down+".repeat(current_count);
-        format!("['load'] = '{}',", action.trim_end_matches('+'))
-    } else {
-        String::new()
-    };
-
-    let lua_code = format!(
-        r#"
-local fzf = require('fzf-lua')
-local resolved = false
-
-fzf.fzf_exec({options}, {{
-    prompt = '{prompt}> ',
-    fzf_opts = {{
-        ['--no-sort'] = '',
-        ['--multi'] = '',
-        ['--marker'] = '✓',
-        ['--header'] = '(use <TAB> to toggle  <ENTER> to confirm)',
-    }},
-    keymap = {{
-        fzf = {{
-            ['tab'] = 'toggle+down',
-            {load_entry}
-        }},
-    }},
-    winopts = {{
-        on_create = function()
-            local winid = vim.api.nvim_get_current_win()
-            vim.api.nvim_create_autocmd('WinClosed', {{
-                pattern = tostring(winid),
-                once = true,
-                callback = function()
-                    vim.defer_fn(function()
-                        if not resolved then
-                            resolved = true
-                            resolve({{error = "cancelled"}})
-                        end
-                    end, 3000)
-                end,
-            }})
-        end,
-    }},
-    actions = {{
-        ['default'] = function(sel)
-            if not resolved then
-                resolved = true
-                resolve({{response = sel}})
-            end
-        end,
-        ['ctrl-y'] = function()
-            if not resolved then
-                resolved = true
-                resolve({{response = {{}}}})
-            end
-        end
-    }},
-}})
-"#,
-        options = options_lua,
-        prompt = prompt_escaped,
-        load_entry = load_entry,
-    );
-
+    let prompt_clone = prompt.to_string();
     std::thread::spawn(move || {
-        let selected = match GLOBAL_EXECUTION_HANDLER.execute_on_main_thread_async(&lua_code) {
-            Ok(result) => {
-                if result.get("error").is_some() {
-                    None
-                } else {
-                    result
-                        .get("response")
-                        .and_then(|v| v.as_array().cloned().or(Some(vec![])))
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|item| item.as_str().map(|s| s.to_string()))
-                                .collect::<Vec<_>>()
-                        })
-                }
-            }
-            Err(_) => None,
-        };
-        on_select(selected);
+        let _ = run_fzf(
+            raw_options,
+            FzfOption {
+                prompt: prompt_clone,
+                sorting: false,
+                select_mode: SelectMode::Multi { current_selected },
+                actions: HashMap::new(),
+                callback: Box::new(on_select),
+            },
+        );
     });
 
     Ok(())
