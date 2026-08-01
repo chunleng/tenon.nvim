@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use nvim_oxi::{
     Result as OxiResult,
-    api::{self, opts::CreateAutocmdOpts},
     mlua::{LuaSerdeExt, lua},
 };
 
@@ -80,46 +79,6 @@ fn create_resolve_fn(
     })?)
 }
 
-/// Creates the `on_create` callback that registers a WinClosed autocmd.
-/// When the fzf window closes without a selection, resolves with
-/// `{error = "cancelled"}` after a 3-second delay (via `vim.defer_fn`)
-/// to let fzf's selection action fire first.
-fn create_on_create_fn(
-    lua_ref: &mlua::Lua,
-    resolver: &Resolver<Vec<String>>,
-) -> OxiResult<mlua::Function> {
-    let resolver = resolver.clone();
-    Ok(lua_ref.create_function(move |_, ()| {
-        let winid = api::get_current_win();
-        let winid_str = winid.to_string();
-        let resolver = resolver.clone();
-        let _ = api::create_autocmd(
-            ["WinClosed"],
-            &CreateAutocmdOpts::builder()
-                .patterns([winid_str.as_str()])
-                .once(true)
-                .callback(move |_| {
-                    let lua = lua();
-                    let callback = lua.create_function({
-                        let resolver = resolver.clone();
-                        move |_, ()| {
-                            resolver.resolve(Err(nvim_oxi::Error::Mlua(
-                                mlua::Error::RuntimeError("cancelled".to_string()),
-                            )));
-                            Ok(())
-                        }
-                    });
-                    if let Ok(callback) = callback {
-                        let _ = lua.load("vim.defer_fn").call::<()>((callback, 3000));
-                    }
-                    false
-                })
-                .build(),
-        );
-        Ok(())
-    })?)
-}
-
 /// Runs fzf-lua on the main thread asynchronously. Builds the fzf options
 /// table from `FzfOption` (prompt, fzf_opts, keymap, actions, winopts).
 /// Returns the selected items as a list of strings.
@@ -131,7 +90,6 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
 
         let result: OxiResult<()> = (|| {
             let resolve_fn = create_resolve_fn(&lua, &resolver)?;
-            let on_create_fn = create_on_create_fn(&lua, &resolver)?;
             let opts = lua.create_table()?;
 
             opts.set("prompt", format!("{}> ", fzf_option.prompt))?;
@@ -227,10 +185,6 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                 keymap.set("fzf", fzf_keymap)?;
                 opts.set("keymap", keymap)?;
             }
-
-            let winopts = lua.create_table()?;
-            winopts.set("on_create", on_create_fn)?;
-            opts.set("winopts", winopts)?;
 
             let options_table = lua.create_table()?;
             for (i, opt) in options.into_iter().enumerate() {
