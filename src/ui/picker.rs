@@ -9,31 +9,59 @@ use nvim_oxi::{
 
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 
-enum FzfAction {
+pub enum FzfAction {
     Fn(ActionBuilder),
     Str(String),
 }
 
 #[derive(Clone)]
-enum SelectMode {
+pub enum SelectMode {
     Single { current_selected: Option<String> },
     Multi { current_selected: Vec<String> },
 }
 
-struct FzfOption {
-    prompt: String,
-    sorting: bool,
-    select_mode: SelectMode,
-    actions: HashMap<String, FzfAction>,
-    callback: Box<dyn FnOnce(Option<Vec<String>>) + Send>,
+impl SelectMode {
+    pub fn single(current: Option<impl ToString>) -> Self {
+        SelectMode::Single {
+            current_selected: current.map(|c| c.to_string()),
+        }
+    }
+
+    pub fn multi(current: impl IntoIterator<Item = impl ToString>) -> Self {
+        SelectMode::Multi {
+            current_selected: current.into_iter().map(|s| s.to_string()).collect(),
+        }
+    }
+}
+
+pub struct FzfOption {
+    pub prompt: String,
+    pub sorting: bool,
+    pub select_mode: SelectMode,
+    pub actions: HashMap<String, FzfAction>,
+    pub callback: Box<dyn FnOnce(Option<Vec<String>>) + Send>,
+}
+
+impl Default for FzfOption {
+    fn default() -> Self {
+        Self {
+            prompt: String::new(),
+            sorting: false,
+            select_mode: SelectMode::Single {
+                current_selected: None,
+            },
+            actions: HashMap::new(),
+            callback: Box::new(|_| {}),
+        }
+    }
 }
 
 type ResolveCell = Arc<Mutex<Option<Box<dyn FnOnce(OxiResult<Vec<String>>) + Send>>>>;
 
-type ActionBuilder =
+pub type ActionBuilder =
     Box<dyn FnOnce(&mlua::Lua, mlua::Function) -> OxiResult<mlua::Function> + Send>;
 
-fn action(
+pub fn action(
     f: impl FnOnce(&mlua::Lua, mlua::Function) -> OxiResult<mlua::Function> + Send + 'static,
 ) -> ActionBuilder {
     Box::new(f)
@@ -244,40 +272,17 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
 const CURRENT_MARKER: &str = "> ";
 const OTHER_MARKER: &str = "  ";
 
-/// Shows a FzfLua single-select picker.
-///
-/// Displays `prompt` as the header and `options` as selectable items.
-/// If `current` is `Some(item)`, that item is visually marked with `>`.
-/// The result is delivered asynchronously via `on_select` (called with
-/// `Some(selection)` or `None` if cancelled).
+/// Shows a FzfLua picker. Spawns a thread and runs fzf-lua with the given
+/// `options` and `fzf_option` configuration. The result is delivered
+/// asynchronously via `fzf_option.callback`.
 ///
 /// This function is non-blocking and safe to call from the main thread
 /// (e.g. from a keymap handler).
-pub fn pick(
-    prompt: &str,
-    options: &[&str],
-    current: Option<&str>,
-    on_select: impl FnOnce(Option<String>) + Send + 'static,
-) -> OxiResult<()> {
+pub fn pick(options: &[&str], fzf_option: FzfOption) -> OxiResult<()> {
     let options: Vec<String> = options.iter().map(|s| s.to_string()).collect();
-    let current_selected = current.map(|s| s.to_string());
-
-    let prompt_clone = prompt.to_string();
     std::thread::spawn(move || {
-        let _ = run_fzf(
-            options,
-            FzfOption {
-                prompt: prompt_clone,
-                sorting: false,
-                select_mode: SelectMode::Single { current_selected },
-                actions: HashMap::new(),
-                callback: Box::new(move |items| {
-                    on_select(items.and_then(|v| v.into_iter().next()));
-                }),
-            },
-        );
+        let _ = run_fzf(options, fzf_option);
     });
-
     Ok(())
 }
 
@@ -288,39 +293,36 @@ fn clean_marker(s: &str) -> String {
         .to_string()
 }
 
-/// Shows a FzfLua multi-select picker.
-///
-/// Displays `prompt` as the header, `options` as selectable items. Items in
-/// `current` are sorted to the top and pre-selected via `select+down` on the
-/// fzf `load` event, so fzf's native `✓` marker appears on them. Users press
-/// TAB to toggle selection (and advance to the next item), then ENTER to
-/// confirm. The result is delivered asynchronously via `on_select`:
-/// - `Some(vec)` — user confirmed with selected items
-/// - `None` — user cancelled or an error occurred (do not change tools)
-///
-/// This function is non-blocking and safe to call from the main thread.
-pub fn pick_multi(
-    prompt: &str,
-    options: &[&str],
-    current: &[&str],
-    on_select: impl FnOnce(Option<Vec<String>>) + Send + 'static,
-) -> OxiResult<()> {
-    let current_selected: Vec<String> = current.iter().map(|s| s.to_string()).collect();
-    let raw_options: Vec<String> = options.iter().map(|s| s.to_string()).collect();
+/// Wraps a single-select callback (`Option<String>`) into the
+/// `Option<Vec<String>>` shape that `FzfOption.callback` expects.
+pub fn box_single_select(
+    f: impl FnOnce(Option<String>) + Send + 'static,
+) -> Box<dyn FnOnce(Option<Vec<String>>) + Send> {
+    Box::new(move |items| f(items.and_then(|v| v.into_iter().next())))
+}
 
-    let prompt_clone = prompt.to_string();
-    std::thread::spawn(move || {
-        let _ = run_fzf(
-            raw_options,
-            FzfOption {
-                prompt: prompt_clone,
-                sorting: false,
-                select_mode: SelectMode::Multi { current_selected },
-                actions: HashMap::new(),
-                callback: Box::new(on_select),
-            },
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_box_single_select() {
+        let capture = || std::sync::Arc::new(std::sync::Mutex::new(None));
+        let run = |input: Option<Vec<String>>, expected: Option<&str>| {
+            let result = capture();
+            let r = result.clone();
+            box_single_select(move |s| {
+                *r.lock().unwrap() = s;
+            })(input);
+            assert_eq!(*result.lock().unwrap(), expected.map(|s| s.to_string()));
+        };
+
+        run(Some(vec!["apple".to_string()]), Some("apple"));
+        run(
+            Some(vec!["first".to_string(), "second".to_string()]),
+            Some("first"),
         );
-    });
-
-    Ok(())
+        run(Some(vec![]), None);
+        run(None, None);
+    }
 }

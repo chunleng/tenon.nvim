@@ -152,7 +152,10 @@ fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
 
 /// Show a picker to select and load a chat session.
 fn select_chat_fn() -> Function<(), ()> {
-    use crate::{chat::CHAT_SESSIONS, ui::picker::pick};
+    use crate::{
+        chat::CHAT_SESSIONS,
+        ui::picker::{FzfOption, SelectMode, box_single_select, pick},
+    };
     use nvim_oxi::api::types::LogLevel;
 
     Function::from_fn({
@@ -196,33 +199,36 @@ fn select_chat_fn() -> Function<(), ()> {
                 let current_selection = options.get(current_index).map(|s| s.as_str());
 
                 if let Err(e) = pick(
-                    "Select Chat",
                     &options_refs,
-                    current_selection,
-                    move |selected| {
-                        if let Some(selection) = selected {
-                            let idx = options_clone.iter().position(|s| *s == selection);
-                            if let Some(idx) = idx
-                                && let Err(e) = crate::utils::GLOBAL_EXECUTION_HANDLER
-                                    .execute_rust_on_main_thread(move || {
-                                        let win_arc = get_chat_window();
-                                        if let Ok(mut win) = win_arc.lock()
-                                            && let Err(e) = win.load_chat(idx)
-                                        {
-                                            crate::utils::notify(
-                                                format!("failed to load chat: {}", e),
-                                                LogLevel::Error,
-                                            );
-                                        }
-                                        Ok(())
-                                    })
-                            {
-                                crate::utils::GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
-                                    format!("failed to load chat: {}", e),
-                                    LogLevel::Error,
-                                );
+                    FzfOption {
+                        prompt: "Select Chat".to_string(),
+                        select_mode: SelectMode::single(current_selection),
+                        callback: box_single_select(move |selected| {
+                            if let Some(selection) = selected {
+                                let idx = options_clone.iter().position(|s| *s == selection);
+                                if let Some(idx) = idx
+                                    && let Err(e) = crate::utils::GLOBAL_EXECUTION_HANDLER
+                                        .execute_rust_on_main_thread(move || {
+                                            let win_arc = get_chat_window();
+                                            if let Ok(mut win) = win_arc.lock()
+                                                && let Err(e) = win.load_chat(idx)
+                                            {
+                                                crate::utils::notify(
+                                                    format!("failed to load chat: {}", e),
+                                                    LogLevel::Error,
+                                                );
+                                            }
+                                            Ok(())
+                                        })
+                                {
+                                    crate::utils::GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                                        format!("failed to load chat: {}", e),
+                                        LogLevel::Error,
+                                    );
+                                }
                             }
-                        }
+                        }),
+                        ..Default::default()
                     },
                 ) {
                     crate::utils::GLOBAL_EXECUTION_HANDLER

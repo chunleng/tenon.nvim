@@ -6,7 +6,7 @@ use crate::{
     clients::SupportedModels,
     get_application_config, get_chat_window,
     tools::{all_tool_names, tool_matches_selectors},
-    ui::picker::{pick, pick_multi},
+    ui::picker::{FzfOption, SelectMode, box_single_select, pick},
     utils::{GLOBAL_EXECUTION_HANDLER, notify},
 };
 
@@ -137,20 +137,26 @@ fn select_tools_fn() -> Function<(), ()> {
                     .copied()
                     .collect();
 
-                if let Err(e) =
-                    pick_multi("Select Tools", &options, &resolved_current, |selected| {
-                        if let Some(tools) = selected {
-                            let win_arc = get_chat_window();
-                            if let Ok(win) = win_arc.lock()
-                                && let Ok(loaded) = win.loaded_chat_session.read()
-                                && let Ok(mut session) = loaded.write()
-                            {
-                                session.active_agent.inner.tool_names = tools;
-                                win.force_render();
+                if let Err(e) = pick(
+                    &options,
+                    FzfOption {
+                        prompt: "Select Tools".to_string(),
+                        select_mode: SelectMode::multi(&resolved_current),
+                        callback: Box::new(|selected| {
+                            if let Some(tools) = selected {
+                                let win_arc = get_chat_window();
+                                if let Ok(win) = win_arc.lock()
+                                    && let Ok(loaded) = win.loaded_chat_session.read()
+                                    && let Ok(mut session) = loaded.write()
+                                {
+                                    session.active_agent.inner.tool_names = tools;
+                                    win.force_render();
+                                }
                             }
-                        }
-                    })
-                {
+                        }),
+                        ..Default::default()
+                    },
+                ) {
                     GLOBAL_EXECUTION_HANDLER
                         .notify_on_main_thread(format!("picker error: {}", e), LogLevel::Error);
                 }
@@ -177,26 +183,29 @@ fn select_agent_fn() -> Function<(), ()> {
             let options: Vec<&str> = agent_names.iter().map(|s| s.as_str()).collect();
 
             if let Err(e) = pick(
-                "Select Agent",
                 &options,
-                current_agent_name.as_deref(),
-                |selected| {
-                    if let Some(name) = selected {
-                        let config = get_application_config();
-                        if let Some(agent) = config.agents.get(&name) {
-                            let win_arc = get_chat_window();
-                            if let Ok(win) = win_arc.lock()
-                                && let Ok(loaded) = win.loaded_chat_session.read()
-                                && let Ok(mut session) = loaded.write()
-                            {
-                                session.active_agent = ActiveAgent {
-                                    name: name.clone(),
-                                    inner: agent.clone(),
-                                };
-                                win.force_render();
+                FzfOption {
+                    prompt: "Select Agent".to_string(),
+                    select_mode: SelectMode::single(current_agent_name),
+                    callback: box_single_select(|selected| {
+                        if let Some(name) = selected {
+                            let config = get_application_config();
+                            if let Some(agent) = config.agents.get(&name) {
+                                let win_arc = get_chat_window();
+                                if let Ok(win) = win_arc.lock()
+                                    && let Ok(loaded) = win.loaded_chat_session.read()
+                                    && let Ok(mut session) = loaded.write()
+                                {
+                                    session.active_agent = ActiveAgent {
+                                        name: name.clone(),
+                                        inner: agent.clone(),
+                                    };
+                                    win.force_render();
+                                }
                             }
                         }
-                    }
+                    }),
+                    ..Default::default()
                 },
             ) {
                 GLOBAL_EXECUTION_HANDLER
@@ -248,24 +257,27 @@ fn select_model_fn() -> Function<(), ()> {
             let options: Vec<&str> = model_list.iter().map(|s| s.as_str()).collect();
 
             if let Err(e) = pick(
-                "Select Model",
                 &options,
-                current_model_display.as_deref(),
-                move |selected| {
-                    if let Some(display) = selected
-                        && let Some((_, model)) = entries
-                            .iter()
-                            .find(|(name, m)| format_model_display(name, m) == display)
-                    {
-                        let win_arc = get_chat_window();
-                        if let Ok(win) = win_arc.lock()
-                            && let Ok(loaded) = win.loaded_chat_session.read()
-                            && let Ok(mut session) = loaded.write()
+                FzfOption {
+                    prompt: "Select Model".to_string(),
+                    select_mode: SelectMode::single(current_model_display),
+                    callback: box_single_select(move |selected| {
+                        if let Some(display) = selected
+                            && let Some((_, model)) = entries
+                                .iter()
+                                .find(|(name, m)| format_model_display(name, m) == display)
                         {
-                            session.active_agent.inner.model = model.clone();
-                            win.force_render();
+                            let win_arc = get_chat_window();
+                            if let Ok(win) = win_arc.lock()
+                                && let Ok(loaded) = win.loaded_chat_session.read()
+                                && let Ok(mut session) = loaded.write()
+                            {
+                                session.active_agent.inner.model = model.clone();
+                                win.force_render();
+                            }
                         }
-                    }
+                    }),
+                    ..Default::default()
                 },
             ) {
                 GLOBAL_EXECUTION_HANDLER
@@ -375,48 +387,63 @@ fn select_history_fn() -> Function<(), ()> {
                 let options_clone = options.clone();
                 let options_refs: Vec<&str> = options.iter().map(|s| s.as_str()).collect();
 
-                if let Err(e) = pick("Select History", &options_refs, None, move |selected| {
-                    if let Some(selection) = selected {
-                        let idx = options_clone.iter().position(|s| *s == selection);
-                        if let Some(idx) = idx
-                            && let Some(history) = histories.into_iter().nth(idx)
-                        {
-                            // Serialize history to JSON so we can pass it through execute_on_main_thread
-                            if let Ok(history_json) = serde_json::to_string(&history)
-                                && let Err(e) = GLOBAL_EXECUTION_HANDLER
-                                    .execute_rust_on_main_thread(move || {
-                                        match serde_json::from_str::<
-                                            crate::chat::history::ChatHistory,
-                                        >(
-                                            &history_json
-                                        ) {
-                                            Ok(history) => {
-                                                let win_arc = get_chat_window();
-                                                if let Ok(mut win) = win_arc.lock()
-                                                    && let Err(e) = win
-                                                        .load_or_create_chat_from_history(history)
-                                                {
-                                                    notify(format!("{}", e), LogLevel::Error);
+                if let Err(e) = pick(
+                    &options_refs,
+                    FzfOption {
+                        prompt: "Select History".to_string(),
+                        callback: box_single_select(move |selected| {
+                            if let Some(selection) = selected {
+                                let idx = options_clone.iter().position(|s| *s == selection);
+                                if let Some(idx) = idx
+                                    && let Some(history) = histories.into_iter().nth(idx)
+                                {
+                                    // Serialize history to JSON so we can pass it through execute_rust_on_main_thread
+                                    if let Ok(history_json) = serde_json::to_string(&history)
+                                        && let Err(e) = GLOBAL_EXECUTION_HANDLER
+                                            .execute_rust_on_main_thread(move || {
+                                                match serde_json::from_str::<
+                                                    crate::chat::history::ChatHistory,
+                                                >(
+                                                    &history_json
+                                                ) {
+                                                    Ok(history) => {
+                                                        let win_arc = get_chat_window();
+                                                        if let Ok(mut win) = win_arc.lock()
+                                                            && let Err(e) = win
+                                                                .load_or_create_chat_from_history(
+                                                                    history,
+                                                                )
+                                                        {
+                                                            notify(
+                                                                format!("{}", e),
+                                                                LogLevel::Error,
+                                                            );
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        notify(
+                                                            format!(
+                                                                "failed to parse history: {}",
+                                                                e
+                                                            ),
+                                                            LogLevel::Error,
+                                                        );
+                                                    }
                                                 }
-                                            }
-                                            Err(e) => {
-                                                notify(
-                                                    format!("failed to parse history: {}", e),
-                                                    LogLevel::Error,
-                                                );
-                                            }
-                                        }
-                                        Ok(())
-                                    })
-                            {
-                                GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
-                                    format!("failed to load history: {}", e),
-                                    LogLevel::Error,
-                                );
+                                                Ok(())
+                                            })
+                                    {
+                                        GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                                            format!("failed to load history: {}", e),
+                                            LogLevel::Error,
+                                        );
+                                    }
+                                }
                             }
-                        }
-                    }
-                }) {
+                        }),
+                        ..Default::default()
+                    },
+                ) {
                     GLOBAL_EXECUTION_HANDLER
                         .notify_on_main_thread(format!("picker error: {}", e), LogLevel::Error);
                 }
