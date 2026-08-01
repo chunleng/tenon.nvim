@@ -391,6 +391,7 @@ fn select_history_fn() -> Function<(), ()> {
                     &options_refs,
                     FzfOption {
                         prompt: "Select History".to_string(),
+                        sorting: false,
                         callback: box_single_select(move |selected| {
                             if let Some(selection) = selected {
                                 let idx = options_clone.iter().position(|s| *s == selection);

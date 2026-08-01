@@ -46,7 +46,7 @@ impl Default for FzfOption {
     fn default() -> Self {
         Self {
             prompt: String::new(),
-            sorting: false,
+            sorting: true,
             select_mode: SelectMode::Single {
                 current_selected: None,
             },
