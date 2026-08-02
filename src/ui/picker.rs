@@ -7,12 +7,46 @@ use nvim_oxi::{
 
 use crate::utils::{GLOBAL_EXECUTION_HANDLER, Resolver};
 
+pub enum FzfBuiltin {
+    ToggleDown,
+    SelectDown,
+}
+
+impl FzfBuiltin {
+    fn action_str(&self) -> &'static str {
+        match self {
+            FzfBuiltin::ToggleDown => "toggle+down",
+            FzfBuiltin::SelectDown => "select+down",
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match self {
+            FzfBuiltin::ToggleDown => "toggle",
+            FzfBuiltin::SelectDown => "select",
+        }
+    }
+}
+
 pub enum FzfAction {
     Fn {
         builder: ActionBuilder,
         reload: bool,
+        description: String,
     },
-    Str(String),
+    FzfFn {
+        fzf_fn: FzfBuiltin,
+        repeat: usize,
+    },
+}
+
+impl FzfAction {
+    fn description(&self) -> String {
+        match self {
+            FzfAction::Fn { description, .. } => description.clone(),
+            FzfAction::FzfFn { fzf_fn, .. } => fzf_fn.description().to_string(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -116,6 +150,7 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                         })?)
                     }),
                     reload: false,
+                    description: "confirm".to_string(),
                 },
             );
 
@@ -123,7 +158,6 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                 SelectMode::Multi { current_selected } => {
                     fzf_opts.set("--multi", "")?;
                     fzf_opts.set("--marker", "✓")?;
-                    fzf_opts.set("--header", "(use <TAB> to toggle  <ENTER> to confirm)")?;
 
                     // Sort: current selections first, then the rest.
                     let mut sorted: Vec<String> = options
@@ -139,13 +173,20 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                     );
                     options = sorted;
 
-                    default_actions
-                        .insert("tab".to_string(), FzfAction::Str("toggle+down".to_string()));
+                    default_actions.insert(
+                        "tab".to_string(),
+                        FzfAction::FzfFn {
+                            fzf_fn: FzfBuiltin::ToggleDown,
+                            repeat: 1,
+                        },
+                    );
                     if !current_selected.is_empty() {
-                        let load_action = "select+down+".repeat(current_selected.len());
                         default_actions.insert(
                             "load".to_string(),
-                            FzfAction::Str(load_action.trim_end_matches('+').to_string()),
+                            FzfAction::FzfFn {
+                                fzf_fn: FzfBuiltin::SelectDown,
+                                repeat: current_selected.len(),
+                            },
                         );
                     }
                     default_actions.insert(
@@ -158,6 +199,7 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                                 })?)
                             }),
                             reload: false,
+                            description: "clear all".to_string(),
                         },
                     );
                 }
@@ -175,14 +217,36 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                         .collect();
                 }
             }
-            opts.set("fzf_opts", fzf_opts)?;
-
             // User-provided actions override select_mode defaults.
             default_actions.extend(fzf_option.actions);
 
+            // Autogenerate --header from action keymap descriptions.
+            let header: String = {
+                let mut entries: Vec<(String, String)> = default_actions
+                    .iter()
+                    .filter(|(key, _)| key.as_str() != "default" && key.as_str() != "load")
+                    .map(|(key, action)| (key.clone(), action.description()))
+                    .collect();
+                entries.sort_by(|a, b| a.0.cmp(&b.0));
+                entries
+                    .iter()
+                    .map(|(key, desc)| format!("`{}`: {}", key, desc))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            if !header.is_empty() {
+                fzf_opts.set("--header", header)?;
+            }
+
+            opts.set("fzf_opts", fzf_opts)?;
+
             for (key, action) in default_actions {
                 match action {
-                    FzfAction::Fn { builder, reload } => {
+                    FzfAction::Fn {
+                        builder,
+                        reload,
+                        description: _,
+                    } => {
                         let action_fn = builder(&lua, resolve_fn.clone())?;
                         if reload {
                             let action_table = lua.create_table()?;
@@ -193,7 +257,7 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                             actions.set(key, action_fn)?;
                         }
                     }
-                    FzfAction::Str(s) => {
+                    FzfAction::FzfFn { fzf_fn, repeat } => {
                         let keymap = match &fzf_keymap {
                             Some(t) => t,
                             None => {
@@ -202,7 +266,12 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                                 fzf_keymap.as_ref().unwrap()
                             }
                         };
-                        keymap.set(key, s)?;
+                        let base = fzf_fn.action_str();
+                        let keymap_str = format!("{}+", base)
+                            .repeat(repeat)
+                            .trim_end_matches('+')
+                            .to_string();
+                        keymap.set(key, keymap_str)?;
                     }
                 }
             }
