@@ -1,6 +1,8 @@
 ## Process
 Tests only, no code implementation.
 
+If user mentions no test is needed for this goal or in general, and a directive condition permits skipping the test, navigate to next workflow step without confirmation.
+
 Determine if code behavior changes:
 - No → follow "Behavior changes" section
 - Yes → follow "Refactor changes" section
