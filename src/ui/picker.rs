@@ -161,6 +161,9 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
             fzf_opts.set("--with-nth", "2")?;
             fzf_opts.set("--nth", "1")?;
 
+            // Description shown on the header (e.g. current value when excluded).
+            let mut header_description: Option<String> = None;
+
             match fzf_option.select_mode {
                 SelectMode::Multi { current_selected } => {
                     fzf_opts.set("--multi", "")?;
@@ -215,18 +218,14 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                 }
                 SelectMode::Single { current_selected } => {
                     fzf_opts.set("--no-multi", "")?;
-                    let marker = &fzf_option.marker;
-                    let other = " ".repeat(marker.chars().count());
+                    if let Some(current) = current_selected {
+                        // Current is shown on the header, not as a choice.
+                        options.retain(|opt| current != opt.as_str());
+                        header_description = Some(format!("{}{}", fzf_option.marker, current));
+                    }
                     options = options
-                        .iter()
-                        .map(|opt| {
-                            let m = if current_selected.as_deref() == Some(opt.as_str()) {
-                                marker.as_str()
-                            } else {
-                                &other
-                            };
-                            format!("{}{}{}{}", opt, DELIMITER, m, opt)
-                        })
+                        .into_iter()
+                        .map(|opt| format!("{}{}{}", opt, DELIMITER, opt))
                         .collect();
                 }
             }
@@ -234,7 +233,7 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
             default_actions.extend(fzf_option.actions);
 
             // Autogenerate --header from action keymap descriptions.
-            let header: String = {
+            let keymap_header: String = {
                 let mut entries: Vec<(String, String)> = default_actions
                     .iter()
                     .filter(|(key, _)| key.as_str() != "default" && key.as_str() != "load")
@@ -247,6 +246,7 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                     .collect::<Vec<_>>()
                     .join(", ")
             };
+            let header = format_header(header_description.as_deref(), &keymap_header);
             if !header.is_empty() {
                 fzf_opts.set("--header", header)?;
             }
@@ -339,6 +339,17 @@ fn extract_value(s: &str) -> String {
     s.split(DELIMITER).next().unwrap_or(s).to_string()
 }
 
+/// Combines a description (e.g. current value) and keymap header into a single
+/// header string: "description | keymap" when both present.
+fn format_header(description: Option<&str>, keymap: &str) -> String {
+    match (description, keymap.is_empty()) {
+        (Some(desc), false) => format!("{} | {}", desc, keymap),
+        (Some(desc), true) => desc.to_string(),
+        (None, false) => keymap.to_string(),
+        (None, true) => String::new(),
+    }
+}
+
 /// Wraps a single-select callback (`Option<String>`) into the
 /// `Option<Vec<String>>` shape that `FzfOption.callback` expects.
 pub fn box_single_select(
@@ -382,5 +393,24 @@ mod tests {
         );
         run(Some(vec![]), None);
         run(None, None);
+    }
+
+    #[test]
+    fn test_format_header_both() {
+        // When both description and keymap exist: "description | keymap"
+        let header = format_header(Some("my_model"), "`ctrl-x`: clear all");
+        assert_eq!(header, "my_model | `ctrl-x`: clear all");
+    }
+
+    #[test]
+    fn test_format_header_description_only() {
+        let header = format_header(Some("my_model"), "");
+        assert_eq!(header, "my_model");
+    }
+
+    #[test]
+    fn test_format_header_keymap_only() {
+        let header = format_header(None, "`ctrl-x`: clear all");
+        assert_eq!(header, "`ctrl-x`: clear all");
     }
 }
