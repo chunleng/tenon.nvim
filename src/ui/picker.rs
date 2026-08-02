@@ -73,6 +73,7 @@ pub struct FzfOption {
     pub prompt: String,
     pub sorting: bool,
     pub select_mode: SelectMode,
+    pub marker: String,
     pub actions: HashMap<String, FzfAction>,
     pub callback: Box<dyn FnOnce(Option<Vec<String>>) + Send>,
 }
@@ -85,6 +86,7 @@ impl Default for FzfOption {
             select_mode: SelectMode::Single {
                 current_selected: None,
             },
+            marker: " ".to_string(),
             actions: HashMap::new(),
             callback: Box::new(|_| {}),
         }
@@ -162,7 +164,7 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
             match fzf_option.select_mode {
                 SelectMode::Multi { current_selected } => {
                     fzf_opts.set("--multi", "")?;
-                    fzf_opts.set("--marker", "✓")?;
+                    fzf_opts.set("--marker", fzf_option.marker)?;
 
                     // Sort: current selections first, then the rest.
                     let mut sorted: Vec<String> = options
@@ -213,15 +215,17 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                 }
                 SelectMode::Single { current_selected } => {
                     fzf_opts.set("--no-multi", "")?;
+                    let marker = &fzf_option.marker;
+                    let other = " ".repeat(marker.chars().count());
                     options = options
                         .iter()
                         .map(|opt| {
-                            let marker = if current_selected.as_deref() == Some(opt.as_str()) {
-                                CURRENT_MARKER
+                            let m = if current_selected.as_deref() == Some(opt.as_str()) {
+                                marker.as_str()
                             } else {
-                                OTHER_MARKER
+                                &other
                             };
-                            format!("{}{}{}{}", opt, DELIMITER, marker, opt)
+                            format!("{}{}{}{}", opt, DELIMITER, m, opt)
                         })
                         .collect();
                 }
@@ -315,11 +319,9 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
     Ok(())
 }
 
-const CURRENT_MARKER: &str = "> ";
-const OTHER_MARKER: &str = "  ";
 const DELIMITER: char = '';
 
-/// Shows a FzfLua picker. Spawns a thread and runs fzf-lua with the given
+/// Shows a FzfLua picker. Spawns a thread and runs fzf-lua with the given picker. Spawns a thread and runs fzf-lua with the given
 /// `options` and `fzf_option` configuration. The result is delivered
 /// asynchronously via `fzf_option.callback`.
 ///
