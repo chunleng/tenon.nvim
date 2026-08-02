@@ -120,7 +120,6 @@ fn create_resolve_fn(
 /// table from `FzfOption` (prompt, fzf_opts, keymap, actions, winopts).
 /// Returns the selected items as a list of strings.
 fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
-    let select_mode = fzf_option.select_mode.clone();
     let callback = fzf_option.callback;
     let result = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(move |resolver| {
         let lua = lua();
@@ -154,6 +153,12 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                 },
             );
 
+            // Display field 2 (marker+value), search field 1 (clean value).
+            // fzf returns the full line; extract_value recovers the clean value.
+            fzf_opts.set("--delimiter", DELIMITER.to_string())?;
+            fzf_opts.set("--with-nth", "2")?;
+            fzf_opts.set("--nth", "1")?;
+
             match fzf_option.select_mode {
                 SelectMode::Multi { current_selected } => {
                     fzf_opts.set("--multi", "")?;
@@ -171,7 +176,10 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                             .filter(|o| !current_selected.contains(o))
                             .cloned(),
                     );
-                    options = sorted;
+                    options = sorted
+                        .into_iter()
+                        .map(|opt| format!("{}{}{}", opt, DELIMITER, opt))
+                        .collect();
 
                     default_actions.insert(
                         "tab".to_string(),
@@ -208,11 +216,12 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                     options = options
                         .iter()
                         .map(|opt| {
-                            if current_selected.as_deref() == Some(opt.as_str()) {
-                                format!("{}{}", CURRENT_MARKER, opt)
+                            let marker = if current_selected.as_deref() == Some(opt.as_str()) {
+                                CURRENT_MARKER
                             } else {
-                                format!("{}{}", OTHER_MARKER, opt)
-                            }
+                                OTHER_MARKER
+                            };
+                            format!("{}{}{}{}", opt, DELIMITER, marker, opt)
                         })
                         .collect();
                 }
@@ -299,12 +308,7 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
         }
     });
 
-    let result = match select_mode {
-        SelectMode::Single { .. } => {
-            result.map(|items| items.into_iter().map(|s| clean_marker(&s)).collect())
-        }
-        SelectMode::Multi { .. } => result,
-    };
+    let result = result.map(|items| items.into_iter().map(|s| extract_value(&s)).collect());
 
     callback(result.ok());
 
@@ -313,6 +317,7 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
 
 const CURRENT_MARKER: &str = "> ";
 const OTHER_MARKER: &str = "  ";
+const DELIMITER: char = '';
 
 /// Shows a FzfLua picker. Spawns a thread and runs fzf-lua with the given
 /// `options` and `fzf_option` configuration. The result is delivered
@@ -328,11 +333,8 @@ pub fn pick(options: &[&str], fzf_option: FzfOption) -> OxiResult<()> {
     Ok(())
 }
 
-fn clean_marker(s: &str) -> String {
-    s.strip_prefix(CURRENT_MARKER)
-        .or_else(|| s.strip_prefix(OTHER_MARKER))
-        .unwrap_or(s)
-        .to_string()
+fn extract_value(s: &str) -> String {
+    s.split(DELIMITER).next().unwrap_or(s).to_string()
 }
 
 /// Wraps a single-select callback (`Option<String>`) into the
@@ -346,6 +348,18 @@ pub fn box_single_select(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extract_value() {
+        // fzf returns full line "value{marker}value"; extract clean value
+        assert_eq!(extract_value("apple> apple"), "apple");
+        assert_eq!(extract_value("apple  apple"), "apple");
+        // Values containing marker prefixes are preserved (was broken by clean_marker)
+        assert_eq!(extract_value("> something> > something"), "> something");
+        assert_eq!(extract_value("  spaced    spaced"), "  spaced");
+        // No tab delimiter: return as-is
+        assert_eq!(extract_value("plain"), "plain");
+    }
 
     #[test]
     fn test_box_single_select() {
