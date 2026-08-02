@@ -8,7 +8,10 @@ use nvim_oxi::{
 use crate::utils::{GLOBAL_EXECUTION_HANDLER, Resolver};
 
 pub enum FzfAction {
-    Fn(ActionBuilder),
+    Fn {
+        builder: ActionBuilder,
+        reload: bool,
+    },
     Str(String),
 }
 
@@ -100,14 +103,21 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
             }
 
             let actions = lua.create_table()?;
-            let default_resolve = resolve_fn.clone();
-            let default_fn = lua.create_function(move |_, sel: Vec<String>| {
-                default_resolve.call::<()>(sel)?;
-                Ok(())
-            })?;
-            actions.set("default", default_fn)?;
 
             let mut fzf_keymap = None::<mlua::Table>;
+            let mut default_actions: HashMap<String, FzfAction> = HashMap::new();
+            default_actions.insert(
+                "default".to_string(),
+                FzfAction::Fn {
+                    builder: action(|lua, resolve_fn| {
+                        Ok(lua.create_function(move |_, sel: Vec<String>| {
+                            resolve_fn.call::<()>(sel)?;
+                            Ok(())
+                        })?)
+                    }),
+                    reload: false,
+                },
+            );
 
             match fzf_option.select_mode {
                 SelectMode::Multi { current_selected } => {
@@ -129,20 +139,27 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
                     );
                     options = sorted;
 
-                    let keymap = lua.create_table()?;
-                    keymap.set("tab", "toggle+down")?;
+                    default_actions
+                        .insert("tab".to_string(), FzfAction::Str("toggle+down".to_string()));
                     if !current_selected.is_empty() {
                         let load_action = "select+down+".repeat(current_selected.len());
-                        keymap.set("load", load_action.trim_end_matches('+'))?;
+                        default_actions.insert(
+                            "load".to_string(),
+                            FzfAction::Str(load_action.trim_end_matches('+').to_string()),
+                        );
                     }
-                    fzf_keymap = Some(keymap);
-
-                    let ctrl_x_resolve = resolve_fn.clone();
-                    let ctrl_x_fn = lua.create_function(move |_, ()| {
-                        ctrl_x_resolve.call::<()>(Vec::<String>::new())?;
-                        Ok(())
-                    })?;
-                    actions.set("ctrl-x", ctrl_x_fn)?;
+                    default_actions.insert(
+                        "ctrl-x".to_string(),
+                        FzfAction::Fn {
+                            builder: action(|lua, resolve_fn| {
+                                Ok(lua.create_function(move |_, ()| {
+                                    resolve_fn.call::<()>(Vec::<String>::new())?;
+                                    Ok(())
+                                })?)
+                            }),
+                            reload: false,
+                        },
+                    );
                 }
                 SelectMode::Single { current_selected } => {
                     fzf_opts.set("--no-multi", "")?;
@@ -160,11 +177,21 @@ fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
             }
             opts.set("fzf_opts", fzf_opts)?;
 
-            for (key, action) in fzf_option.actions {
+            // User-provided actions override select_mode defaults.
+            default_actions.extend(fzf_option.actions);
+
+            for (key, action) in default_actions {
                 match action {
-                    FzfAction::Fn(builder) => {
+                    FzfAction::Fn { builder, reload } => {
                         let action_fn = builder(&lua, resolve_fn.clone())?;
-                        actions.set(key, action_fn)?;
+                        if reload {
+                            let action_table = lua.create_table()?;
+                            action_table.set("fn", action_fn)?;
+                            action_table.set("reload", true)?;
+                            actions.set(key, action_table)?;
+                        } else {
+                            actions.set(key, action_fn)?;
+                        }
                     }
                     FzfAction::Str(s) => {
                         let keymap = match &fzf_keymap {
