@@ -142,11 +142,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
     })
 }
 
-/// Returns the names of all available tools (built-in + MCP).
-///
-/// Built-in names: "create_file", "edit_file", "fetch_webpage",
-/// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search", "record_thought".
-/// MCP tool names: "server_name.tool_name".
+/// Returns the names of all selectable tools (built-in + MCP - system tools).
 pub fn all_tool_names() -> Vec<String> {
     let mut names: Vec<String> = vec![
         "create_file".into(),
@@ -159,7 +155,6 @@ pub fn all_tool_names() -> Vec<String> {
         "run_command".into(),
         "search_text".into(),
         "web_search".into(),
-        "record_thought".into(),
         "analyze_image".into(),
     ];
 
