@@ -220,15 +220,20 @@ impl ChatLogCache {
 
                     let current_log = &indexed_log.log.data;
 
-                    let render_type = if matches!(current_log,
-                        TenonLogData::Assistant(msg) if msg.content.is_empty() && msg.reasoning.is_some()
-                    ) || matches!(current_log,
-                        TenonLogData::Thought(thought_log) if thought_log.summary.is_none()
-                    ) {
-                        let display_last_x = if next_log.is_some() { 1 } else { 3 };
-                        RenderType::Tail(display_last_x)
-                    } else {
-                        RenderType::Normal
+                    let render_type = match current_log {
+                        TenonLogData::Assistant(msg)
+                            if msg.content.is_empty() && msg.reasoning.is_some() =>
+                        {
+                            if next_log.is_some() {
+                                RenderType::Tail(1)
+                            } else {
+                                RenderType::Normal
+                            }
+                        }
+                        TenonLogData::Thought(thought_log) if thought_log.summary.is_none() => {
+                            RenderType::Tail(3)
+                        }
+                        _ => RenderType::Normal,
                     };
 
                     // Add line separator unless both current and next are Tools
@@ -368,6 +373,20 @@ mod tests {
             ))),
             active: true,
         };
+    }
+
+    fn add_thought_log(cache: &mut ChatLogCache, thought: &str) {
+        let session = cache.chat_session.write().unwrap();
+        let mut log_window = session.log_handler.log_window.write().unwrap();
+        log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+            log: Arc::new(TenonLog::new(TenonLogData::Thought(
+                crate::chat::log::TenonThoughtLog {
+                    thought: thought.to_string(),
+                    summary: None,
+                },
+            ))),
+            active: true,
+        });
     }
 
     fn add_tool_log(cache: &mut ChatLogCache, name: &str, id: usize) {
@@ -659,6 +678,52 @@ mod tests {
         assert!(
             updates.is_empty(),
             "should skip render after re-render when log not updated again"
+        );
+    }
+
+    #[test]
+    fn test_assistant_reasoning_no_next_log_normal() {
+        let mut cache = init_test_cache();
+
+        add_assistant_reasoning(&mut cache, "Line 1\nLine 2\nLine 3\nLine 4\nLine 5");
+
+        let (updates, _) = cache.poll_render_update();
+        assert_eq!(updates.len(), 1);
+        // With Normal, all 5 lines count toward content_lines (not truncated to 3)
+        assert!(
+            matches!(updates[0].render_type, RenderType::Normal),
+            "assistant reasoning with no next log should be Normal"
+        );
+        assert_eq!(
+            updates[0].target_log.data.lines().len(),
+            5,
+            "all 5 lines should be present"
+        );
+    }
+
+    #[test]
+    fn test_thought_without_summary_always_tail_3() {
+        // Thought with next log: Tail(3), not Tail(1)
+        let mut cache = init_test_cache();
+        add_thought_log(&mut cache, "Thought 1\nThought 2\nThought 3\nThought 4");
+        add_user_log(&mut cache, "Hello");
+
+        let (updates, _) = cache.poll_render_update();
+        assert_eq!(updates.len(), 2);
+        assert!(
+            matches!(updates[0].render_type, RenderType::Tail(3)),
+            "thought without summary with next log should be Tail(3)"
+        );
+
+        // Thought without next log: Tail(3)
+        let mut cache = init_test_cache();
+        add_thought_log(&mut cache, "Thought 1\nThought 2\nThought 3\nThought 4");
+
+        let (updates, _) = cache.poll_render_update();
+        assert_eq!(updates.len(), 1);
+        assert!(
+            matches!(updates[0].render_type, RenderType::Tail(3)),
+            "thought without summary without next log should be Tail(3)"
         );
     }
 
