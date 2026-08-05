@@ -40,6 +40,7 @@ pub struct NvimWindowOption {
     pub relative_number: bool,
     pub sign_column: String,
     pub winfixbuf: bool,
+    pub smoothscroll: bool,
     pub window_option: NvimWindowType,
 }
 
@@ -52,6 +53,7 @@ impl Default for NvimWindowOption {
             number: true,
             relative_number: true,
             winfixbuf: true,
+            smoothscroll: false,
             window_option: NvimWindowType::CenteredFloat {
                 height: 0.6,
                 width: 0.6,
@@ -139,6 +141,7 @@ impl NvimWindow {
         api::set_option_value("signcolumn", option.sign_column, &win_opts)?;
         api::set_option_value("number", option.number, &win_opts)?;
         api::set_option_value("relativenumber", option.relative_number, &win_opts)?;
+        api::set_option_value("smoothscroll", option.smoothscroll, &win_opts)?;
 
         Ok(Self { inner: window })
     }

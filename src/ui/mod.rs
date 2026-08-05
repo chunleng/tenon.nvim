@@ -660,6 +660,7 @@ impl ChatWindow {
                 number: false,
                 relative_number: false,
                 sign_column: "yes:3".to_string(),
+                smoothscroll: true,
                 window_option: NvimWindowType::Split {
                     direction: NvimSplitWindowType::Right,
                     ratio_wh: 0.4,

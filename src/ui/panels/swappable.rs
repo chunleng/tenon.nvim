@@ -15,6 +15,7 @@ pub struct SwappablePanelOption {
     pub number: bool,
     pub relative_number: bool,
     pub sign_column: String,
+    pub smoothscroll: bool,
     pub window_option: NvimWindowType,
 }
 
@@ -26,6 +27,7 @@ impl Default for SwappablePanelOption {
             number: true,
             relative_number: true,
             sign_column: "auto".to_string(),
+            smoothscroll: false,
             window_option: NvimWindowType::CenteredFloat {
                 height: 0.6,
                 width: 0.6,
@@ -66,6 +68,7 @@ impl SwappableBufferPanel {
             relative_number: option.relative_number,
             sign_column: option.sign_column.to_string(),
             winfixbuf: true,
+            smoothscroll: option.smoothscroll,
             window_option: option.window_option.clone(),
         };
         let window = NvimWindow::new(buffer, window_option)?;
