@@ -10,19 +10,17 @@
   - Run tests in same module/feature area
 4. Summarize changes
 5. Ask user to confirm: "Please confirm the implementation"
-  - Use "Decision: Confirm vs. Reject vs. No Answer" to determine action
   - Confirm → format code and navigate to workflow step 1
-  - Rejected → revise based on feedback and loop to process step 1
-  - No answer → reply to user and ask to confirm again
+  - Otherwise → use "Decision: Confirm vs. Reject vs. No Answer" to interpret the response
 
 ## Decision: Confirm vs. Reject vs. No Answer
 **Cohesion test 1:** Is user asking a question?
-- question → "No answer"
+- question → "No answer" → reply to user and ask to confirm again
 - else → continue
 
 **Cohesion test 2:** Is user asking for something part of the goal?
-- part of goal → "Rejected"
-- else → "Confirm"
+- part of goal → "Rejected" → revise based on feedback and loop to process step 1
+- else → "Confirm" → format code and navigate to workflow step 1
 
 ## Workflow Step Artifact
 Nothing

@@ -34,8 +34,9 @@ impl Tool for AskQuestion {
 
     fn description(&self) -> String {
         "Ask question with options and return the user's response. \
-         Each question returns a single answer — it does not support multi-select. \
-         Call this tool multiple times for more than one question."
+         Single answer only (no multi-select); call multiple times for more questions. \
+         An 'Answer by chat' option is always appended automatically - never add an \
+         option that just leads back to typing (e.g. \"Something else\", \"Others\")"
             .to_string()
     }
 
@@ -50,7 +51,7 @@ impl Tool for AskQuestion {
                 "options": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Answer choices. Prefix an option with '★' to mark it recommended."
+                    "description": "Answer choices. Prefix with '★' to mark recommended. Every option must be a genuine, distinct choice."
                 }
             },
             "required": ["question", "options"]
