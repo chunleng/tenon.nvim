@@ -5,10 +5,18 @@ use chrono::{DateTime, Utc};
 use crate::chat::{ChatSession, TenonLog, TenonLogData};
 use crate::ui::widget::chat_display::format::DisplayChatFormatter;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RenderType {
+    Normal,
+    Tail(usize),
+}
+
 pub struct StreamUpdate {
     pub replace_line_start: usize,
     pub replace_line_end: usize,
-    pub lines: Vec<String>,
+    pub target_log: Arc<TenonLog>,
+    pub render_type: RenderType,
+    pub line_separator_after: bool,
     pub line_hl_group: String,
     pub sign: String,
     pub sign_hl_group: String,
@@ -39,48 +47,108 @@ pub struct ChatLogCache {
 
 use std::sync::atomic::Ordering;
 
-fn process_log_lines(current_log: &TenonLogData, next_log: Option<&TenonLogData>) -> Vec<String> {
-    // Treat system tools as hidden (no next_log)
-    let next_log = next_log.filter(|n| !n.is_hidden_system_tool());
-
-    let mut x: Vec<String> = current_log.lines().into_iter().collect();
-
-    // For assistant reasoning and thought-without-summary, limit displayed lines
-    if let TenonLogData::Assistant(msg) = current_log
-        && msg.content.is_empty()
-        && msg.reasoning.is_some()
-    {
-        let display_last_x = if next_log.is_some() { 1 } else { 3 };
-        let total_lines = x.len();
-        if total_lines > display_last_x {
-            let skip = total_lines.saturating_sub(display_last_x);
-            x = x.into_iter().skip(skip).collect();
-            if let Some(first) = x.first_mut() {
-                *first = format!("... {}", first);
+/// Updates an existing rendered entry or inserts a new one.
+/// Returns `(render_location, new_current_line)` where:
+/// - `render_location` is `Some(Shown { line_start, line_end })` when entry changed/new and not System tool (needs render)
+/// - `render_location` is `Some(Hidden)` when entry is System tool (no render)
+/// - `render_location` is `None` when entry unchanged (skip render)
+/// - `new_current_line` is always provided for position tracking
+fn upsert_entry_if_changed(
+    rendered_entries: &mut Vec<RenderedLogEntry>,
+    log_index: usize,
+    log: &Arc<TenonLog>,
+    render_type: RenderType,
+    line_separator_after: bool,
+    current_line: usize,
+) -> (Option<RenderedLocation>, usize) {
+    let content_lines = match render_type {
+        RenderType::Normal => log.data.lines().len(),
+        RenderType::Tail(x) => log.data.lines().len().min(x),
+    };
+    let total_lines = content_lines + line_separator_after as usize;
+    if let Some(existing) = rendered_entries.get_mut(log_index) {
+        // At this point, render_location is Shown
+        let (line_start, line_count) = match &existing.render_location {
+            RenderedLocation::Shown {
+                line_start,
+                line_count,
+            } => (*line_start, *line_count),
+            RenderedLocation::Hidden => {
+                if log.data.is_hidden_system_tool() {
+                    return (None, current_line);
+                }
+                existing.log = log.clone();
+                existing.render_location = RenderedLocation::Shown {
+                    line_start: current_line,
+                    line_count: total_lines,
+                };
+                existing.last_updated_at = log.last_updated_at;
+                return (
+                    Some(RenderedLocation::Shown {
+                        line_start: current_line,
+                        line_count: 0,
+                    }),
+                    current_line + total_lines,
+                );
             }
+        };
+
+        // Check if separator changed (line count differs for Tool logs)
+        let separator_changed = line_count != total_lines;
+
+        // Unchanged entry: return position for tracking, but no render needed
+        if Arc::ptr_eq(log, &existing.log)
+            && log.last_updated_at <= existing.last_updated_at
+            && !separator_changed
+        {
+            return (None, line_start + line_count);
         }
-    } else if let TenonLogData::Thought(thought_log) = current_log
-        && thought_log.summary.is_none()
-    {
-        let display_last_x = if next_log.is_some() { 1 } else { 3 };
-        let total_lines = x.len();
-        if total_lines > display_last_x {
-            let skip = total_lines.saturating_sub(display_last_x);
-            x = x.into_iter().skip(skip).collect();
-            if let Some(first) = x.first_mut() {
-                *first = format!("... {}", first);
-            }
-        }
+
+        existing.log = log.clone();
+        existing.render_location = RenderedLocation::Shown {
+            line_start: current_line,
+            line_count: total_lines,
+        };
+        existing.last_updated_at = log.last_updated_at;
+
+        return (
+            Some(RenderedLocation::Shown {
+                line_start: current_line,
+                line_count: line_count.saturating_sub(current_line.saturating_sub(line_start)),
+                // This is to ensure that even if the line has shifted because previous
+                // rendered_entries changes, it will still replace the area that was once
+                // occupied by the previous render
+            }),
+            current_line + total_lines,
+        );
     }
 
-    // Add empty line separator unless both current and next are Tools
-    if !(matches!(current_log, TenonLogData::Tool(_))
-        && next_log.is_some_and(|n| matches!(n, TenonLogData::Tool(_))))
-    {
-        x.extend(vec!["".to_string()]);
-    }
+    // New entry
+    if log.data.is_hidden_system_tool() {
+        rendered_entries.push(RenderedLogEntry {
+            log: log.clone(),
+            render_location: RenderedLocation::Hidden,
+            last_updated_at: log.last_updated_at,
+        });
+        (Some(RenderedLocation::Hidden), current_line)
+    } else {
+        rendered_entries.push(RenderedLogEntry {
+            log: log.clone(),
+            render_location: RenderedLocation::Shown {
+                line_start: current_line,
+                line_count: total_lines,
+            },
+            last_updated_at: log.last_updated_at,
+        });
 
-    x
+        (
+            Some(RenderedLocation::Shown {
+                line_start: current_line,
+                line_count: 0, // For new entries, replace from start
+            }),
+            current_line + total_lines,
+        )
+    }
 }
 
 impl ChatLogCache {
@@ -109,217 +177,121 @@ impl ChatLogCache {
             })
     }
 
-    /// Updates an existing rendered entry or inserts a new one.
-    /// Returns `(render_location, new_current_line)` where:
-    /// - `render_location` is `Some(Shown { line_start, line_end })` when entry changed/new and not System tool (needs render)
-    /// - `render_location` is `Some(Hidden)` when entry is System tool (no render)
-    /// - `render_location` is `None` when entry unchanged (skip render)
-    /// - `new_current_line` is always provided for position tracking
-    fn upsert_entry_if_changed(
-        &mut self,
-        log_index: usize,
-        log: &Arc<TenonLog>,
-        lines: &[String],
-        current_line: usize,
-    ) -> (Option<RenderedLocation>, usize) {
-        if let Some(existing) = self.rendered_entries.get_mut(log_index) {
-            // At this point, render_location is Shown
-            let (line_start, line_count) = match &existing.render_location {
-                RenderedLocation::Shown {
-                    line_start,
-                    line_count,
-                } => (*line_start, *line_count),
-                RenderedLocation::Hidden => {
-                    if log.data.is_hidden_system_tool() {
-                        return (None, current_line);
-                    }
-                    existing.log = log.clone();
-                    existing.render_location = RenderedLocation::Shown {
-                        line_start: current_line,
-                        line_count: lines.len(),
-                    };
-                    existing.last_updated_at = log.last_updated_at;
-                    return (
-                        Some(RenderedLocation::Shown {
-                            line_start: current_line,
-                            line_count: 0,
-                        }),
-                        current_line + lines.len(),
-                    );
-                }
-            };
-
-            // Check if separator changed (line count differs for Tool logs)
-            let separator_changed = line_count != lines.len();
-
-            // Unchanged entry: return position for tracking, but no render needed
-            if Arc::ptr_eq(log, &existing.log)
-                && log.last_updated_at <= existing.last_updated_at
-                && !separator_changed
-            {
-                return (None, line_start + line_count);
-            }
-
-            existing.log = log.clone();
-            existing.render_location = RenderedLocation::Shown {
-                line_start: current_line,
-                line_count: lines.len(),
-            };
-            existing.last_updated_at = log.last_updated_at;
-
-            return (
-                Some(RenderedLocation::Shown {
-                    line_start: current_line,
-                    line_count: line_count.saturating_sub(current_line.saturating_sub(line_start)),
-                    // This is to ensure that even if the line has shifted because previous
-                    // rendered_entries changes, it will still replace the area that was once
-                    // occupied by the previous render
-                }),
-                current_line + lines.len(),
-            );
-        }
-
-        // New entry
-        if log.data.is_hidden_system_tool() {
-            self.rendered_entries.push(RenderedLogEntry {
-                log: log.clone(),
-                render_location: RenderedLocation::Hidden,
-                last_updated_at: log.last_updated_at,
-            });
-            (Some(RenderedLocation::Hidden), current_line)
-        } else {
-            self.rendered_entries.push(RenderedLogEntry {
-                log: log.clone(),
-                render_location: RenderedLocation::Shown {
-                    line_start: current_line,
-                    line_count: lines.len(),
-                },
-                last_updated_at: log.last_updated_at,
-            });
-
-            (
-                Some(RenderedLocation::Shown {
-                    line_start: current_line,
-                    line_count: 0, // For new entries, replace from start
-                }),
-                current_line + lines.len(),
-            )
-        }
-    }
-
     pub fn poll_render_update(&mut self) -> (Vec<StreamUpdate>, usize) {
         let check_from = self.check_from_index.load(Ordering::SeqCst);
 
-        // Collect new logs while holding the lock
-        let current_count = if let Ok(chat_session) = self.chat_session.read()
+        // Get the line_end of the rendered entry at check_from_index (or 0 if none)
+        let mut current_line = if check_from == 0 {
+            0
+        } else {
+            self.rendered_entries
+                .get(check_from.saturating_sub(1))
+                .map(|entry| match &entry.render_location {
+                    RenderedLocation::Shown {
+                        line_start,
+                        line_count,
+                    } => line_start + line_count,
+                    RenderedLocation::Hidden => 0, // Hidden entries don't affect line position
+                })
+                .unwrap_or(0)
+        };
+
+        if let Ok(chat_session) = self.chat_session.read()
             && let Ok(log_window) = chat_session.log_handler.log_window.read()
         {
             let current_count = log_window.logs.len();
 
-            // No new logs to render
             if check_from >= current_count {
                 return (Vec::new(), 0);
             }
 
-            current_count
-        } else {
-            return (Vec::new(), 0);
-        };
-
-        // Get the line_end of the rendered entry at check_from_index (or 0 if none)
-        let mut current_line = {
-            if check_from == 0 {
-                0
-            } else {
-                self.rendered_entries
-                    .get(check_from.saturating_sub(1))
-                    .map(|entry| match &entry.render_location {
-                        RenderedLocation::Shown {
-                            line_start,
-                            line_count,
-                        } => line_start + line_count,
-                        RenderedLocation::Hidden => 0, // Hidden entries don't affect line position
-                    })
-                    .unwrap_or(0)
-            }
-        };
-
-        // Collect StreamUpdates for new logs
-        // First, collect log data while holding the lock
-        let logs_data: Vec<(usize, Arc<TenonLog>, Vec<String>)> = {
-            let chat_session = self.chat_session.read().unwrap();
-            let log_window = chat_session.log_handler.log_window.read().unwrap();
-
-            log_window.logs[check_from..current_count]
+            let updates: Vec<StreamUpdate> = log_window.logs[check_from..current_count]
                 .iter()
                 .enumerate()
-                .map(|(offset, indexed_log)| {
-                    // Find next visible log (skip system tools)
+                .filter_map(|(offset, indexed_log)| {
                     let next_log = log_window.logs[check_from + offset + 1..]
                         .iter()
                         .find(|n| !n.log.data.is_hidden_system_tool())
                         .map(|n| &n.log.data);
 
-                    let x = process_log_lines(&indexed_log.log.data, next_log);
+                    let current_log = &indexed_log.log.data;
 
-                    (check_from + offset, indexed_log.log.clone(), x)
-                })
-                .collect()
-        };
+                    let render_type = if matches!(current_log,
+                        TenonLogData::Assistant(msg) if msg.content.is_empty() && msg.reasoning.is_some()
+                    ) || matches!(current_log,
+                        TenonLogData::Thought(thought_log) if thought_log.summary.is_none()
+                    ) {
+                        let display_last_x = if next_log.is_some() { 1 } else { 3 };
+                        RenderType::Tail(display_last_x)
+                    } else {
+                        RenderType::Normal
+                    };
 
-        // Now process logs without holding the lock
-        let updates: Vec<StreamUpdate> = logs_data
-            .into_iter()
-            .filter_map(|(log_index, log, lines)| {
-                let (render_location, new_current_line) =
-                    self.upsert_entry_if_changed(log_index, &log, &lines, current_line);
+                    // Add line separator unless both current and next are Tools
+                    let line_separator_after = !(matches!(current_log, TenonLogData::Tool(_))
+                        && next_log.is_some_and(|n| matches!(n, TenonLogData::Tool(_))));
 
-                current_line = new_current_line;
+                    let log_index = check_from + offset;
+                    let log = &indexed_log.log;
 
-                // Only create StreamUpdate for Shown entries
-                let (line_start, line_count) = match render_location? {
-                    RenderedLocation::Shown {
-                        line_start,
-                        line_count,
-                    } => (line_start, line_count),
-                    RenderedLocation::Hidden => return None,
-                };
+                    let (render_location, new_current_line) = upsert_entry_if_changed(
+                        &mut self.rendered_entries,
+                        log_index,
+                        log,
+                        render_type,
+                        line_separator_after,
+                        current_line,
+                    );
 
-                Some(StreamUpdate {
-                    replace_line_start: line_start,
-                    replace_line_end: line_start + line_count,
-                    lines,
-                    line_hl_group: log.data.line_hl_group(),
-                    sign: log.data.sign(),
-                    sign_hl_group: log.data.sign_hl_group(),
-                })
-            })
-            .collect();
+                    current_line = new_current_line;
 
-        // Update check_from_index:
-        // - If last rendered entry is assistant, keep it at check_from to allow re-rendering (streaming support)
-        // - If last rendered entry is tool, find first tool in the consecutive tool chain
-        // - Otherwise, progress to current_count
-        let new_check_from = self
-            .rendered_entries
-            .last()
-            .map_or(current_count, |last_entry| match &last_entry.log.data {
-                TenonLogData::Assistant(_) | TenonLogData::Thought(_) => current_count - 1,
-                TenonLogData::Tool(_) => (0..current_count - 1)
-                    .rev()
-                    .take_while(|&i| {
-                        self.rendered_entries
-                            .get(i)
-                            .is_some_and(|e| matches!(e.log.data, TenonLogData::Tool(_)))
+                    let (line_start, line_count) = match render_location? {
+                        RenderedLocation::Shown {
+                            line_start,
+                            line_count,
+                        } => (line_start, line_count),
+                        RenderedLocation::Hidden => return None,
+                    };
+
+                    Some(StreamUpdate {
+                        replace_line_start: line_start,
+                        replace_line_end: line_start + line_count,
+                        target_log: log.clone(),
+                        render_type,
+                        line_separator_after,
+                        line_hl_group: log.data.line_hl_group(),
+                        sign: log.data.sign(),
+                        sign_hl_group: log.data.sign_hl_group(),
                     })
-                    .last()
-                    .unwrap_or(current_count - 1),
-                _ => current_count,
-            });
-        self.check_from_index
-            .store(new_check_from, Ordering::SeqCst);
+                })
+                .collect();
 
-        (updates, current_line)
+            // Update check_from_index:
+            // - If last rendered entry is assistant, keep it at check_from to allow re-rendering (streaming support)
+            // - If last rendered entry is tool, find first tool in the consecutive tool chain
+            // - Otherwise, progress to current_count
+            let new_check_from = self
+                .rendered_entries
+                .last()
+                .map_or(current_count, |last_entry| match &last_entry.log.data {
+                    TenonLogData::Assistant(_) | TenonLogData::Thought(_) => current_count - 1,
+                    TenonLogData::Tool(_) => (0..current_count - 1)
+                        .rev()
+                        .take_while(|&i| {
+                            self.rendered_entries
+                                .get(i)
+                                .is_some_and(|e| matches!(e.log.data, TenonLogData::Tool(_)))
+                        })
+                        .last()
+                        .unwrap_or(current_count - 1),
+                    _ => current_count,
+                });
+            self.check_from_index
+                .store(new_check_from, Ordering::SeqCst);
+
+            return (updates, current_line);
+        }
+        return (Vec::new(), 0);
     }
 }
 
@@ -433,10 +405,11 @@ mod tests {
             "current_line should be 2 after 'Hello' log (2 lines)"
         );
         assert_eq!(
-            updates[0].lines,
-            vec!["Hello", ""],
-            "should show all lines of user log with separator"
+            updates[0].target_log.data.lines(),
+            vec!["Hello"],
+            "should show all lines of user log"
         );
+        assert!(updates[0].line_separator_after);
         assert_eq!(updates[0].sign, " ", "should show User sign");
         assert_eq!(
             updates[0].sign_hl_group, "TenonSignUser",
@@ -464,15 +437,17 @@ mod tests {
             "current_line should be 6 after 3 logs (2 lines each)"
         );
         assert_eq!(
-            updates[0].lines,
-            vec!["World", ""],
-            "first log lines should be ['World', '']"
+            updates[0].target_log.data.lines(),
+            vec!["World"],
+            "first log lines should be ['World']"
         );
+        assert!(updates[0].line_separator_after);
         assert_eq!(
-            updates[1].lines,
-            vec!["Test", ""],
-            "second log lines should be ['Test', '']"
+            updates[1].target_log.data.lines(),
+            vec!["Test"],
+            "second log lines should be ['Test']"
         );
+        assert!(updates[1].line_separator_after);
         assert_eq!(updates[0].replace_line_start, 2);
         assert_eq!(updates[0].replace_line_end, 2);
         assert_eq!(updates[1].replace_line_start, 4);
@@ -494,7 +469,8 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 3);
-        assert_eq!(updates[2].lines, vec!["Thinking...", ""]);
+        assert_eq!(updates[2].target_log.data.lines(), vec!["Thinking..."]);
+        assert!(updates[2].line_separator_after);
         assert_eq!(updates[2].replace_line_start, 4);
         assert_eq!(updates[2].replace_line_end, 4);
 
@@ -502,7 +478,11 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].lines, vec!["Thinking...", "More thoughts", ""]);
+        assert_eq!(
+            updates[0].target_log.data.lines(),
+            vec!["Thinking...", "More thoughts"]
+        );
+        assert!(updates[0].line_separator_after);
         assert_eq!(updates[0].replace_line_start, 4);
         assert_eq!(updates[0].replace_line_end, 6, "should use stored line_end");
 
@@ -515,14 +495,20 @@ mod tests {
             "assistant reasoning should re-render with limited lines when has_next, plus user log"
         );
         // Assistant re-rendered with limited lines
-        assert_eq!(updates[0].lines, vec!["... More thoughts", ""]);
+        assert_eq!(
+            updates[0].target_log.data.lines(),
+            vec!["Thinking...", "More thoughts"]
+        );
+        assert!(updates[0].line_separator_after);
+        assert!(matches!(updates[0].render_type, RenderType::Tail(1)));
         assert_eq!(updates[0].replace_line_start, 4);
         assert_eq!(
             updates[0].replace_line_end, 7,
             "should replace old 3-line assistant"
         );
         // User log
-        assert_eq!(updates[1].lines, vec!["Hello", ""]);
+        assert_eq!(updates[1].target_log.data.lines(), vec!["Hello"]);
+        assert!(updates[1].line_separator_after);
         assert_eq!(
             updates[1].replace_line_start, 6,
             "user log starts after assistant (2 lines)"
@@ -548,18 +534,24 @@ mod tests {
         assert_eq!(updates.len(), 3);
 
         // User log with separator
-        assert_eq!(updates[0].lines, vec!["Hello", ""]);
+        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert!(updates[0].line_separator_after);
         // Tool → Tool: no separator between consecutive tools
-        assert!(updates[1].lines[0].contains("tool1"));
+        assert!(updates[1].target_log.data.lines()[0].contains("tool1"));
         assert_eq!(
-            updates[1].lines.len(),
+            updates[1].target_log.data.lines().len(),
             1,
             "tool1 should have no separator when next is tool"
         );
+        assert!(!updates[1].line_separator_after);
         // Last tool has separator
-        assert!(updates[2].lines[0].contains("tool2"));
-        assert_eq!(updates[2].lines.len(), 2, "last tool should have separator");
-        assert_eq!(updates[2].lines[1], "");
+        assert!(updates[2].target_log.data.lines()[0].contains("tool2"));
+        assert_eq!(
+            updates[2].target_log.data.lines().len(),
+            1,
+            "last tool should have separator"
+        );
+        assert!(updates[2].line_separator_after);
 
         assert_eq!(cache.check_from_index.load(Ordering::SeqCst), 1);
     }
@@ -572,7 +564,11 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].lines, vec!["Thinking...", "More thoughts", ""]);
+        assert_eq!(
+            updates[0].target_log.data.lines(),
+            vec!["Thinking...", "More thoughts"]
+        );
+        assert!(updates[0].line_separator_after);
         assert_eq!(updates[0].replace_line_start, 0);
         assert_eq!(updates[0].replace_line_end, 0);
 
@@ -580,7 +576,8 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].lines, vec!["Final answer", ""]);
+        assert_eq!(updates[0].target_log.data.lines(), vec!["Final answer"]);
+        assert!(updates[0].line_separator_after);
         assert_eq!(updates[0].replace_line_start, 0);
         assert_eq!(updates[0].replace_line_end, 3, "should use stored line_end");
 
@@ -592,7 +589,8 @@ mod tests {
             1,
             "should skip unchanged assistant log, return only user log"
         );
-        assert_eq!(updates[0].lines, vec!["Hello", ""]);
+        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert!(updates[0].line_separator_after);
         assert_eq!(
             updates[0].replace_line_start, 2,
             "user log starts after assistant (1 line + separator)"
@@ -609,10 +607,11 @@ mod tests {
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(
-            updates[0].lines,
-            vec!["Line 1", "Line 2", "Line 3", ""],
+            updates[0].target_log.data.lines(),
+            vec!["Line 1", "Line 2", "Line 3"],
             "should capture all lines from multi-line log"
         );
+        assert!(updates[0].line_separator_after);
         assert_eq!(updates[0].replace_line_start, 0);
         assert_eq!(updates[0].replace_line_end, 0);
 
@@ -620,7 +619,8 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].lines, vec!["Second log", ""]);
+        assert_eq!(updates[0].target_log.data.lines(), vec!["Second log"]);
+        assert!(updates[0].line_separator_after);
         assert_eq!(updates[0].replace_line_start, 4);
     }
 
@@ -632,7 +632,8 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].lines, vec!["Thinking...", ""]);
+        assert_eq!(updates[0].target_log.data.lines(), vec!["Thinking..."]);
+        assert!(updates[0].line_separator_after);
 
         let (updates, _) = cache.poll_render_update();
         assert!(
@@ -644,131 +645,17 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].lines, vec!["Thinking...", "More thoughts", ""]);
+        assert_eq!(
+            updates[0].target_log.data.lines(),
+            vec!["Thinking...", "More thoughts"]
+        );
+        assert!(updates[0].line_separator_after);
 
         let (updates, _) = cache.poll_render_update();
         assert!(
             updates.is_empty(),
             "should skip render after re-render when log not updated again"
         );
-    }
-
-    #[test]
-    fn test_process_log_lines_tool_separator() {
-        use crate::chat::log::{
-            TenonLogData, TenonToolCall, TenonToolLog, TenonUserMessage, TenonUserTextMessage,
-        };
-
-        let user_log = TenonLogData::User(TenonUserMessage::Text(TenonUserTextMessage(
-            "Hello".to_string(),
-        )));
-        let tool1_log = TenonLogData::Tool(TenonToolLog {
-            tool_call: TenonToolCall {
-                id: "1".into(),
-                internal_call_id: "1".into(),
-                name: "tool1".into(),
-                args: serde_json::json!({}),
-            },
-            tool_result: None,
-        });
-        let tool2_log = TenonLogData::Tool(TenonToolLog {
-            tool_call: TenonToolCall {
-                id: "2".into(),
-                internal_call_id: "2".into(),
-                name: "tool2".into(),
-                args: serde_json::json!({}),
-            },
-            tool_result: None,
-        });
-
-        // Tool → Tool: no separator between consecutive tools
-        let lines = process_log_lines(&tool1_log, Some(&tool2_log));
-        assert!(lines[0].contains("tool1"));
-        assert_eq!(
-            lines.len(),
-            1,
-            "tool1 should have no trailing empty line when next is tool"
-        );
-
-        // Tool → User: has separator
-        let lines = process_log_lines(&tool2_log, Some(&user_log));
-        assert!(lines[0].contains("tool2"));
-        assert_eq!(
-            lines.len(),
-            2,
-            "tool2 should have separator when next is user"
-        );
-        assert_eq!(lines[1], "");
-
-        // User → Tool: has separator
-        let lines = process_log_lines(&user_log, Some(&tool1_log));
-        assert_eq!(lines, vec!["Hello", ""]);
-
-        // Tool as last: has separator
-        let lines = process_log_lines(&tool1_log, None);
-        assert!(lines[0].contains("tool1"));
-        assert_eq!(lines.len(), 2, "last tool should have separator");
-    }
-
-    #[test]
-    fn test_process_log_lines_assistant_reasoning() {
-        use crate::chat::log::{
-            TenonAssistantMessage, TenonLogData, TenonUserMessage, TenonUserTextMessage,
-        };
-
-        let reasoning_log = TenonLogData::Assistant(TenonAssistantMessage {
-            reasoning: Some("Line 1\nLine 2\nLine 3\nLine 4\nLine 5".to_string()),
-            content: vec![],
-        });
-
-        // When last: show last 3 lines
-        let lines = process_log_lines(&reasoning_log, None);
-        assert_eq!(lines, vec!["... Line 3", "Line 4", "Line 5", ""]);
-
-        // When has next: show last 1 line
-        let user_log = TenonLogData::User(TenonUserMessage::Text(TenonUserTextMessage(
-            "Hello".to_string(),
-        )));
-        let lines = process_log_lines(&reasoning_log, Some(&user_log));
-        assert_eq!(lines, vec!["... Line 5", ""]);
-    }
-
-    #[test]
-    fn test_process_log_lines_thought_with_summary_not_truncated() {
-        use crate::chat::log::{TenonLogData, TenonThoughtLog};
-
-        let thought_log = TenonLogData::Thought(TenonThoughtLog {
-            thought: "Line 1\nLine 2\nLine 3\nLine 4\nLine 5".to_string(),
-            summary: Some("Short summary".to_string()),
-        });
-
-        // Summary is shown, not truncated
-        let lines = process_log_lines(&thought_log, None);
-        assert_eq!(lines, vec!["Thought summary:", "Short summary", ""]);
-    }
-
-    #[test]
-    fn test_process_log_lines_thought_followed_by_system_tool() {
-        use crate::chat::TenonLogData;
-        use crate::chat::log::{TenonThoughtLog, TenonToolCall, TenonToolLog};
-
-        let thought_log = TenonLogData::Thought(TenonThoughtLog {
-            thought: "Line 1\nLine 2\nLine 3\nLine 4\nLine 5".to_string(),
-            summary: None,
-        });
-        let system_tool_log = TenonLogData::Tool(TenonToolLog {
-            tool_call: TenonToolCall {
-                id: "1".into(),
-                internal_call_id: "1".into(),
-                name: "start_workflow".into(),
-                args: serde_json::json!({}),
-            },
-            tool_result: None,
-        });
-
-        // System tool is hidden → treated as last visible → 3 lines
-        let lines = process_log_lines(&thought_log, Some(&system_tool_log));
-        assert_eq!(lines, vec!["... Line 3", "Line 4", "Line 5", ""]);
     }
 
     #[test]
@@ -786,37 +673,9 @@ mod tests {
             2,
             "System tools should be excluded from render"
         );
-        assert_eq!(updates[0].lines, vec!["Hello", ""]);
-        assert!(updates[1].lines[0].contains("read_file"));
-    }
-
-    #[test]
-    fn test_process_log_lines_uses_next_visible_log() {
-        use crate::chat::log::{TenonAssistantMessage, TenonLogData, TenonToolCall, TenonToolLog};
-
-        // Assistant reasoning followed by system tool only → should treat as last (show 3 lines)
-        let reasoning_log = TenonLogData::Assistant(TenonAssistantMessage {
-            reasoning: Some("Line 1\nLine 2\nLine 3\nLine 4\nLine 5".to_string()),
-            content: vec![],
-        });
-        let system_tool_log = TenonLogData::Tool(TenonToolLog {
-            tool_call: TenonToolCall {
-                id: "1".into(),
-                internal_call_id: "1".into(),
-                name: "start_workflow".into(),
-                args: serde_json::json!({}),
-            },
-            tool_result: None,
-        });
-
-        // Current: next_log is system tool → shows 1 line (has_next = true)
-        // Desired: next_log is None (system tool hidden) → shows 3 lines (last visible)
-        let lines = process_log_lines(&reasoning_log, Some(&system_tool_log));
-        assert_eq!(
-            lines,
-            vec!["... Line 3", "Line 4", "Line 5", ""],
-            "Assistant reasoning followed by system tool should be treated as last visible log"
-        );
+        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert!(updates[0].line_separator_after);
+        assert!(updates[1].target_log.data.lines()[0].contains("read_file"));
     }
 
     #[test]
@@ -831,11 +690,12 @@ mod tests {
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 4);
 
-        assert_eq!(updates[0].lines, vec!["Hello", ""]);
-        assert!(updates[1].lines[0].contains("tool1"));
-        assert!(updates[2].lines[0].contains("tool2"));
-        assert!(updates[3].lines[0].contains("tool3"));
-        assert_eq!(updates[3].lines[1], "");
+        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert!(updates[0].line_separator_after);
+        assert!(updates[1].target_log.data.lines()[0].contains("tool1"));
+        assert!(updates[2].target_log.data.lines()[0].contains("tool2"));
+        assert!(updates[3].target_log.data.lines()[0].contains("tool3"));
+        assert!(updates[3].line_separator_after);
 
         cache.poll_render_update();
 
@@ -857,14 +717,15 @@ mod tests {
         assert_eq!(updates.len(), 2);
 
         // Tool2: now has separator (became last tool)
-        assert!(updates[0].lines[0].contains("tool2"));
-        assert_eq!(updates[0].lines.len(), 2);
-        assert_eq!(updates[0].lines[1], "");
+        assert!(updates[0].target_log.data.lines()[0].contains("tool2"));
+        assert_eq!(updates[0].target_log.data.lines().len(), 1);
+        assert!(updates[0].line_separator_after);
         assert_eq!(updates[0].replace_line_start, 3);
         assert_eq!(updates[0].replace_line_end, 4);
 
-        // User log: ["World", ""]
-        assert_eq!(updates[1].lines, vec!["World", ""]);
+        // User log: ["World"]
+        assert_eq!(updates[1].target_log.data.lines(), vec!["World"]);
+        assert!(updates[1].line_separator_after);
         assert_eq!(updates[1].replace_line_start, 5);
         assert_eq!(updates[1].replace_line_end, 6);
     }
@@ -971,9 +832,10 @@ mod tests {
         let (updates, _) = cache.poll_render_update();
 
         assert_eq!(updates.len(), 2, "System tool with error should be visible");
-        assert_eq!(updates[0].lines, vec!["Hello", ""]);
+        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert!(updates[0].line_separator_after);
         assert!(
-            updates[1].lines[0].contains("start_workflow"),
+            updates[1].target_log.data.lines()[0].contains("start_workflow"),
             "errored system tool should be rendered"
         );
     }
@@ -992,7 +854,8 @@ mod tests {
             1,
             "System tool with Ok result should be hidden"
         );
-        assert_eq!(updates[0].lines, vec!["Hello", ""]);
+        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert!(updates[0].line_separator_after);
     }
 
     #[test]
@@ -1009,7 +872,8 @@ mod tests {
             1,
             "System tool with pending result should be hidden"
         );
-        assert_eq!(updates[0].lines, vec!["Hello", ""]);
+        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert!(updates[0].line_separator_after);
     }
 
     #[test]
@@ -1031,7 +895,7 @@ mod tests {
             "errored system tool should become visible"
         );
         assert!(
-            updates[0].lines[0].contains("start_workflow"),
+            updates[0].target_log.data.lines()[0].contains("start_workflow"),
             "transitioned system tool should be rendered"
         );
     }

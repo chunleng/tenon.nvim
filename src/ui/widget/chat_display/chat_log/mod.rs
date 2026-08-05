@@ -14,12 +14,13 @@ use nvim_oxi::api::{
 
 use crate::{
     ui::nvim_primitives::{buffer::NvimBuffer, window::NvimWindow},
+    ui::widget::chat_display::format::DisplayChatFormatter,
     utils::GLOBAL_EXECUTION_HANDLER,
 };
 
 mod cache;
 
-pub use cache::ChatLogCache;
+pub use cache::{ChatLogCache, RenderType};
 
 pub struct ChatLogRenderer {
     pub attached_buffer: Arc<NvimBuffer>,
@@ -81,8 +82,22 @@ impl ChatLogRenderer {
                             for update in updates {
                                 let replace_start = update.replace_line_start;
                                 let replace_end = update.replace_line_end;
-                                let lines: Vec<&str> =
-                                    update.lines.iter().map(|s| s.as_str()).collect();
+                                let mut lines: Vec<String> =
+                                    update.target_log.data.lines().into_iter().collect();
+                                if let RenderType::Tail(x) = update.render_type
+                                    && lines.len() > x
+                                {
+                                    let skip = lines.len() - x;
+                                    lines = lines.into_iter().skip(skip).collect();
+                                    if let Some(first) = lines.first_mut() {
+                                        *first = format!("... {}", first);
+                                    }
+                                }
+                                let mut lines: Vec<&str> =
+                                    lines.iter().map(|s| s.as_str()).collect();
+                                if update.line_separator_after {
+                                    lines.push("");
+                                }
                                 let new_end = lines.len() + replace_start;
                                 let _ = buffer.clear_namespace(ns, replace_start..replace_end);
                                 let _ = buffer.set_lines(replace_start..replace_end, false, lines);
@@ -110,6 +125,8 @@ impl ChatLogRenderer {
                             }
 
                             // Remove excess lines at end of buffer
+                            // This can happen when we remove logs from the session (i.e. from
+                            // `prune_incomplete_messages`)
                             // buffer_line_count - 2 (footer) - current_line = excess lines to remove
                             let line_count = buffer.line_count().unwrap_or(0) as i64;
                             let excess_lines = line_count - 2 - current_line as i64;
