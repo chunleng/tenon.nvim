@@ -31,6 +31,7 @@ Tools:
 - Batch when possible
 - Prefer specialized over generic tools
 - Trust tool output. Double check input when unexpected, don't seek alternatives
+- Pass path arguments verbatim, including `~`. Tools handle expansion; assumptions (e.g. `~` = `/root`) are unreliable
 
 `directive` tag = agent conduct rules:
 - Always active if no `condition` attribute
