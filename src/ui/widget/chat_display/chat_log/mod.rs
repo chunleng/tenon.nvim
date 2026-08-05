@@ -64,7 +64,7 @@ impl ChatLogRenderer {
                 if !updates.is_empty() {
                     let _ = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(move || {
                         if let Some(mut buffer) = buffer_clone.get_buffer()
-                            && let Some(mut window) = window_clone.get_window()
+                            && let Some(window) = window_clone.get_window()
                         {
                             // Check if cursor is at last line before update (tail-line behavior)
                             let follow_last_line = if let Ok(line_count) = buffer.line_count() {
@@ -126,14 +126,25 @@ impl ChatLogRenderer {
 
                             let _ = nvim_oxi::api::set_option_value("modifiable", false, &buf_opts);
 
-                            // If cursor was at last line, move to new last line and scroll
+                            // If cursor was at last line, snap last line to bottom via winrestview.
+                            // winrestview is not affected by scrolloff or smoothscroll, unlike zb.
                             if follow_last_line
                                 && let Ok(new_line_count) = buffer.line_count()
-                                && let Ok((_, cursor_col)) = window.get_cursor()
+                                && let Ok(win_height) = window.get_height()
                             {
-                                let _ = window.set_cursor(new_line_count, cursor_col);
-                                let _ = window.call(|()| {
-                                    _ = api::command("normal! zb");
+                                let topline = new_line_count
+                                    .saturating_sub(win_height as usize)
+                                    .saturating_add(1);
+                                let lnum = new_line_count;
+                                let _ = window.call(move |()| {
+                                    let _ = api::command(&format!("call cursor({lnum}, 1)"));
+                                    let winline: i64 = api::eval("winline()").unwrap_or(0);
+                                    let winheight: i64 = api::eval("winheight(0)").unwrap_or(0);
+                                    if winline < winheight {
+                                        let _ = api::command(&format!(
+                                            "lua vim.fn.winrestview({{topline = {topline}, lnum = {lnum}}})"
+                                        ));
+                                    }
                                 });
                             }
                         }
