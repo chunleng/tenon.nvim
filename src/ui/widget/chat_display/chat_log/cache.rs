@@ -180,18 +180,22 @@ impl ChatLogCache {
     pub fn poll_render_update(&mut self) -> (Vec<StreamUpdate>, usize) {
         let check_from = self.check_from_index.load(Ordering::SeqCst);
 
-        // Get the line_end of the rendered entry at check_from_index (or 0 if none)
+        // Get the line_end of the nearest preceding Shown entry (or 0 if none)
         let mut current_line = if check_from == 0 {
             0
         } else {
-            self.rendered_entries
-                .get(check_from.saturating_sub(1))
-                .map(|entry| match &entry.render_location {
-                    RenderedLocation::Shown {
-                        line_start,
-                        line_count,
-                    } => line_start + line_count,
-                    RenderedLocation::Hidden => 0, // Hidden entries don't affect line position
+            (0..check_from)
+                .rev()
+                .find_map(|i| {
+                    self.rendered_entries
+                        .get(i)
+                        .and_then(|entry| match &entry.render_location {
+                            RenderedLocation::Shown {
+                                line_start,
+                                line_count,
+                            } => Some(line_start + line_count),
+                            RenderedLocation::Hidden => None,
+                        })
                 })
                 .unwrap_or(0)
         };
