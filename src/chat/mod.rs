@@ -33,7 +33,7 @@ pub use usage::SessionUsage;
 use history::save_to_history;
 use prompt::build_workflow_prompt;
 
-pub use crate::agent::chat::TenonAgent;
+pub use crate::agent::worker::full::TenonAgent;
 
 pub static CHAT_SESSIONS: LazyLock<Mutex<Vec<Arc<RwLock<ChatSession>>>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
