@@ -3,11 +3,10 @@ use nvim_oxi::{
 };
 
 use crate::{
-    chat::ActiveAgent,
     chat::history::{SessionMetadata, save_to_history},
     clients::SupportedModels,
     get_application_config, get_chat_window,
-    tools::{all_tool_names, tool_matches_selectors},
+    tools::{all_tool_names, resolve_tools, tool_matches_selectors},
     ui::picker::{FzfAction, FzfOption, SelectMode, action, box_single_select, pick},
     utils::{GLOBAL_EXECUTION_HANDLER, notify},
 };
@@ -124,8 +123,13 @@ fn select_tools_fn() -> Function<(), ()> {
                 let loaded = win.loaded_chat_session.read().ok()?;
                 let session = loaded.read().ok()?;
                 Some((
-                    session.active_agent.tool_names.clone(),
-                    session.active_agent.name.clone(),
+                    session
+                        .engine
+                        .tool_names
+                        .iter()
+                        .map(|t| t.name().to_string())
+                        .collect(),
+                    session.active_agent_name.clone(),
                 ))
             })()
             .unwrap_or_default();
@@ -179,7 +183,7 @@ fn select_tools_fn() -> Function<(), ()> {
                                     && let Ok(loaded) = win.loaded_chat_session.read()
                                     && let Ok(mut session) = loaded.write()
                                 {
-                                    session.active_agent.inner.tool_names = tools;
+                                    session.engine.tool_names = resolve_tools(&tools);
                                     win.force_render();
                                 }
                             }
@@ -207,7 +211,7 @@ fn select_agent_fn() -> Function<(), ()> {
                 let win = win_arc.lock().ok()?;
                 let loaded = win.loaded_chat_session.read().ok()?;
                 let session = loaded.read().ok()?;
-                Some(session.active_agent.name.clone())
+                Some(session.active_agent_name.clone())
             })();
 
             let options: Vec<&str> = agent_names.iter().map(|s| s.as_str()).collect();
@@ -226,10 +230,11 @@ fn select_agent_fn() -> Function<(), ()> {
                                     && let Ok(loaded) = win.loaded_chat_session.read()
                                     && let Ok(mut session) = loaded.write()
                                 {
-                                    session.active_agent = ActiveAgent {
-                                        name: name.clone(),
-                                        inner: agent.clone(),
-                                    };
+                                    session.active_agent_name = name.clone();
+                                    session.engine.model = agent.model.clone();
+                                    session.engine.directive = agent.directive.clone();
+                                    session.engine.tool_names = resolve_tools(&agent.tool_names);
+                                    session.engine.workflows = agent.workflows.clone();
                                     win.force_render();
                                 }
                             }
@@ -276,7 +281,7 @@ fn select_model_fn() -> Function<(), ()> {
                 let win = win_arc.lock().ok()?;
                 let loaded = win.loaded_chat_session.read().ok()?;
                 let session = loaded.read().ok()?;
-                let current = &session.active_agent.inner.model;
+                let current = &session.engine.model;
                 entries.iter().find_map(|(name, m)| {
                     (m.connector_name == current.connector_name
                         && m.model_name == current.model_name)
@@ -302,7 +307,7 @@ fn select_model_fn() -> Function<(), ()> {
                                 && let Ok(loaded) = win.loaded_chat_session.read()
                                 && let Ok(mut session) = loaded.write()
                             {
-                                session.active_agent.inner.model = model.clone();
+                                session.engine.model = model.clone();
                                 win.force_render();
                             }
                         }
@@ -375,13 +380,13 @@ fn rename_fn() -> Function<(), ()> {
                         }
 
                         let history_dir = get_application_config().history.directory;
-                        if let Ok(log_window) = session.log_handler.log_window.read() {
+                        if let Ok(log_window) = session.engine.log_handler.log_window.read() {
                             save_to_history(
                                 SessionMetadata {
                                     id: &session.id,
                                     title: new_title.as_deref(),
-                                    agent_name: &session.active_agent.name,
-                                    model_display: &session.active_agent.inner.model.display_name(),
+                                    agent_name: &session.active_agent_name,
+                                    model_display: &session.engine.model.display_name(),
                                     session_datetime: session.session_datetime,
                                 },
                                 &log_window,

@@ -201,7 +201,7 @@ impl ChatLogCache {
         };
 
         if let Ok(chat_session) = self.chat_session.read()
-            && let Ok(log_window) = chat_session.log_handler.log_window.read()
+            && let Ok(log_window) = chat_session.engine.log_handler.log_window.read()
         {
             let current_count = log_window.logs.len();
 
@@ -322,7 +322,7 @@ mod tests {
 
     fn add_user_log(cache: &mut ChatLogCache, text: &str) {
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
                 TenonUserTextMessage(text.to_string()),
@@ -333,7 +333,7 @@ mod tests {
 
     fn add_assistant_reasoning(cache: &mut ChatLogCache, reasoning: &str) {
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::Assistant(
                 TenonAssistantMessage {
@@ -347,7 +347,7 @@ mod tests {
 
     fn update_assistant_reasoning(cache: &mut ChatLogCache, index: usize, reasoning: &str) {
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs[index] = crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::Assistant(
                 TenonAssistantMessage {
@@ -361,7 +361,7 @@ mod tests {
 
     fn update_assistant_content(cache: &mut ChatLogCache, index: usize, content: &str) {
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs[index] = crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::Assistant(
                 TenonAssistantMessage {
@@ -377,7 +377,7 @@ mod tests {
 
     fn add_thought_log(cache: &mut ChatLogCache, thought: &str) {
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::Thought(
                 crate::chat::log::TenonThoughtLog {
@@ -391,7 +391,7 @@ mod tests {
 
     fn add_tool_log(cache: &mut ChatLogCache, name: &str, id: usize) {
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::Tool(
                 crate::chat::log::TenonToolLog {
@@ -769,7 +769,7 @@ mod tests {
         cache.poll_render_update();
 
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.remove(3); // Remove tool3
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
@@ -839,7 +839,7 @@ mod tests {
 
     fn add_system_tool_log_with_error(cache: &mut ChatLogCache, name: &str, id: usize) {
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::Tool(
                 crate::chat::log::TenonToolLog {
@@ -860,7 +860,7 @@ mod tests {
 
     fn add_system_tool_log_with_ok(cache: &mut ChatLogCache, name: &str, id: usize) {
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::Tool(
                 crate::chat::log::TenonToolLog {
@@ -884,7 +884,7 @@ mod tests {
 
     fn update_tool_log_to_error(cache: &mut ChatLogCache, index: usize) {
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.log_handler.log_window.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         let log = Arc::make_mut(&mut log_window.logs[index].log);
         log.set_tool_result(Some(Err(crate::chat::log::TenonToolError(
             "Toolset error: something went wrong".into(),

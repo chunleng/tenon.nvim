@@ -1,12 +1,11 @@
 use crate::chat::helpers::TitleHandler;
+use crate::chat::history::{SessionMetadata, save_to_history};
+use crate::get_application_config;
 use crate::tools::ask_question::QuestionResult;
-use crate::{
-    agent::provider::StreamItem, get_application_config, get_workflow_registry,
-    utils::GLOBAL_EXECUTION_HANDLER,
-};
+use crate::tools::resolve_tools;
 use chrono::{DateTime, Local};
-use nvim_oxi::{Result as OxiResult, api::types::LogLevel};
-use rig::{completion::Usage, message::ToolResultContent};
+use nvim_oxi::Result as OxiResult;
+use rig::completion::Usage;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
@@ -29,9 +28,6 @@ pub use log::{
     TenonUserTextMessage, TenonWorkflowLog,
 };
 pub use usage::SessionUsage;
-
-use history::save_to_history;
-use prompt::build_workflow_prompt;
 
 pub use crate::agent::worker::full::TenonAgent;
 
@@ -68,19 +64,6 @@ fn generate_chat_id() -> String {
 }
 
 #[derive(Debug, Clone)]
-pub struct ActiveAgent {
-    pub name: String,
-    pub inner: TenonAgent,
-}
-
-impl std::ops::Deref for ActiveAgent {
-    type Target = TenonAgent;
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct ActiveWorkflow {
     pub workflow: Arc<crate::chat::workflow::Workflow>,
     pub step: usize,
@@ -109,10 +92,9 @@ pub enum PendingAction {
 
 pub struct ChatSession {
     pub id: String,
-    pub log_handler: ChatLogHandler,
     pub usage: Arc<RwLock<SessionUsage>>,
-    pub active_agent: ActiveAgent,
-    pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
+    pub active_agent_name: String,
+    pub engine: crate::agent::engine::AgenticStreamEngine,
     pub session_datetime: DateTime<Local>,
     pub title_handler: TitleHandler,
     pub pending_actions_channel: Arc<EventChannel<PendingAction>>,
@@ -127,25 +109,30 @@ impl ChatSession {
     }
 
     pub fn with_agent_name(agent_name: String) -> OxiResult<Self> {
-        let log_handler = ChatLogHandler::new();
+        let agent = get_application_config()
+            .agents
+            .get(&agent_name)
+            .ok_or(nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("".into())))?
+            .clone();
+        let pending_actions_channel = Arc::new(EventChannel::new());
+        let engine = crate::agent::engine::AgenticStreamEngine::new(
+            agent.model,
+            agent.directive,
+            resolve_tools(&agent.tool_names),
+            agent.workflows,
+            Arc::downgrade(&pending_actions_channel),
+        );
+        let log_window = engine.log_handler.log_window.clone();
         Ok(Self {
             id: generate_chat_id(),
-            log_handler: log_handler.clone(),
             usage: Arc::new(RwLock::new(SessionUsage::default())),
-            active_agent: ActiveAgent {
-                name: agent_name.to_string(),
-                inner: get_application_config()
-                    .agents
-                    .get(&agent_name)
-                    .ok_or(nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("".into())))?
-                    .clone(),
-            },
-            active_workflow: Arc::new(RwLock::new(None)),
+            active_agent_name: agent_name.to_string(),
+            engine,
             session_datetime: Local::now(),
-            pending_actions_channel: Arc::new(EventChannel::new()),
+            pending_actions_channel,
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
-            title_handler: TitleHandler::new(log_handler.log_window.clone()),
+            title_handler: TitleHandler::new(log_window),
         })
     }
 
@@ -168,54 +155,31 @@ impl ChatSession {
             })?;
 
         let logs: Vec<TenonLog> = history.logs;
+        let pending_actions_channel = Arc::new(EventChannel::new());
 
-        // Replay workflow logs to reconstruct active_workflow state.
-        // Active workflow is derived from history, not stored directly,
-        // because it's constructed from logic (step progression/end), not raw state.
-        let active_workflow: Option<ActiveWorkflow> = {
-            let registry = get_workflow_registry();
-            let mut wf: Option<ActiveWorkflow> = None;
-            for log in &logs {
-                if let TenonLogData::Workflow(wf_log) = log.data() {
-                    match wf_log.step {
-                        Some(step) => {
-                            // Navigate/create: set workflow to this step
-                            if let Some(workflow) = registry.get(&wf_log.id) {
-                                wf = Some(ActiveWorkflow::new(workflow.clone(), step));
-                            }
-                        }
-                        None => {
-                            // End: clear active workflow
-                            wf = None;
-                        }
-                    }
-                }
-            }
-            wf
-        };
-
-        let log_handler = ChatLogHandler::from_logs(logs);
+        let mut engine = crate::agent::engine::AgenticStreamEngine::new(
+            agent.model,
+            agent.directive,
+            resolve_tools(&agent.tool_names),
+            agent.workflows,
+            Arc::downgrade(&pending_actions_channel),
+        );
+        engine.load(logs);
+        let log_window = engine.log_handler.log_window.clone();
 
         let session = Self {
             id: history.id,
-            log_handler: log_handler.clone(),
             usage: Arc::new(RwLock::new(SessionUsage {
                 accumulated: history.usage,
                 last_exchange: Usage::new(),
             })),
-            active_agent: ActiveAgent {
-                name: agent_name,
-                inner: agent,
-            },
-            active_workflow: Arc::new(RwLock::new(active_workflow)),
+            active_agent_name: agent_name,
+            engine,
             session_datetime: history.session_datetime,
-            pending_actions_channel: Arc::new(EventChannel::new()),
+            pending_actions_channel,
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
-            title_handler: TitleHandler::from_history(
-                history.title,
-                log_handler.log_window.clone(),
-            ),
+            title_handler: TitleHandler::from_history(history.title, log_window),
         };
 
         Ok(session)
@@ -247,328 +211,46 @@ impl ChatSession {
         // Generate title for the chat
         self.title_handler.generate_title();
 
-        let mut log_handler = self.log_handler.clone();
+        let mut engine = self.engine.clone();
         let usage_clone = Arc::clone(&self.usage);
-        let agent_clone = self.active_agent.clone();
+        let agent_name = self.active_agent_name.clone();
+        let model_display = self.engine.model.display_name();
         let chat_id = self.id.clone();
         let title_clone = Arc::clone(&self.title_handler.title);
         let session_datetime = self.session_datetime;
         let cancel_token = Arc::clone(&self.cancel_token);
-        let active_workflow_clone = Arc::clone(&self.active_workflow);
-        let event_channel = Arc::downgrade(&self.pending_actions_channel);
+        let log_window_clone = engine.log_handler.log_window.clone();
 
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
 
             rt.block_on(async {
-                loop {
-                    let mut should_continue = false;
-                    let agent = agent_clone
-                        .build_chat_adapter(active_workflow_clone.clone(), event_channel.clone());
-
-                    let next_prompt = log_handler.get_user_prompt();
-                    let chat_history = log_handler.get_chat_history(&next_prompt);
-                    let prompt = build_workflow_prompt(
-                        &active_workflow_clone,
-                        &agent_clone,
-                        next_prompt.clone(),
-                    )
-                    .await;
-                    let mut stream = agent
-                        .stream_chat(prompt.clone(), chat_history.clone())
-                        .await;
-
-                    while let Some(result) = stream.next().await {
-                        if cancel_token.load(Ordering::SeqCst) {
-                            break;
-                        }
-                        match result {
-                            Ok(StreamItem::ToolResult {
-                                tool_result,
-                                internal_call_id,
-                            }) => {
-                                if let Ok(mut log_window) = log_handler.log_window.write() {
-                                    if let Some(log) = log_window.logs.iter_mut().find_map(|x| {
-                                        if let TenonLogData::Tool(tool) = x.log.data()
-                                            && tool.tool_call.internal_call_id == internal_call_id
-                                        {
-                                            return Some(x);
-                                        }
-                                        None
-                                    }) {
-                                        let log = Arc::make_mut(&mut log.log);
-                                        let tool_result = tool_result.content.first();
-                                        let result = match tool_result {
-                                            ToolResultContent::Text(text) => {
-                                                if text.text.starts_with("ToolCallError: ") {
-                                                    Err(TenonToolError(text.text))
-                                                } else {
-                                                    Ok(TenonToolResult::Text(text))
-                                                }
-                                            }
-                                            ToolResultContent::Image(img) => {
-                                                Ok(TenonToolResult::Image(img))
-                                            }
-                                            // TODO: we might want to use this for easy to pass
-                                            // error and such
-                                            ToolResultContent::Json { value } => {
-                                                Ok(TenonToolResult::Text(rig::agent::Text {
-                                                    text: value.to_string(),
-                                                    ..Default::default()
-                                                }))
-                                            }
-                                        };
-
-                                        log.set_tool_result(Some(result.clone()));
-
-                                        // Handle workflow tool results
-                                        if let TenonLogData::Tool(tool_log) = log.data()
-                                            && [
-                                                "start_workflow",
-                                                "navigate_workflow",
-                                                "end_workflow",
-                                            ]
-                                            .contains(&tool_log.tool_call.name.as_str())
-                                            && result.is_ok()
-                                        {
-                                            let tool_log_clone = tool_log.clone();
-
-                                            if tool_log_clone.tool_call.name == "end_workflow" {
-                                                let id = active_workflow_clone
-                                                    .read()
-                                                    .ok()
-                                                    .and_then(|active| {
-                                                        active
-                                                            .as_ref()
-                                                            .map(|wf| wf.workflow.id.clone())
-                                                    })
-                                                    .unwrap_or_default();
-                                                if let Ok(mut active) =
-                                                    active_workflow_clone.write()
-                                                {
-                                                    *active = None;
-                                                }
-                                                log_window.logs.push(
-                                                    crate::chat::log::indexer::IndexedLog {
-                                                        log: Arc::new(TenonLog::new(
-                                                            TenonLogData::Workflow(
-                                                                TenonWorkflowLog::new(
-                                                                    id,
-                                                                    "Workflow ended",
-                                                                    None,
-                                                                    tool_log_clone,
-                                                                ),
-                                                            ),
-                                                        )),
-                                                        active: true,
-                                                    },
-                                                );
-                                            } else if let Ok(active) = active_workflow_clone.read()
-                                                && let Some(active_wf) = active.as_ref()
-                                            {
-                                                let step = active_wf.step;
-                                                if let Ok(wf_log) = active_wf
-                                                    .workflow
-                                                    .generate_log(step, tool_log_clone)
-                                                {
-                                                    log_window.logs.push(
-                                                        crate::chat::log::indexer::IndexedLog {
-                                                            log: Arc::new(TenonLog::new(
-                                                                TenonLogData::Workflow(wf_log),
-                                                            )),
-                                                            active: true,
-                                                        },
-                                                    );
-                                                }
-                                            }
-
-                                            should_continue = true;
-                                            break;
-                                        }
-                                    } else {
-                                        // No matching Tool log → record_thought result.
-                                        // The tool returns JSON: {"thought": "...", "summary": null|"..."}
-                                        let content = tool_result.content.first();
-                                        if let ToolResultContent::Text(text) = content {
-                                            if text.text.starts_with("ToolCallError: ") {
-                                                // Invalid tool call was skipped by
-                                                // InvalidToolCallHook — no preceding ToolCall
-                                                // stream item arrived. Fake the tool call so the
-                                                // log is displayable and produces valid LLM
-                                                // history (matching tool_call.id + tool_result.id).
-                                                let tool_name = text
-                                                    .text
-                                                    .strip_prefix("ToolCallError: `")
-                                                    .and_then(|s| s.split('`').next())
-                                                    .unwrap_or("unknown")
-                                                    .to_string();
-                                                log_window.logs.push(
-                                                    crate::chat::log::indexer::IndexedLog {
-                                                        log: Arc::new(TenonLog::new(
-                                                            TenonLogData::Tool(TenonToolLog {
-                                                                tool_call: TenonToolCall {
-                                                                    id: tool_result.id.clone(),
-                                                                    internal_call_id:
-                                                                        internal_call_id.clone(),
-                                                                    name: tool_name,
-                                                                    args: serde_json::Value::Null,
-                                                                },
-                                                                tool_result: Some(Err(
-                                                                    TenonToolError(
-                                                                        text.text.clone(),
-                                                                    ),
-                                                                )),
-                                                            }),
-                                                        )),
-                                                        active: true,
-                                                    },
-                                                );
-                                            } else {
-                                                if let Ok(parsed) =
-                                                    serde_json::from_str::<serde_json::Value>(
-                                                        &text.text,
-                                                    )
-                                                {
-                                                    let thought = parsed
-                                                        .get("thought")
-                                                        .and_then(|v| v.as_str())
-                                                        .unwrap_or_default()
-                                                        .to_string();
-                                                    let summary = parsed
-                                                        .get("summary")
-                                                        .and_then(|v| v.as_str())
-                                                        .map(|s| s.to_string());
-                                                    log_window.logs.push(
-                                                        crate::chat::log::indexer::IndexedLog {
-                                                            log: Arc::new(TenonLog::new(
-                                                                TenonLogData::Thought(
-                                                                    TenonThoughtLog {
-                                                                        thought,
-                                                                        summary,
-                                                                    },
-                                                                ),
-                                                            )),
-                                                            active: true,
-                                                        },
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Ok(StreamItem::ReasoningDelta { reasoning }) => {
-                                if let Ok(mut log_window) = log_handler.log_window.write() {
-                                    let mut updated = false;
-                                    if let Some(indexed_log) = log_window.logs.last_mut() {
-                                        let log = Arc::make_mut(&mut indexed_log.log);
-                                        updated = log.append_reasoning(&reasoning);
-                                    }
-
-                                    if !updated {
-                                        log_window.logs.push(
-                                            crate::chat::log::indexer::IndexedLog {
-                                                log: Arc::new(TenonLog::new(
-                                                    TenonLogData::Assistant(
-                                                        TenonAssistantMessage {
-                                                            reasoning: Some(reasoning),
-                                                            content: vec![],
-                                                        },
-                                                    ),
-                                                )),
-                                                active: true,
-                                            },
-                                        );
-                                    }
-                                }
-                            }
-                            Ok(StreamItem::Text { text }) => {
-                                if let Ok(mut log_window) = log_handler.log_window.write() {
-                                    let mut updated = false;
-                                    if let Some(indexed_log) = log_window.logs.last_mut() {
-                                        let log = Arc::make_mut(&mut indexed_log.log);
-                                        updated = log.append_text(&text);
-                                    }
-
-                                    if !updated {
-                                        log_window.logs.push(
-                                            crate::chat::log::indexer::IndexedLog {
-                                                log: Arc::new(TenonLog::new(
-                                                    TenonLogData::Assistant(
-                                                        TenonAssistantMessage {
-                                                            reasoning: None,
-                                                            content: vec![
-                                                                TenonAssistantMessageContent::Text(
-                                                                    text,
-                                                                ),
-                                                            ],
-                                                        },
-                                                    ),
-                                                )),
-                                                active: true,
-                                            },
-                                        );
-                                    }
-                                }
-                            }
-                            Ok(StreamItem::ToolCall {
-                                tool_call,
-                                internal_call_id,
-                            }) => {
-                                if tool_call.function.name != "record_thought"
-                                    && let Ok(mut log_window) = log_handler.log_window.write()
-                                {
-                                    log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                        log: Arc::new(TenonLog::new(TenonLogData::Tool(
-                                            TenonToolLog {
-                                                tool_call: TenonToolCall {
-                                                    id: tool_call.id,
-                                                    internal_call_id,
-                                                    name: tool_call.function.name,
-                                                    args: tool_call.function.arguments,
-                                                },
-                                                tool_result: None,
-                                            },
-                                        ))),
-                                        active: true,
-                                    });
-                                }
-                            }
-                            Ok(StreamItem::CompletionCall { usage }) => {
-                                if let Ok(mut usage_lock) = usage_clone.write() {
-                                    usage_lock.add(usage);
-                                }
-                            }
-                            Ok(StreamItem::Final { token_usage: _ }) => {
-                                let history_dir = get_application_config().history.directory;
-                                let title_val = title_clone.read().ok().and_then(|t| t.clone());
-                                if let Ok(log_window) = log_handler.log_window.read() {
-                                    save_to_history(
-                                        history::SessionMetadata {
-                                            id: &chat_id,
-                                            title: title_val.as_deref(),
-                                            agent_name: &agent_clone.name,
-                                            model_display: &agent_clone.inner.model.display_name(),
-                                            session_datetime,
-                                        },
-                                        &log_window,
-                                        &usage_clone,
-                                        &history_dir,
-                                    );
-                                }
-                            }
-                            Ok(StreamItem::Other) => {}
-                            Err(e) => {
-                                GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
-                                    format!(
-                                        "error occurred while streaming response from LLM: {}",
-                                        e
-                                    ),
-                                    LogLevel::Error,
-                                );
-                            }
-                        }
+                let on_completion_call = move |usage: Usage| {
+                    if let Ok(mut usage_lock) = usage_clone.write() {
+                        usage_lock.add(usage);
                     }
+                    let history_dir = get_application_config().history.directory;
+                    let title_val = title_clone.read().ok().and_then(|t| t.clone());
+                    if let Ok(log_window) = log_window_clone.read() {
+                        save_to_history(
+                            SessionMetadata {
+                                id: &chat_id,
+                                title: title_val.as_deref(),
+                                agent_name: &agent_name,
+                                model_display: &model_display,
+                                session_datetime,
+                            },
+                            &log_window,
+                            &usage_clone,
+                            &history_dir,
+                        );
+                    }
+                };
+
+                loop {
+                    let should_continue = engine
+                        .process_turn(&cancel_token, &on_completion_call)
+                        .await;
 
                     if !should_continue || cancel_token.load(Ordering::SeqCst) {
                         break;
@@ -585,7 +267,7 @@ impl ChatSession {
     }
 
     pub fn send_message(&mut self, message: String) {
-        self.log_handler.add_user_message(message);
+        self.engine.log_handler.add_user_message(message);
         self.send_chat_request();
     }
 }

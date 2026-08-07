@@ -307,7 +307,8 @@ mod tests {
     #[test]
     fn test_active_context_token_count_with_logs() {
         let logs = vec![create_user_log(5), create_user_log(5)];
-        let handler = ChatLogHandler::from_logs(logs);
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
         let log_window = handler.log_window.read().unwrap();
         assert_eq!(log_window.active_context_token_count(), 10);
     }
@@ -323,7 +324,8 @@ mod tests {
     #[test]
     fn test_get_relevant_context_returns_empty_when_no_inactive_logs() {
         let logs = vec![create_user_log(1)];
-        let handler = ChatLogHandler::from_logs(logs);
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
         let indexer = handler.indexer.read().unwrap();
         let log_window = handler.log_window.read().unwrap();
         let result = indexer.get_relevant_context(&log_window, "test message");
@@ -333,7 +335,8 @@ mod tests {
     #[test]
     fn test_get_relevant_context_returns_empty_when_rag_context_empty() {
         let logs = vec![create_user_log(1), create_user_log(1)];
-        let handler = ChatLogHandler::from_logs(logs);
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
         {
             let mut log_window = handler.log_window.write().unwrap();
             log_window.logs[0].active = false;
@@ -366,7 +369,8 @@ mod tests {
             create_tool_log("read_file", 1),
             create_user_log(1),
         ];
-        let handler = ChatLogHandler::from_logs(logs);
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
         let log_window = handler.log_window.read().unwrap();
 
         // All logs should remain active
@@ -389,7 +393,8 @@ mod tests {
             create_user_log(2),
             create_assistant_log(0),
         ];
-        let handler = ChatLogHandler::from_logs(logs);
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
         let log_window = handler.log_window.read().unwrap();
 
         // Phase 1 removes idempotent tools from regions 1 & 2
@@ -426,7 +431,8 @@ mod tests {
             create_user_log(1),
             create_assistant_log(0),
         ];
-        let handler = ChatLogHandler::from_logs(logs);
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
         let log_window = handler.log_window.read().unwrap();
 
         // Phase 2: non-idempotent tool in region 1 is removed
@@ -455,7 +461,8 @@ mod tests {
             create_user_log(1),       // 3 - user (checkpoint 1x, Region 2)
             create_assistant_log(0),  // 4 - assistant (preserves last-user exclusion semantics)
         ];
-        let handler = ChatLogHandler::from_logs(logs);
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
         let log_window = handler.log_window.read().unwrap();
 
         // Assistant (chat log) should be removed in Phase 3
@@ -477,7 +484,8 @@ mod tests {
             create_user_log(18),              // 3 - user (checkpoint 1x)
             create_assistant_log(0), // 4 - assistant (preserves last-user exclusion semantics)
         ];
-        let handler = ChatLogHandler::from_logs(logs);
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
         let log_window = handler.log_window.read().unwrap();
 
         // Non-idempotent tool in region 2 should be removed in Phase 4
@@ -500,7 +508,8 @@ mod tests {
             create_user_log(20),             // 2 - user (checkpoint 1x)
             create_tool_log("read_file", 1), // 3 - idempotent tool (Region 3)
         ];
-        let handler = ChatLogHandler::from_logs(logs);
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
         let log_window = handler.log_window.read().unwrap();
 
         // Idempotent tool in region 3 should be removed in Phase 5
@@ -524,7 +533,8 @@ mod tests {
             create_user_log(1),      // 3 - user (checkpoint 1x)
             create_assistant_log(0), // 4 - assistant (preserves last-user exclusion semantics)
         ];
-        let handler = ChatLogHandler::from_logs(logs);
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
         let log_window = handler.log_window.read().unwrap();
 
         // First user must always be preserved regardless of token pressure

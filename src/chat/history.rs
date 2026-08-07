@@ -12,7 +12,7 @@ fn session_datetime_now() -> DateTime<Local> {
 }
 
 /// Serializable snapshot of a chat session, written to `.tenon/history/<id>.json`
-/// on `StreamItem::Final`.
+/// on `StreamItem::CompletionCall`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatHistory {
     pub id: String,

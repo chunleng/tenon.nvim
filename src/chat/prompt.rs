@@ -1,5 +1,6 @@
 use crate::agent::worker::simple::SimpleTenonWorkerAgent;
-use crate::chat::{ActiveAgent, ActiveWorkflow};
+use crate::chat::ActiveWorkflow;
+use crate::clients::SupportedModels;
 use std::sync::{Arc, RwLock};
 
 /// Builds a workflow-wrapped prompt if there's an active workflow.
@@ -7,7 +8,8 @@ use std::sync::{Arc, RwLock};
 /// classifier to recommend a workflow via a `context` tag.
 pub async fn build_workflow_prompt(
     active_workflow: &Arc<RwLock<Option<ActiveWorkflow>>>,
-    active_agent: &ActiveAgent,
+    workflows: &[Arc<crate::chat::workflow::Workflow>],
+    model: &SupportedModels,
     base_prompt: String,
 ) -> String {
     if let Ok(active_lock) = active_workflow.read()
@@ -91,8 +93,8 @@ pub async fn build_workflow_prompt(
         }
     }
 
-    if !active_agent.workflows.is_empty()
-        && let Some((workflow_id, reason)) = classify_workflow(active_agent, &base_prompt).await
+    if !workflows.is_empty()
+        && let Some((workflow_id, reason)) = classify_workflow(workflows, model, &base_prompt).await
     {
         return format!(
             "<context>\nRecommend {} workflow, reason: {}.\n\
@@ -108,9 +110,12 @@ pub async fn build_workflow_prompt(
 
 /// Asks a lightweight classifier agent whether a workflow should be used for the given prompt.
 /// Returns the matched workflow ID, or `None` if no workflow is recommended.
-async fn classify_workflow(active_agent: &ActiveAgent, prompt: &str) -> Option<(String, String)> {
-    let workflow_list = active_agent
-        .workflows
+async fn classify_workflow(
+    workflows: &[Arc<crate::chat::workflow::Workflow>],
+    model: &SupportedModels,
+    prompt: &str,
+) -> Option<(String, String)> {
+    let workflow_list = workflows
         .iter()
         .map(|w| {
             format!(
@@ -142,15 +147,15 @@ async fn classify_workflow(active_agent: &ActiveAgent, prompt: &str) -> Option<(
          - none"
     );
 
-    let agent = SimpleTenonWorkerAgent::new(
-        Some(active_agent.inner.model.clone()),
+    let classifier = SimpleTenonWorkerAgent::new(
+        Some(model.clone()),
         &directive_text,
         Some(serde_json::Map::new()),
     )
     .ok()?;
 
-    let reply = agent.chat(prompt).await.ok()?;
-    parse_workflow_reply(&reply, &active_agent.workflows)
+    let reply = classifier.chat(prompt).await.ok()?;
+    parse_workflow_reply(&reply, workflows)
 }
 
 /// Parses a `workflow_id|reason` reply, returning `(id, reason)` if the ID matches a known workflow.
@@ -168,25 +173,16 @@ fn parse_workflow_reply(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::TenonAgent;
     use crate::chat::workflow::Workflow;
     use crate::clients::{OllamaProviderConfig, ProviderConfig, SupportedModels};
     use std::collections::HashMap;
 
-    fn test_agent() -> ActiveAgent {
-        ActiveAgent {
-            name: "test".to_string(),
-            inner: TenonAgent::new(
-                SupportedModels {
-                    connector_name: "test".to_string(),
-                    config: ProviderConfig::Ollama(OllamaProviderConfig::default()),
-                    model_name: "test".to_string(),
-                    default_parameters: serde_json::Map::new(),
-                },
-                vec![],
-                &[] as &[&str],
-                vec![],
-            ),
+    fn test_model() -> SupportedModels {
+        SupportedModels {
+            connector_name: "test".to_string(),
+            config: ProviderConfig::Ollama(OllamaProviderConfig::default()),
+            model_name: "test".to_string(),
+            default_parameters: serde_json::Map::new(),
         }
     }
 
@@ -209,8 +205,8 @@ mod tests {
             },
         })));
 
-        let agent = test_agent();
-        let prompt = build_workflow_prompt(&workflow, &agent, "user input".to_string()).await;
+        let model = test_model();
+        let prompt = build_workflow_prompt(&workflow, &[], &model, "user input".to_string()).await;
 
         assert!(prompt.contains("<memory name=\"previous_output\">"));
         assert!(prompt.contains("test result"));
@@ -224,8 +220,8 @@ mod tests {
             .ok();
 
         let workflow = Arc::new(RwLock::new(None));
-        let agent = test_agent();
-        let prompt = build_workflow_prompt(&workflow, &agent, "user input".to_string()).await;
+        let model = test_model();
+        let prompt = build_workflow_prompt(&workflow, &[], &model, "user input".to_string()).await;
         assert_eq!(prompt, "user input");
         assert!(!prompt.contains("<context>"));
     }

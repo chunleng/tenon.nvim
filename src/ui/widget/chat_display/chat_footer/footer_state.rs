@@ -34,9 +34,14 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
             let title = session.title_handler.title();
             let chat_index = data.chat_index;
             let total_count = chat_session_count();
-            let agent_name = session.active_agent.name.clone();
-            let model_display = session.active_agent.inner.model.display_name();
-            let current_tool_names = session.active_agent.tool_names.clone();
+            let agent_name = session.active_agent_name.clone();
+            let model_display = session.engine.model.display_name();
+            let current_tool_names: Vec<String> = session
+                .engine
+                .tool_names
+                .iter()
+                .map(|t| t.name().to_string())
+                .collect();
 
             let (
                 input_tokens,
@@ -64,6 +69,7 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
             };
 
             let context_tokens = session
+                .engine
                 .log_handler
                 .log_window
                 .read()

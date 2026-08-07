@@ -23,9 +23,9 @@ impl ChatLogHandler {
         }
     }
 
-    /// Creates a ChatLogHandler from existing logs (for history restoration).
+    /// Replaces log_window contents in-place from existing logs (for history restoration).
     /// All logs are initialized as active by default, then context truncation is applied.
-    pub fn from_logs(logs: Vec<TenonLog>) -> Self {
+    pub fn load(&mut self, logs: Vec<TenonLog>) {
         let mut log_window = LogWindow {
             logs: logs
                 .into_iter()
@@ -36,12 +36,12 @@ impl ChatLogHandler {
                 .collect(),
         };
 
-        let indexer = ChatLogIndexer::new();
-        indexer.apply_context_truncation(&mut log_window);
+        if let Ok(indexer) = self.indexer.read() {
+            indexer.apply_context_truncation(&mut log_window);
+        }
 
-        Self {
-            indexer: Arc::new(RwLock::new(indexer)),
-            log_window: Arc::new(RwLock::new(log_window)),
+        if let Ok(mut existing) = self.log_window.write() {
+            *existing = log_window;
         }
     }
 

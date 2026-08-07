@@ -96,9 +96,6 @@ pub enum StreamItem {
         tool_call: rig::message::ToolCall,
         internal_call_id: String,
     },
-    Final {
-        token_usage: Option<rig::completion::Usage>,
-    },
     CompletionCall {
         usage: rig::completion::Usage,
     },
@@ -108,7 +105,6 @@ pub enum StreamItem {
 macro_rules! convert_stream_item {
     ($item:expr) => {{
         use rig::agent::MultiTurnStreamItem;
-        use rig::completion::GetTokenUsage;
         use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
 
         match $item {
@@ -135,17 +131,9 @@ macro_rules! convert_stream_item {
                 tool_call: tool_call.into(),
                 internal_call_id,
             },
-            MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Final(
-                final_response,
-            )) => StreamItem::Final {
-                token_usage: Some(final_response.token_usage()),
-            },
             MultiTurnStreamItem::CompletionCall(call) => {
                 StreamItem::CompletionCall { usage: call.usage }
             }
-            MultiTurnStreamItem::FinalResponse(response) => StreamItem::Final {
-                token_usage: Some(response.usage),
-            },
             _ => StreamItem::Other,
         }
     }};
