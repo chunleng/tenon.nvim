@@ -35,6 +35,9 @@ impl Tool for AskQuestion {
     fn description(&self) -> String {
         "Ask question with options and return the user's response. \
          Single answer only (no multi-select); call multiple times for more questions. \
+         Use when you can either enumerate options that cover the likely answers, \
+         or offer options you can strongly recommend (mark with '★'). \
+         If neither holds, ask an open-ended question in chat instead. \
          An 'Answer by chat' option is always appended automatically - never add an \
          option that just leads back to typing (e.g. \"Something else\", \"Others\")"
             .to_string()
