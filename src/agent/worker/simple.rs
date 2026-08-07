@@ -1,13 +1,13 @@
 use std::io;
 
-use crate::agent::provider::{ChatAgent, get_agent};
+use crate::agent::engine::SingleTextResponseEngine;
 use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource};
 use crate::get_application_config;
 use rig::message::Message;
 
 pub struct SimpleTenonWorkerAgent {
-    agent: ChatAgent,
+    engine: SingleTextResponseEngine,
 }
 
 impl SimpleTenonWorkerAgent {
@@ -35,14 +35,17 @@ impl SimpleTenonWorkerAgent {
             },
         };
 
-        let agent = get_agent(model, vec![directive], vec![], override_params);
-        Ok(Self { agent })
+        let engine = SingleTextResponseEngine::new(model, vec![directive], override_params);
+        Ok(Self { engine })
     }
 
     pub async fn chat(
         &self,
         message: impl Into<Message> + Send,
     ) -> Result<String, rig::agent::StreamingError> {
-        self.agent.chat(message).await.map(|x| x.trim().to_string())
+        self.engine
+            .chat(message)
+            .await
+            .map(|x| x.trim().to_string())
     }
 }
