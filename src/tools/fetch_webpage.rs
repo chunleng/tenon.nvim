@@ -176,7 +176,9 @@ fn process_html(html: &str) -> Result<String, ToolExecutionError> {
             ..Default::default()
         }),
     )
-    .map_err(|e| ToolExecutionError::other(format!("HTML→markdown failed: {}", e)))
+    .map_err(|e| ToolExecutionError::other(format!("HTML→markdown failed: {}", e)))?
+    .content
+    .ok_or_else(|| ToolExecutionError::other("HTML→markdown produced no content"))
 }
 
 /// Process PDF bytes into markdown.
