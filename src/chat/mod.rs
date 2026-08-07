@@ -1,7 +1,7 @@
 use crate::chat::helpers::TitleHandler;
 use crate::tools::ask_question::QuestionResult;
 use crate::{
-    agent::runtime::StreamItem, get_application_config, get_workflow_registry,
+    agent::provider::StreamItem, get_application_config, get_workflow_registry,
     utils::GLOBAL_EXECUTION_HANDLER,
 };
 use chrono::{DateTime, Local};
