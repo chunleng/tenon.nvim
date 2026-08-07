@@ -8,7 +8,7 @@ use crate::{
     clients::SupportedModels,
     get_application_config, get_chat_window,
     tools::{all_tool_names, tool_matches_selectors},
-    ui::picker::{FzfOption, SelectMode, box_single_select, pick},
+    ui::picker::{FzfAction, FzfOption, SelectMode, action, box_single_select, pick},
     utils::{GLOBAL_EXECUTION_HANDLER, notify},
 };
 
@@ -117,13 +117,16 @@ fn toggle_focus_fn() -> Function<(), ()> {
 fn select_tools_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
-            // Read current tool names on the main thread (just Rust struct access).
-            let current_tool_names: Vec<String> = (|| {
+            // Read current tool names and agent name on the main thread (just Rust struct access).
+            let (current_tool_names, agent_name): (Vec<String>, String) = (|| {
                 let win_arc = get_chat_window();
                 let win = win_arc.lock().ok()?;
                 let loaded = win.loaded_chat_session.read().ok()?;
                 let session = loaded.read().ok()?;
-                Some(session.active_agent.tool_names.clone())
+                Some((
+                    session.active_agent.tool_names.clone(),
+                    session.active_agent.name.clone(),
+                ))
             })()
             .unwrap_or_default();
 
@@ -139,11 +142,36 @@ fn select_tools_fn() -> Function<(), ()> {
                     .copied()
                     .collect();
 
+                let default_tool_names = get_application_config()
+                    .agents
+                    .get(&agent_name)
+                    .map(|a| a.tool_names.clone())
+                    .unwrap_or_default();
+
+                let mut actions = std::collections::HashMap::new();
+                if !default_tool_names.is_empty() {
+                    actions.insert(
+                        "ctrl-d".to_string(),
+                        FzfAction::Fn {
+                            builder: action(move |lua, resolve_fn| {
+                                let defaults = default_tool_names.clone();
+                                Ok(lua.create_function(move |_, ()| {
+                                    resolve_fn.call::<()>(defaults.clone())?;
+                                    Ok(())
+                                })?)
+                            }),
+                            reload: false,
+                            description: "reset to default".to_string(),
+                        },
+                    );
+                }
+
                 if let Err(e) = pick(
                     &options,
                     FzfOption {
                         prompt: "Select Tools".to_string(),
                         select_mode: SelectMode::multi(&resolved_current),
+                        actions,
                         callback: Box::new(|selected| {
                             if let Some(tools) = selected {
                                 let win_arc = get_chat_window();
