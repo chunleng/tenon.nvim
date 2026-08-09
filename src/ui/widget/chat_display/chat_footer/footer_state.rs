@@ -333,7 +333,7 @@ mod tests {
             total_count: 5,
             agent_name: "default".to_string(),
             model_display: "anthropic: claude-3-5-sonnet".to_string(),
-            // 2 tools, both in default, so 8 removed from default's 10 tools
+            // 2 tools, both in default, so 7 removed from default's 9 tools
             current_tool_names: vec!["read_file".to_string(), "edit_file".to_string()],
             input_tokens: 100,
             output_tokens: 50,
@@ -351,10 +351,10 @@ mod tests {
 
         let (title_line, token_line) = state.get_footer_lines(&values);
 
-        // Show model diff and tool diff (model changed, 8 tools removed)
+        // Show model diff and tool diff (model changed, 7 tools removed)
         assert_eq!(
             title_line,
-            "󰭹 Test Chat 3 of 5, agent: default (󰚩 anthropic: claude-3-5-sonnet | 󰣖 -8)"
+            "󰭹 Test Chat 3 of 5, agent: default (󰚩 anthropic: claude-3-5-sonnet | 󰣖 -7)"
         );
         assert_eq!(
             token_line,
@@ -371,7 +371,7 @@ mod tests {
             total_count: 1,
             agent_name: "default".to_string(),
             model_display: "ollama_cloud: glm-5.1".to_string(),
-            // 1 tool, 9 removed from default's 10 tools
+            // 1 tool, 8 removed from default's 9 tools
             current_tool_names: vec!["read_file".to_string()],
             ..FooterValues::test_default()
         };
@@ -381,8 +381,8 @@ mod tests {
 
         let (title_line, token_line) = state.get_footer_lines(&values);
 
-        // Show tool diff (model matches, 9 tools removed)
-        assert_eq!(title_line, "󰭹  1 of 1, agent: default (󰣖 -9)");
+        // Show tool diff (model matches, 8 tools removed)
+        assert_eq!(title_line, "󰭹  1 of 1, agent: default (󰣖 -8)");
         assert_eq!(token_line, "tokens: 0~ | usage: 0 󰕒 + 0 󰇚 + 0  = 0 total");
     }
 
@@ -397,7 +397,6 @@ mod tests {
             agent_name: "default".to_string(),
             model_display: "ollama_cloud: glm-5.1".to_string(),
             current_tool_names: vec![
-                "create_file".to_string(),
                 "edit_file".to_string(),
                 "fetch_webpage".to_string(),
                 "list_files".to_string(),
@@ -444,7 +443,7 @@ mod tests {
 
         let (title_line, _) = state.get_footer_lines(&values);
 
-        // 1 added (mcp_server____custom_tool), 8 removed (default's 10 minus read_file, edit_file)
-        assert_eq!(title_line, "󰭹  1 of 1, agent: default (󰣖 +1/-8)");
+        // 1 added (mcp_server____custom_tool), 7 removed (default's 9 minus read_file, edit_file)
+        assert_eq!(title_line, "󰭹  1 of 1, agent: default (󰣖 +1/-7)");
     }
 }

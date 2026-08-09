@@ -103,7 +103,6 @@ impl Default for TenonConfig {
                 default_model.clone(),
                 vec![],
                 &[
-                    "create_file",
                     "edit_file",
                     "fetch_webpage",
                     "list_files",

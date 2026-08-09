@@ -7,6 +7,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
 
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReplaceMode {
+    One,
+    All,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchMode {
+    Literal,
+    Regex,
+}
+
 /// Returns the 1-based line number at the given byte offset within `content`.
 fn line_at(content: &str, byte_offset: usize) -> usize {
     content[..byte_offset].lines().count() + 1
@@ -19,11 +33,11 @@ fn perform_edit(
     content: &str,
     search: &str,
     replace: &str,
-    replace_mode: &str,
-    search_mode: &str,
+    replace_mode: &ReplaceMode,
+    search_mode: &SearchMode,
 ) -> Result<(String, Vec<serde_json::Value>), std::io::Error> {
     // Check if edit touches EOF (need to ensure trailing newline)
-    let edits_at_end = if search_mode == "regex" {
+    let edits_at_end = if *search_mode == SearchMode::Regex {
         RegexBuilder::new(search)
             .dot_matches_new_line(true)
             .build()
@@ -33,7 +47,7 @@ fn perform_edit(
         content.ends_with(search)
     };
 
-    let (new_content, edits) = if search_mode == "regex" {
+    let (new_content, edits) = if *search_mode == SearchMode::Regex {
         let re = RegexBuilder::new(search)
             .dot_matches_new_line(true)
             .build()
@@ -54,7 +68,7 @@ fn perform_edit(
             ));
         }
 
-        if replace_mode == "one" && match_count > 1 {
+        if *replace_mode == ReplaceMode::One && match_count > 1 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!("{} matches. Use 'all' or narrow search", match_count),
@@ -72,7 +86,7 @@ fn perform_edit(
             .collect();
 
         let result = match replace_mode {
-            "one" => re.replace(content, regex::NoExpand(replace)).to_string(),
+            ReplaceMode::One => re.replace(content, regex::NoExpand(replace)).to_string(),
             _ => re
                 .replace_all(content, regex::NoExpand(replace))
                 .to_string(),
@@ -90,7 +104,7 @@ fn perform_edit(
             ));
         }
 
-        if replace_mode == "one" && match_count > 1 {
+        if *replace_mode == ReplaceMode::One && match_count > 1 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!("{} matches. Use 'all' or narrow search", match_count),
@@ -107,7 +121,7 @@ fn perform_edit(
             .collect();
 
         let new_content = match replace_mode {
-            "one" => content.replacen(search, replace, 1),
+            ReplaceMode::One => content.replacen(search, replace, 1),
             _ => content.replace(search, replace),
         };
 
@@ -130,8 +144,8 @@ pub struct EditFileArgs {
     pub filepath: String,
     pub search: String,
     pub replace: String,
-    pub replace_mode: Option<String>,
-    pub search_mode: String,
+    pub replace_mode: Option<ReplaceMode>,
+    pub search_mode: SearchMode,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -144,7 +158,8 @@ impl Tool for EditFile {
     type Output = String;
 
     fn description(&self) -> String {
-        "Find → replace. 'one' errors if >1 match. Example: empty file → search='', replace='new content'".to_string()
+        "Find → replace. Non-existent file → auto-created (use search='', replace='content')"
+            .to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -174,26 +189,30 @@ impl Tool for EditFile {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
-        let replace_mode = args.replace_mode.unwrap_or_else(|| "one".to_string());
+        let replace_mode = args.replace_mode.unwrap_or(ReplaceMode::One);
         let path = path_from_str(&args.filepath);
 
-        if !["one", "all"].contains(&replace_mode.as_str()) {
-            return Err(ToolExecutionError::invalid_args(format!(
-                "Bad replace_mode '{}'. Use 'one' or 'all'",
-                replace_mode
-            )));
-        }
-
-        if !["literal", "regex"].contains(&args.search_mode.as_str()) {
-            return Err(ToolExecutionError::invalid_args(format!(
-                "Bad search_mode '{}'. Use 'literal' or 'regex'",
-                args.search_mode
-            )));
-        }
-
-        let content = fs::read_to_string(&path).map_err(|e| {
-            ToolExecutionError::other(format!("Read fail '{}': {}", args.filepath, e))
-        })?;
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if let Some(parent) = path.parent()
+                    && !parent.as_os_str().is_empty()
+                    && let Err(e) = fs::create_dir_all(parent)
+                {
+                    return Err(ToolExecutionError::other(format!(
+                        "mkdir fail '{}': {}",
+                        args.filepath, e
+                    )));
+                }
+                String::new()
+            }
+            Err(e) => {
+                return Err(ToolExecutionError::other(format!(
+                    "Read fail '{}': {}",
+                    args.filepath, e
+                )));
+            }
+        };
 
         let (final_content, edits) = perform_edit(
             &content,
@@ -226,77 +245,171 @@ mod tests {
     #[test]
     fn test_edit_at_eof_adds_trailing_newline() {
         let content = "hello world";
-        let (result, _) = perform_edit(content, "world", "universe", "one", "literal").unwrap();
+        let (result, _) = perform_edit(
+            content,
+            "world",
+            "universe",
+            &ReplaceMode::One,
+            &SearchMode::Literal,
+        )
+        .unwrap();
         assert_eq!(result, "hello universe\n");
     }
 
     #[test]
     fn test_edit_at_eof_preserves_existing_newline() {
         let content = "hello world\n";
-        let (result, _) = perform_edit(content, "world", "universe", "one", "literal").unwrap();
+        let (result, _) = perform_edit(
+            content,
+            "world",
+            "universe",
+            &ReplaceMode::One,
+            &SearchMode::Literal,
+        )
+        .unwrap();
         assert_eq!(result, "hello universe\n");
     }
 
     #[test]
     fn test_edit_in_middle_does_not_add_newline() {
         let content = "hello world foo";
-        let (result, _) = perform_edit(content, "hello", "hey", "one", "literal").unwrap();
+        let (result, _) = perform_edit(
+            content,
+            "hello",
+            "hey",
+            &ReplaceMode::One,
+            &SearchMode::Literal,
+        )
+        .unwrap();
         assert_eq!(result, "hey world foo");
     }
 
     #[test]
     fn test_edit_in_middle_preserves_existing_newline() {
         let content = "hello world\n";
-        let (result, _) = perform_edit(content, "hello", "hey", "one", "literal").unwrap();
+        let (result, _) = perform_edit(
+            content,
+            "hello",
+            "hey",
+            &ReplaceMode::One,
+            &SearchMode::Literal,
+        )
+        .unwrap();
         assert_eq!(result, "hey world\n");
     }
 
     #[test]
     fn test_regex_edit_at_eof_adds_newline() {
         let content = "hello world";
-        let (result, _) = perform_edit(content, "w.*d", "universe", "one", "regex").unwrap();
+        let (result, _) = perform_edit(
+            content,
+            "w.*d",
+            "universe",
+            &ReplaceMode::One,
+            &SearchMode::Regex,
+        )
+        .unwrap();
         assert_eq!(result, "hello universe\n");
     }
 
     #[test]
     fn test_replace_all_at_eof_adds_newline() {
         let content = "foo bar foo";
-        let (result, _) = perform_edit(content, "foo", "baz", "all", "literal").unwrap();
+        let (result, _) = perform_edit(
+            content,
+            "foo",
+            "baz",
+            &ReplaceMode::All,
+            &SearchMode::Literal,
+        )
+        .unwrap();
         assert_eq!(result, "baz bar baz\n");
     }
 
     #[test]
     fn test_replace_all_in_middle_no_newline() {
         let content = "foo bar foo baz";
-        let (result, _) = perform_edit(content, "foo", "baz", "all", "literal").unwrap();
+        let (result, _) = perform_edit(
+            content,
+            "foo",
+            "baz",
+            &ReplaceMode::All,
+            &SearchMode::Literal,
+        )
+        .unwrap();
         assert_eq!(result, "baz bar baz baz");
     }
 
     #[test]
     fn test_edit_eof_multiline() {
         let content = "line1\nline2\nlast";
-        let (result, _) = perform_edit(content, "last", "final", "one", "literal").unwrap();
+        let (result, _) = perform_edit(
+            content,
+            "last",
+            "final",
+            &ReplaceMode::One,
+            &SearchMode::Literal,
+        )
+        .unwrap();
         assert_eq!(result, "line1\nline2\nfinal\n");
     }
 
     #[test]
     fn test_no_match_returns_error() {
         let content = "hello world";
-        let result = perform_edit(content, "notfound", "replacement", "one", "literal");
+        let result = perform_edit(
+            content,
+            "notfound",
+            "replacement",
+            &ReplaceMode::One,
+            &SearchMode::Literal,
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_multiple_matches_one_mode_error() {
         let content = "foo foo foo";
-        let result = perform_edit(content, "foo", "bar", "one", "literal");
+        let result = perform_edit(
+            content,
+            "foo",
+            "bar",
+            &ReplaceMode::One,
+            &SearchMode::Literal,
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_replace_all_multiple_matches() {
         let content = "foo bar foo bar";
-        let (result, _) = perform_edit(content, "foo", "baz", "all", "literal").unwrap();
+        let (result, _) = perform_edit(
+            content,
+            "foo",
+            "baz",
+            &ReplaceMode::All,
+            &SearchMode::Literal,
+        )
+        .unwrap();
         assert_eq!(result, "baz bar baz bar");
+    }
+
+    #[test]
+    fn test_empty_content_empty_search_creates_content() {
+        let (result, _) = perform_edit(
+            "",
+            "",
+            "hello world",
+            &ReplaceMode::One,
+            &SearchMode::Literal,
+        )
+        .unwrap();
+        assert_eq!(result, "hello world\n");
+    }
+
+    #[test]
+    fn test_empty_content_nonempty_search_no_match() {
+        let result = perform_edit("", "foo", "bar", &ReplaceMode::One, &SearchMode::Literal);
+        assert!(result.is_err());
     }
 }

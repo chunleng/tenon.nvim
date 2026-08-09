@@ -1,6 +1,5 @@
 pub mod analyze_image;
 pub mod ask_question;
-pub mod create_file;
 pub mod edit_file;
 pub mod end_workflow;
 pub mod fetch_webpage;
@@ -18,7 +17,6 @@ pub mod web_search;
 use crate::mcp::McpHubCaller;
 pub use analyze_image::AnalyzeImage;
 pub use ask_question::AskQuestion;
-pub use create_file::CreateFile;
 pub use edit_file::EditFile;
 pub use fetch_webpage::FetchWebpage;
 pub use list_files::ListFiles;
@@ -60,7 +58,7 @@ pub enum ToolClassification {
 /// Built-in tools have fixed classifications:
 /// - Idempotent: read_file, list_files, search_text
 /// - NonMutating: web_search, fetch_webpage, record_thought
-/// - Mutating: create_file, edit_file, move_path, remove_path, run_command
+/// - Mutating: edit_file, move_path, remove_path, run_command
 /// - System: start_workflow, navigate_workflow, end_workflow
 ///
 /// Unknown tool names (including MCP tools) return `ToolClassification::Unknown`.
@@ -75,9 +73,7 @@ pub fn get_tool_classification(name: &str) -> ToolClassification {
         }
 
         // Mutating tools: modify state when run
-        "create_file" | "edit_file" | "move_path" | "remove_path" | "run_command" => {
-            ToolClassification::Mutating
-        }
+        "edit_file" | "move_path" | "remove_path" | "run_command" => ToolClassification::Mutating,
 
         // System tools: Tenon workflow management
         "start_workflow" | "navigate_workflow" | "end_workflow" => ToolClassification::System,
@@ -115,7 +111,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
 
     let core_arg: &str = match name {
         "web_search" => "query",
-        "read_file" | "edit_file" | "create_file" | "remove_path" => "filepath",
+        "read_file" | "edit_file" | "remove_path" => "filepath",
         "move_path" => "source",
         "list_files" | "search_text" => "pattern",
         "fetch_webpage" => "url",
@@ -145,7 +141,6 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
 /// Returns the names of all selectable tools (built-in + MCP - system tools).
 pub fn all_tool_names() -> Vec<String> {
     let mut names: Vec<String> = vec![
-        "create_file".into(),
         "edit_file".into(),
         "fetch_webpage".into(),
         "list_files".into(),
@@ -249,7 +244,7 @@ pub(crate) fn into_dynamic_tool<T: Tool + 'static>(tool: T) -> DynamicTool {
 
 /// Resolve a list of tool name strings into concrete `DynamicTool` instances.
 ///
-/// Built-in names: "create_file", "edit_file", "fetch_webpage",
+/// Built-in names: "edit_file", "fetch_webpage",
 /// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search", "record_thought".
 /// MCP tool names: "server_name.tool_name" for a specific tool,
 /// or "server_name" to include all tools from that server.
@@ -257,7 +252,6 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<DynamicTool> {
     let name_refs: Vec<&str> = names.iter().map(|n| n.as_ref()).collect();
 
     let mut all_tools: Vec<Option<(String, DynamicTool)>> = vec![
-        Some(("create_file".to_string(), into_dynamic_tool(CreateFile))),
         Some(("edit_file".to_string(), into_dynamic_tool(EditFile))),
         Some(("fetch_webpage".to_string(), into_dynamic_tool(FetchWebpage))),
         Some(("analyze_image".to_string(), into_dynamic_tool(AnalyzeImage))),
