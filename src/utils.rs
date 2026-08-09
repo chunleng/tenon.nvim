@@ -88,11 +88,7 @@ fn log_level_to_lua(log_level: LogLevel) -> &'static str {
 /// - Properly handles long lines and multiline messages
 /// - Supports log levels with appropriate highlighting
 pub fn notify(message: impl ToString, log_level: LogLevel) {
-    let msg = message.to_string();
-    let lua_level = log_level_to_lua(log_level);
-    let escaped = escape_lua_string(&msg);
-    let lua_code = format!("lua vim.notify(\"{}\", {})", escaped, lua_level);
-    let _ = api::command(&lua_code);
+    GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(message, log_level);
 }
 
 /// Format a token count with 2 significant figures and K/M/B suffixes.
@@ -200,6 +196,11 @@ type RustCallback = Box<dyn FnOnce() + Send>;
 pub struct NeovimExecutionHandler {
     rust_handle: AsyncHandle,
     rust_sender: Sender<RustCallback>,
+    main_thread_id: std::thread::ThreadId,
+}
+
+fn is_current_thread(id: std::thread::ThreadId) -> bool {
+    std::thread::current().id() == id
 }
 
 impl NeovimExecutionHandler {
@@ -218,14 +219,19 @@ impl NeovimExecutionHandler {
         Self {
             rust_handle,
             rust_sender: rust_tx,
+            main_thread_id: std::thread::current().id(),
         }
     }
 
-    pub fn notify_on_main_thread(&self, message: impl Into<String>, log_level: LogLevel) {
-        let msg = message.into();
+    pub fn notify_on_main_thread(&self, message: impl ToString, log_level: LogLevel) {
+        let msg = message.to_string();
         let lua_level = log_level_to_lua(log_level);
         let escaped = escape_lua_string(&msg);
         let lua_code = format!("lua vim.notify(\"{}\", {})", escaped, lua_level);
+        if is_current_thread(self.main_thread_id) {
+            let _ = api::command(&lua_code);
+            return;
+        }
         let _ = self.execute_rust_on_main_thread(move || Ok(api::command(&lua_code)?));
     }
 
@@ -245,6 +251,10 @@ impl NeovimExecutionHandler {
         F: FnOnce() -> OxiResult<T> + Send + 'static,
         T: serde::Serialize + for<'de> serde::Deserialize<'de>,
     {
+        if is_current_thread(self.main_thread_id) {
+            return f();
+        }
+
         let (tx, rx) = mpsc::channel::<Result<String, String>>();
 
         let closure = move || match f() {
@@ -329,6 +339,13 @@ impl NeovimExecutionHandler {
         F: FnOnce(Resolver<T>) + Send + 'static,
         T: serde::Serialize + for<'de> serde::Deserialize<'de>,
     {
+        if is_current_thread(self.main_thread_id) {
+            return Err(nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(
+                "execute_rust_on_main_thread_async cannot be called from the main thread"
+                    .to_string(),
+            )));
+        }
+
         let (tx, rx) = mpsc::channel::<Result<String, String>>();
 
         let closure = move || {
@@ -500,5 +517,20 @@ count: 5"#;
             Some(h) => unsafe { std::env::set_var("HOME", h) },
             None => {}
         }
+    }
+
+    #[test]
+    fn test_is_current_thread_same_thread() {
+        let id = std::thread::current().id();
+        assert!(is_current_thread(id));
+    }
+
+    #[test]
+    fn test_is_current_thread_different_thread() {
+        let id = std::thread::current().id();
+        let result = std::thread::spawn(move || is_current_thread(id))
+            .join()
+            .unwrap();
+        assert!(!result);
     }
 }
