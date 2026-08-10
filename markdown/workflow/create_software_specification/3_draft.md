@@ -7,3 +7,6 @@
    - **Recommendation**: with rationale, if one option is clearly best
    - **Open questions**: explicit, if the decision genuinely needs more input
 4. Write the document to the file path from the decision frame
+5. Ask the user to confirm the draft or describe what to change
+   - If the user describes changes, incorporate their feedback and repeat from process step 2
+   - Else, navigate to workflow step 4

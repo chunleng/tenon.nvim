@@ -30,7 +30,11 @@ pub fn workflow() -> Workflow {
                 instruction: Instruction::File {
                     file: workflow_path("create_software_specification/3_draft.md"),
                 },
-                goto_instructions: vec![],
+                goto_instructions: vec![WorkflowGotoInstruction {
+                    to: GotoStep::Step(4),
+                    condition: Some("user confirms the draft".to_string()),
+                    output_to_workflow_memory: None,
+                }],
             },
             WorkflowStep {
                 title: "Review".to_string(),
