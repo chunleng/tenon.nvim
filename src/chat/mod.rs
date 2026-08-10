@@ -1,3 +1,4 @@
+use crate::agent::engine::{AgenticAgentType, AgenticStreamEngine};
 use crate::chat::helpers::TitleHandler;
 use crate::chat::history::{SessionMetadata, save_to_history};
 use crate::get_application_config;
@@ -94,7 +95,7 @@ pub struct ChatSession {
     pub id: String,
     pub usage: Arc<RwLock<SessionUsage>>,
     pub active_agent_name: String,
-    pub engine: crate::agent::engine::AgenticStreamEngine,
+    pub engine: AgenticStreamEngine,
     pub session_datetime: DateTime<Local>,
     pub title_handler: TitleHandler,
     pub pending_actions_channel: Arc<EventChannel<PendingAction>>,
@@ -115,12 +116,12 @@ impl ChatSession {
             .ok_or(nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("".into())))?
             .clone();
         let pending_actions_channel = Arc::new(EventChannel::new());
-        let engine = crate::agent::engine::AgenticStreamEngine::new(
+        let engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
             resolve_tools(&agent.tool_names),
             agent.workflows,
-            Arc::downgrade(&pending_actions_channel),
+            AgenticAgentType::Direct(Arc::downgrade(&pending_actions_channel)),
         );
         let log_window = engine.log_handler.log_window.clone();
         Ok(Self {
@@ -157,12 +158,12 @@ impl ChatSession {
         let logs: Vec<TenonLog> = history.logs;
         let pending_actions_channel = Arc::new(EventChannel::new());
 
-        let mut engine = crate::agent::engine::AgenticStreamEngine::new(
+        let mut engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
             resolve_tools(&agent.tool_names),
             agent.workflows,
-            Arc::downgrade(&pending_actions_channel),
+            AgenticAgentType::Direct(Arc::downgrade(&pending_actions_channel)),
         );
         engine.load(logs);
         let log_window = engine.log_handler.log_window.clone();
@@ -249,7 +250,7 @@ impl ChatSession {
 
                 loop {
                     let should_continue = engine
-                        .process_turn(&cancel_token, &on_completion_call)
+                        .process_turn(&cancel_token, &on_completion_call, 100)
                         .await;
 
                     if !should_continue || cancel_token.load(Ordering::SeqCst) {

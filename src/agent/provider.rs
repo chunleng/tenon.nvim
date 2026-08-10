@@ -178,49 +178,49 @@ impl ChatAgent {
         &self,
         message: impl Into<Message> + Send,
         history: Vec<Message>,
+        max_turns: usize,
     ) -> ChatStream {
-        let multi_turn = 100;
         let tool_concurrency = 10;
         match self {
             ChatAgent::Ollama(agent) => ChatStream::Ollama(
                 agent
                     .stream_chat(message, history)
-                    .max_turns(multi_turn)
+                    .max_turns(max_turns)
                     .tool_concurrency(tool_concurrency)
                     .await,
             ),
             ChatAgent::Gemini(agent) => ChatStream::Gemini(
                 agent
                     .stream_chat(message, history)
-                    .max_turns(multi_turn)
+                    .max_turns(max_turns)
                     .tool_concurrency(tool_concurrency)
                     .await,
             ),
             ChatAgent::OpenAICompletion(agent) => ChatStream::OpenAICompletion(
                 agent
                     .stream_chat(message, history)
-                    .max_turns(multi_turn)
+                    .max_turns(max_turns)
                     .tool_concurrency(tool_concurrency)
                     .await,
             ),
             ChatAgent::OpenAIResponse(agent) => ChatStream::OpenAIResponse(
                 agent
                     .stream_chat(message, history)
-                    .max_turns(multi_turn)
+                    .max_turns(max_turns)
                     .tool_concurrency(tool_concurrency)
                     .await,
             ),
             ChatAgent::Anthropic(agent) => ChatStream::Anthropic(
                 agent
                     .stream_chat(message, history)
-                    .max_turns(multi_turn)
+                    .max_turns(max_turns)
                     .tool_concurrency(tool_concurrency)
                     .await,
             ),
             ChatAgent::Bedrock(agent) => ChatStream::Bedrock(
                 agent
                     .stream_chat(message, history)
-                    .max_turns(multi_turn)
+                    .max_turns(max_turns)
                     .tool_concurrency(tool_concurrency)
                     .await,
             ),

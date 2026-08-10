@@ -147,6 +147,7 @@ impl AgenticStreamEngine {
         &mut self,
         cancel_token: &AtomicBool,
         on_completion_call: impl Fn(Usage),
+        max_turns: usize,
     ) -> bool {
         let agent = self.build_chat_adapter();
         let next_prompt = self.log_handler.get_user_prompt();
@@ -158,7 +159,7 @@ impl AgenticStreamEngine {
             next_prompt,
         )
         .await;
-        let mut stream = agent.stream_chat(prompt, chat_history).await;
+        let mut stream = agent.stream_chat(prompt, chat_history, max_turns).await;
 
         let mut should_continue = false;
 

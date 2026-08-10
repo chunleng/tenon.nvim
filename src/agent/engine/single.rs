@@ -25,7 +25,7 @@ impl SingleTextResponseEngine {
         &self,
         message: impl Into<Message> + Send,
     ) -> Result<String, rig::agent::StreamingError> {
-        let mut stream = self.agent.stream_chat(message, vec![]).await;
+        let mut stream = self.agent.stream_chat(message, vec![], 100).await;
         let mut full_text = String::new();
         let mut was_text = false;
         while let Some(result) = stream.next().await {
