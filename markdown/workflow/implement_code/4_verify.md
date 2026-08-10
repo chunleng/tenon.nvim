@@ -1,4 +1,5 @@
 ## Process
+Verify only what was just implemented this cycle (the `next` item from the plan); unstarted plan items are remaining work, not failures.
 1. Think hard about how the implementation could fail
   a. What inputs fall outside the normal path?
   b. What assumptions does the implementation rely on?
@@ -16,7 +17,7 @@
 failures:
   - "what broke and why"
 ```
-Routes back to Implement.
+Routes back to Implement. Only report failures in code written this cycle. Unimplemented plan items are not failures.
 
 ### If verification passed
 ```yaml
