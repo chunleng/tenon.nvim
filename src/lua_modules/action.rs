@@ -97,7 +97,7 @@ fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
                     .map(|line| format!("> {}", line))
                     .collect::<Vec<_>>()
                     .join("\n");
-                format!("{}\n", quoted)
+                format!("{}\n\n", quoted)
             } else {
                 // Code block format for regular buffers
                 // Get snippet-specific metadata
@@ -135,7 +135,7 @@ fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
                     .join("\n");
 
                 format!(
-                    "{}\n```{}\n{}\n```\n",
+                    "{}\n```{}\n{}\n```\n\n",
                     header.trim_end(),
                     filetype,
                     escaped_snippet
