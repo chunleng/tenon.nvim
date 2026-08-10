@@ -1056,7 +1056,7 @@ fn chat_window_loop(
                 }
             };
 
-            match outcome {
+            let should_scroll = match outcome {
                 QuestionOutcome::Resolved => {
                     // Widget already sent the response through response_tx.
                     if let Ok(loaded_guard) = loaded_chat_session.read() {
@@ -1064,16 +1064,21 @@ fn chat_window_loop(
                             session.pending_actions_channel.mark_done();
                         }
                     }
+                    true
                 }
-                _ => {}
-            }
+                _ => false,
+            };
             let _ = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(move || {
                 let chat_window = get_chat_window();
-                if let Ok(win) = chat_window.lock()
-                    && let Ok(mut input_panel) = win.input_window.lock()
-                    && let Some(panel) = input_panel.as_mut()
-                {
-                    let _ = panel.pop_widget(&chat_key.clone());
+                if let Ok(mut win) = chat_window.lock() {
+                    if let Ok(mut input_panel) = win.input_window.lock()
+                        && let Some(panel) = input_panel.as_mut()
+                    {
+                        let _ = panel.pop_widget(&chat_key.clone());
+                    }
+                    if should_scroll {
+                        let _ = win.scroll_output_to_bottom();
+                    }
                 }
                 Ok(())
             });
