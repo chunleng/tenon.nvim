@@ -23,7 +23,7 @@ impl Tool for FetchWebpage {
     type Output = String;
 
     fn description(&self) -> String {
-        "Fetch webpage → readable text. w/ prompt (RECOMMENDED): answer from content. Else: full markdown"
+        "Fetch webpage → readable text. Returns status code and response. With prompt (RECOMMENDED): answer from content. Else: full markdown"
             .to_string()
     }
 
@@ -53,6 +53,18 @@ impl Tool for FetchWebpage {
             ToolExecutionError::other(format!("Fetch failed: '{}' → {}", args.url, e))
         })?;
 
+        let status = response.status();
+
+        if !status.is_success() {
+            return Err(ToolExecutionError::other(format!(
+                "Fetch failed: '{}' → {}",
+                args.url,
+                status.as_u16(),
+            )));
+        }
+
+        let status = status.as_u16();
+
         let content_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -72,10 +84,20 @@ impl Tool for FetchWebpage {
             process_html(&html)
         }?;
 
-        match args.prompt {
-            Some(prompt) => answer_with_prompt(&markdown, &prompt).await,
-            None => Ok(markdown),
-        }
+        let body = match args.prompt {
+            Some(prompt) => answer_with_prompt(&markdown, &prompt).await?,
+            None => markdown,
+        };
+
+        let output = crate::utils::format_yaml_block_scalars(
+            &serde_yaml::to_string(&json!({
+                "status": status,
+                "response": body,
+            }))
+            .map_err(|e| ToolExecutionError::other(format!("Serialize output failed: {}", e)))?,
+        );
+
+        Ok(output)
     }
 }
 
