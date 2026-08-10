@@ -75,6 +75,16 @@ fn perform_edit(
             ));
         }
 
+        if *replace_mode == ReplaceMode::All && match_count > 20 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "{} matches exceed the 20-replacement limit for 'all' mode",
+                    match_count
+                ),
+            ));
+        }
+
         let edits: Vec<serde_json::Value> = matches
             .iter()
             .map(|m| {
@@ -108,6 +118,16 @@ fn perform_edit(
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!("{} matches. Use 'all' or narrow search", match_count),
+            ));
+        }
+
+        if *replace_mode == ReplaceMode::All && match_count > 20 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "{} matches exceed the 20-replacement limit for 'all' mode",
+                    match_count
+                ),
             ));
         }
 
@@ -411,5 +431,33 @@ mod tests {
     fn test_empty_content_nonempty_search_no_match() {
         let result = perform_edit("", "foo", "bar", &ReplaceMode::One, &SearchMode::Literal);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_replace_all_exceeds_limit_returns_error() {
+        let content = "foo ".repeat(21);
+        let result = perform_edit(
+            &content,
+            "foo",
+            "bar",
+            &ReplaceMode::All,
+            &SearchMode::Literal,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_replace_all_at_limit_succeeds() {
+        let content = "foo ".repeat(20);
+        let (result, edits) = perform_edit(
+            &content,
+            "foo",
+            "bar",
+            &ReplaceMode::All,
+            &SearchMode::Literal,
+        )
+        .unwrap();
+        assert_eq!(edits.len(), 20);
+        assert_eq!(result, "bar ".repeat(20));
     }
 }
