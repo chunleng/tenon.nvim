@@ -21,11 +21,11 @@ pub enum TenonUserMessage {
     Text(TenonUserTextMessage),
 }
 
-impl From<TenonUserMessage> for Message {
-    fn from(value: TenonUserMessage) -> Self {
+impl From<&TenonUserMessage> for Message {
+    fn from(value: &TenonUserMessage) -> Self {
         match value {
             TenonUserMessage::Text(TenonUserTextMessage(msg)) => Message::User {
-                content: OneOrMany::one(UserContent::text(msg)),
+                content: OneOrMany::one(UserContent::text(msg.clone())),
             },
         }
     }
@@ -36,10 +36,10 @@ pub enum TenonAssistantMessageContent {
     Text(String),
 }
 
-impl From<TenonAssistantMessageContent> for AssistantContent {
-    fn from(value: TenonAssistantMessageContent) -> Self {
+impl From<&TenonAssistantMessageContent> for AssistantContent {
+    fn from(value: &TenonAssistantMessageContent) -> Self {
         match value {
-            TenonAssistantMessageContent::Text(s) => AssistantContent::text(s),
+            TenonAssistantMessageContent::Text(s) => AssistantContent::text(s.clone()),
         }
     }
 }
@@ -50,12 +50,12 @@ pub struct TenonAssistantMessage {
     pub content: Vec<TenonAssistantMessageContent>,
 }
 
-impl From<TenonAssistantMessage> for Option<Message> {
-    fn from(value: TenonAssistantMessage) -> Self {
+impl From<&TenonAssistantMessage> for Option<Message> {
+    fn from(value: &TenonAssistantMessage) -> Self {
         // reasoning is not return to consciously reduce context
         Some(Message::Assistant {
             id: None,
-            content: OneOrMany::many(value.content.into_iter().map(|x| x.into())).ok()?,
+            content: OneOrMany::many(value.content.iter().map(Into::into)).ok()?,
         })
     }
 }
@@ -95,8 +95,8 @@ pub struct TenonToolLog {
     pub tool_result: Option<Result<TenonToolResult, TenonToolError>>,
 }
 
-impl From<TenonToolLog> for Vec<Message> {
-    fn from(value: TenonToolLog) -> Self {
+impl From<&TenonToolLog> for Vec<Message> {
+    fn from(value: &TenonToolLog) -> Self {
         // Prefix with "fc_" to fit the most troublesome OpenAI response API
         let call_id = format!("fc_{}", &value.tool_call.id);
         let mut messages = vec![Message::Assistant {
@@ -104,12 +104,12 @@ impl From<TenonToolLog> for Vec<Message> {
             content: OneOrMany::one(AssistantContent::tool_call_with_call_id(
                 &call_id,
                 call_id.clone(),
-                value.tool_call.name,
-                value.tool_call.args,
+                value.tool_call.name.clone(),
+                value.tool_call.args.clone(),
             )),
         }];
-        if let Some(res) = value.tool_result {
-            let tool_result_content = match &res {
+        if let Some(res) = &value.tool_result {
+            let tool_result_content = match res {
                 Ok(TenonToolResult::Text(text)) => {
                     OneOrMany::one(ToolResultContent::Text(text.clone()))
                 }
@@ -566,9 +566,9 @@ impl TenonLogData {
     }
 }
 
-impl From<TenonLog> for Vec<Message> {
-    fn from(value: TenonLog) -> Self {
-        match value.data {
+impl From<&TenonLog> for Vec<Message> {
+    fn from(value: &TenonLog) -> Self {
+        match &value.data {
             TenonLogData::User(user_message) => vec![user_message.into()],
             TenonLogData::Assistant(assistant_message) => {
                 match Option::<Message>::from(assistant_message) {

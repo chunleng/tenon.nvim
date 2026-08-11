@@ -50,7 +50,7 @@ impl ChatLogIndexer {
         let mut chat_history = log_window
             .active_history_log()
             .iter()
-            .flat_map(|indexed| Vec::<Message>::from(TenonLog::clone(indexed)))
+            .flat_map(|indexed| Vec::<Message>::from(indexed.as_ref()))
             .collect::<Vec<_>>();
         let history_messages = self.get_relevant_context(&log_window, user_message);
         for msg in history_messages.into_iter().rev() {
