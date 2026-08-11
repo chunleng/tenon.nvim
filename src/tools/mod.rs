@@ -27,7 +27,7 @@ pub use remove_path::RemovePath;
 use rig::tool::{DynamicTool, IntoToolOutput, Tool, ToolExecutionError};
 pub use run_command::RunCommand;
 pub use search_text::SearchText;
-pub use web_search::WebSearch;
+pub use web_search::{LangSearch, WebSearch};
 
 use serde_json::Value;
 
@@ -261,7 +261,12 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<DynamicTool> {
         Some(("remove_path".to_string(), into_dynamic_tool(RemovePath))),
         Some(("run_command".to_string(), into_dynamic_tool(RunCommand))),
         Some(("search_text".to_string(), into_dynamic_tool(SearchText))),
-        Some(("web_search".to_string(), into_dynamic_tool(WebSearch))),
+        Some((
+            "web_search".to_string(),
+            into_dynamic_tool(WebSearch {
+                provider: LangSearch,
+            }),
+        )),
     ];
 
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {

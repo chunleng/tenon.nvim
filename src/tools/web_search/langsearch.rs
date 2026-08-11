@@ -1,19 +1,17 @@
 use rand::Rng;
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
-use serde::{Deserialize, Serialize};
+use rig::tool::ToolExecutionError;
+use serde::Deserialize;
 use serde_json::json;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-/// Minimum gap between the end of one web_search and the start of the next,
+use super::{Freshness, SearchProvider};
+
+/// Minimum gap between the end of one search and the start of the next,
 /// shared across all chat sessions.
 const SEARCH_MIN_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Number of retry attempts after the initial request fails with a retryable
-/// status (5xx or 429 throttle).
-const MAX_RETRIES: u32 = 4;
-
-/// Serializes web_search calls and stores when the most recent search finished.
+/// Serializes search calls and stores when the most recent search finished.
 ///
 /// The lock is held across each HTTP request so searches run one at a time;
 /// the recorded completion time then enforces `SEARCH_MIN_INTERVAL` between the
@@ -28,6 +26,10 @@ fn throttle_wait(last_done: Instant) -> Duration {
     SEARCH_MIN_INTERVAL.saturating_sub(last_done.elapsed())
 }
 
+/// Number of retry attempts after the initial request fails with a retryable
+/// status (5xx or 429 throttle).
+const MAX_RETRIES: u32 = 4;
+
 /// Random backoff before `retry`-th attempt (1-indexed): a random duration
 /// between `retry` and `retry * 3` seconds.
 fn retry_backoff(retry: u32) -> Duration {
@@ -35,17 +37,6 @@ fn retry_backoff(retry: u32) -> Duration {
     let secs = rng.random_range(retry..=(retry * 3));
     Duration::from_secs(secs as u64)
 }
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WebSearchArgs {
-    pub query: String,
-    pub freshness: Option<String>,
-    pub count: Option<u8>,
-}
-
-#[derive(Deserialize, Serialize, Clone)]
-pub struct WebSearch;
 
 #[derive(Deserialize)]
 struct LangSearchResponse {
@@ -68,60 +59,42 @@ struct WebPageValue {
     name: String,
     url: String,
     snippet: String,
-    #[serde(rename = "datePublished")]
-    date_published: Option<String>,
 }
 
-impl Tool for WebSearch {
-    const NAME: &'static str = "web_search";
-    type Error = ToolExecutionError;
-    type Args = WebSearchArgs;
-    type Output = String;
+/// LangSearch web search API provider.
+pub struct LangSearch;
 
-    fn description(&self) -> String {
-        "Search web → YAML results. Each: name, url, snippet, date_published, date_last_crawled."
-            .to_string()
+impl Freshness {
+    /// Maps the short code to the LangSearch API's freshness format.
+    fn to_api_string(self) -> &'static str {
+        match self {
+            Freshness::D => "oneDay",
+            Freshness::W => "oneWeek",
+            Freshness::M => "oneMonth",
+            Freshness::Y => "oneYear",
+        }
     }
+}
 
-    fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query. No year/date unless user specified."
-                },
-                "freshness": {
-                    "type": "string",
-                    "description": "Time filter. \"oneDay\"|\"oneWeek\"|\"oneMonth\"|\"oneYear\"|\"noLimit\" (default)"
-                },
-                "count": {
-                    "type": "integer",
-                    "description": "Results count. 1-10. Default: 10"
-                }
-            },
-            "required": ["query"]
-        })
-    }
-
-    async fn call(
+impl SearchProvider for LangSearch {
+    async fn search(
         &self,
-        _context: &mut ToolContext,
-        args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+        query: &str,
+        freshness: Option<Freshness>,
+        count: u8,
+        _region: Option<String>,
+    ) -> Result<Vec<super::SearchResult>, ToolExecutionError> {
         let api_key = std::env::var("LANGSEARCH_API_KEY")
             .map_err(|_| ToolExecutionError::not_found("LANGSEARCH_API_KEY not set"))?;
 
-        let count = args.count.unwrap_or(10).clamp(1, 10);
-
         let mut body = json!({
-            "query": args.query,
+            "query": query,
             "count": count,
             "summary": false,
         });
 
-        if let Some(freshness) = &args.freshness {
-            body["freshness"] = json!(freshness);
+        if let Some(freshness) = freshness {
+            body["freshness"] = json!(freshness.to_api_string());
         }
 
         // Serialize calls and enforce the completion-based interval: hold the
@@ -175,28 +148,17 @@ impl Tool for WebSearch {
             .await
             .map_err(|e| ToolExecutionError::other(format!("Bad response: {}", e)))?;
 
-        let results: Vec<serde_json::Value> = search_resp
+        Ok(search_resp
             .data
             .web_pages
             .value
             .into_iter()
-            .map(|page| {
-                let mut obj = json!({
-                    "name": page.name,
-                    "url": page.url,
-                    "snippet": page.snippet,
-                });
-                if let Some(dp) = page.date_published {
-                    obj["date_published"] = json!(dp);
-                }
-                obj
+            .map(|page| super::SearchResult {
+                name: page.name,
+                url: page.url,
+                snippet: page.snippet,
             })
-            .collect();
-
-        Ok(crate::utils::format_yaml_block_scalars(
-            &serde_yaml::to_string(&results)
-                .unwrap_or_else(|e| format!("error: \"Serialize failed: {}\"", e)),
-        ))
+            .collect())
     }
 }
 
