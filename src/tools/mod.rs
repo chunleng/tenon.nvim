@@ -10,6 +10,7 @@ pub mod read_file;
 pub mod record_thought;
 pub mod remove_path;
 pub mod run_command;
+pub mod search_dependency_code;
 pub mod search_text;
 pub mod start_workflow;
 pub mod web_search;
@@ -26,6 +27,7 @@ pub use record_thought::RecordThought;
 pub use remove_path::RemovePath;
 use rig::tool::{DynamicTool, IntoToolOutput, Tool, ToolExecutionError};
 pub use run_command::RunCommand;
+pub use search_dependency_code::SearchDependencyCode;
 pub use search_text::SearchText;
 pub use web_search::{LangSearch, WebSearch};
 
@@ -65,7 +67,9 @@ pub enum ToolClassification {
 pub fn get_tool_classification(name: &str) -> ToolClassification {
     match name {
         // Idempotent tools: read-only, reproducible results
-        "read_file" | "list_files" | "search_text" => ToolClassification::Idempotent,
+        "read_file" | "list_files" | "search_text" | "search_dependency_code" => {
+            ToolClassification::Idempotent
+        }
 
         // Non-mutating tools: read-only, may produce different results
         "web_search" | "fetch_webpage" | "record_thought" | "analyze_image" | "ask_question" => {
@@ -114,6 +118,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
         "read_file" | "edit_file" | "remove_path" => "filepath",
         "move_path" => "source",
         "list_files" | "search_text" => "pattern",
+        "search_dependency_code" => "dependency",
         "fetch_webpage" => "url",
         "analyze_image" => "image",
         "ask_question" => "question",
@@ -148,6 +153,7 @@ pub fn all_tool_names() -> Vec<String> {
         "read_file".into(),
         "remove_path".into(),
         "run_command".into(),
+        "search_dependency_code".into(),
         "search_text".into(),
         "web_search".into(),
         "analyze_image".into(),
@@ -260,6 +266,10 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<DynamicTool> {
         Some(("read_file".to_string(), into_dynamic_tool(ReadFile))),
         Some(("remove_path".to_string(), into_dynamic_tool(RemovePath))),
         Some(("run_command".to_string(), into_dynamic_tool(RunCommand))),
+        Some((
+            "search_dependency_code".to_string(),
+            into_dynamic_tool(SearchDependencyCode),
+        )),
         Some(("search_text".to_string(), into_dynamic_tool(SearchText))),
         Some((
             "web_search".to_string(),

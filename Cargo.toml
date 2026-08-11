@@ -38,6 +38,7 @@ base64 = "0.22"
 image = "0.25"
 resvg = "0.44"
 rand = "0.9"
+toml = "0.8"
 
 [dev-dependencies]
 rig = { version = "0.41.0", features = ["test-utils"] }

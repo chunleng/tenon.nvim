@@ -7897,6 +7897,7 @@ dependencies = [
  "shlex",
  "skimtoken",
  "tokio",
+ "toml",
  "unpdf",
 ]
 
