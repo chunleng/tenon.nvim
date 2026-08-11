@@ -265,6 +265,9 @@ impl ChatSession {
     /// Useful for prompting the LLM to continue from where it left off.
     pub fn continue_chat(&mut self) {
         let prompt = self.engine.log_handler.get_user_prompt();
+        if let Ok(mut log_window) = self.engine.log_handler.log_window.write() {
+            log_window.prune_incomplete_messages();
+        }
         self.send_chat_request(prompt);
     }
 
