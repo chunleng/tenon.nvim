@@ -149,13 +149,12 @@ mod tests {
         TenonAssistantMessage, TenonAssistantMessageContent, TenonWorkflowLog,
         log::{
             TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonToolResult, TenonUserMessage,
-            TenonUserTextMessage,
         },
     };
 
     fn create_user_log(token_count: usize) -> TenonLog {
         let mut log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-            TenonUserTextMessage("x".repeat(token_count)),
+            "x".repeat(token_count),
         )));
         log.token_count = token_count;
         log
@@ -306,7 +305,7 @@ mod tests {
     fn create_user_indexed_log(text: &str) -> IndexedLog {
         IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                TenonUserTextMessage(text.to_string()),
+                text.to_string(),
             )))),
             active: true,
         }

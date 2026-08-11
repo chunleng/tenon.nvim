@@ -258,12 +258,12 @@ mod tests {
     use crate::chat::log::handler::ChatLogHandler;
     use crate::chat::{
         TenonAssistantMessage, TenonAssistantMessageContent,
-        log::{TenonLog, TenonLogData, TenonUserMessage, TenonUserTextMessage},
+        log::{TenonLog, TenonLogData, TenonUserMessage},
     };
 
     fn create_user_log(token_count: usize) -> TenonLog {
         let mut log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-            TenonUserTextMessage("x".repeat(token_count)),
+            "x".repeat(token_count),
         )));
         log.token_count = token_count;
         log

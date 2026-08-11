@@ -14,17 +14,14 @@ use skimtoken::estimate_tokens;
 use crate::utils::format_yaml_block_scalars;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TenonUserTextMessage(pub String);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TenonUserMessage {
-    Text(TenonUserTextMessage),
+    Text(String),
 }
 
 impl From<&TenonUserMessage> for Message {
     fn from(value: &TenonUserMessage) -> Self {
         match value {
-            TenonUserMessage::Text(TenonUserTextMessage(msg)) => Message::User {
+            TenonUserMessage::Text(msg) => Message::User {
                 content: OneOrMany::one(UserContent::text(msg.clone())),
             },
         }
@@ -191,7 +188,7 @@ mod tests {
     fn test_last_updated_at_set_on_creation() {
         let before = Utc::now();
         let log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-            TenonUserTextMessage("test".to_string()),
+            "test".to_string(),
         )));
         let after = Utc::now();
 
@@ -308,7 +305,7 @@ impl TenonLog {
     pub fn to_embeddable_text(&self) -> Option<String> {
         match &self.data {
             TenonLogData::User(msg) => match msg {
-                TenonUserMessage::Text(TenonUserTextMessage(text)) => Some(text.clone()),
+                TenonUserMessage::Text(text) => Some(text.clone()),
             },
             TenonLogData::Assistant(msg) => Some(
                 msg.content
@@ -423,7 +420,7 @@ impl TenonLogData {
         }
 
         match self {
-            TenonLogData::User(TenonUserMessage::Text(TenonUserTextMessage(text))) => plain(text),
+            TenonLogData::User(TenonUserMessage::Text(text)) => plain(text),
             TenonLogData::Assistant(msg) => {
                 let mut lines = Vec::new();
                 if let Some(reasoning) = &msg.reasoning {
@@ -535,7 +532,7 @@ impl TenonLogData {
     fn count_tokens(&self) -> usize {
         match self {
             TenonLogData::User(msg) => match msg {
-                TenonUserMessage::Text(TenonUserTextMessage(text)) => estimate_tokens(text),
+                TenonUserMessage::Text(text) => estimate_tokens(text),
             },
             TenonLogData::Assistant(msg) => {
                 // Reasoning is not counted because it's not used for sending request

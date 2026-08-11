@@ -5,8 +5,8 @@ use rig::completion::Message;
 use super::TenonLog;
 use super::indexer::{ChatLogIndexer, IndexedLog};
 use super::window::LogWindow;
+use crate::chat::TenonUserMessage;
 use crate::chat::log::TenonLogData;
-use crate::chat::{TenonUserMessage, TenonUserTextMessage};
 
 #[derive(Clone)]
 pub struct ChatLogHandler {
@@ -50,7 +50,7 @@ impl ChatLogHandler {
             log_window.prune_incomplete_messages();
             log_window.logs.push(IndexedLog {
                 log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                    TenonUserTextMessage(message),
+                    message,
                 )))),
                 active: true,
             });
@@ -64,7 +64,7 @@ impl ChatLogHandler {
                 && let TenonLogData::User(TenonUserMessage::Text(text_msg)) =
                     log_window.logs[len - 1].log.data()
             {
-                return text_msg.0.clone();
+                return text_msg.clone();
             }
         }
         "<context></context>".to_string()

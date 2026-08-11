@@ -11,7 +11,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
         match self {
             TenonLogData::User(msg) => match msg {
                 TenonUserMessage::Text(text_msg) => {
-                    text_msg.0.lines().map(|s| s.to_string()).collect()
+                    text_msg.lines().map(|s| s.to_string()).collect()
                 }
             },
             TenonLogData::Assistant(msg) => {
@@ -124,13 +124,13 @@ mod tests {
     use crate::chat::{
         TenonAssistantMessage, TenonAssistantMessageContent, TenonLogData, TenonThoughtLog,
         TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage,
-        TenonUserTextMessage, TenonWorkflowLog,
+        TenonWorkflowLog,
     };
     use serde_json::json;
 
     #[test]
     fn test_user_formatter() {
-        let msg = TenonUserMessage::Text(TenonUserTextMessage("Hello\nWorld".to_string()));
+        let msg = TenonUserMessage::Text("Hello\nWorld".to_string());
         let data = TenonLogData::User(msg);
 
         assert_eq!(data.lines(), vec!["Hello", "World"]);

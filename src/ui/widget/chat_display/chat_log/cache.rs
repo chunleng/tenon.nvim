@@ -307,9 +307,7 @@ impl ChatLogCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::log::{
-        TenonAssistantMessage, TenonLog, TenonLogData, TenonUserMessage, TenonUserTextMessage,
-    };
+    use crate::chat::log::{TenonAssistantMessage, TenonLog, TenonLogData, TenonUserMessage};
     use std::sync::Arc;
 
     fn init_test_cache() -> ChatLogCache {
@@ -325,7 +323,7 @@ mod tests {
         let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                TenonUserTextMessage(text.to_string()),
+                text.to_string(),
             )))),
             active: true,
         });
@@ -773,7 +771,7 @@ mod tests {
         log_window.logs.remove(3); // Remove tool3
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
             log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                TenonUserTextMessage("World".to_string()),
+                "World".to_string(),
             )))),
             active: true,
         });

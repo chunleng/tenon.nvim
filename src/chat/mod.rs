@@ -26,7 +26,7 @@ pub use log::handler::ChatLogHandler;
 pub use log::{
     TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData, TenonThoughtLog,
     TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage,
-    TenonUserTextMessage, TenonWorkflowLog,
+    TenonWorkflowLog,
 };
 pub use usage::SessionUsage;
 

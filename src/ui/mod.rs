@@ -1113,13 +1113,13 @@ mod tests {
     use crate::chat::log::{
         TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData,
         TenonThoughtLog, TenonToolCall, TenonToolLog, TenonToolResult, TenonUserMessage,
-        TenonUserTextMessage, TenonWorkflowLog,
+        TenonWorkflowLog,
     };
 
     #[test]
     fn test_format_log_detail_user_message() {
         let log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-            TenonUserTextMessage("Generate me a story.\nThe story is about a boy".to_string()),
+            "Generate me a story.\nThe story is about a boy".to_string(),
         )));
         let lines = format_log_detail(&log);
 

@@ -57,7 +57,7 @@ impl TitleHandler {
                 if let TenonLogData::User(crate::chat::TenonUserMessage::Text(msg)) =
                     indexed.log.data()
                 {
-                    Some(msg.0.clone())
+                    Some(msg.clone())
                 } else {
                     None
                 }
