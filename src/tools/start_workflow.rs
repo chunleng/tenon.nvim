@@ -29,24 +29,36 @@ impl Tool for StartWorkflow {
     type Output = String;
 
     fn description(&self) -> String {
-        "Start workflow".to_string()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
         let candidate_workflow = self
             .workflows
             .iter()
             .map(|wf| format!("- {} — {}", wf.id, wf.description))
             .collect::<Vec<_>>()
             .join("\n");
+        format!(
+            "Start a workflow to execute a task through a predefined procedure with built-in \
+             verification and iteration.
+             Prefer a workflow over ad-hoc tool calls whenever a workflow description fits the problem.\
+             \n\n
+             \nAvailable Workflow ID — description:\
+             \n{}",
+            candidate_workflow
+        )
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        let workflow_ids = self
+            .workflows
+            .iter()
+            .map(|wf| wf.id.clone())
+            .collect::<Vec<_>>();
         json!({
             "type": "object",
             "properties": {
                 "workflow_id": {
                     "type": "string",
-                    "description": format!(
-                        "The workflow ID to start. Pick the workflow description that best matches the user's intent.\nID — description:\n{}", candidate_workflow
-                    ),
+                    "enum": workflow_ids,
+                    "description": "Workflow ID to start",
                 }
             },
             "required": ["workflow_id"]
