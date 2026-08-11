@@ -10,10 +10,17 @@ use crate::{
 pub mod user;
 
 #[derive(Debug, Clone)]
+pub enum WebSearchConfig {
+    Brave { api_key: String },
+    LangSearch { api_key: String },
+}
+
+#[derive(Debug, Clone)]
 pub struct ToolsConfig {
     pub fetch_webpage: FetchWebpageConfig,
     pub analyze_image: AnalyzeImageConfig,
     pub run_command: RunCommandConfig,
+    pub web_search: Option<WebSearchConfig>,
 }
 
 impl Default for ToolsConfig {
@@ -22,6 +29,7 @@ impl Default for ToolsConfig {
             fetch_webpage: FetchWebpageConfig { model: None },
             analyze_image: AnalyzeImageConfig { model: None },
             run_command: RunCommandConfig::default(),
+            web_search: None,
         }
     }
 }

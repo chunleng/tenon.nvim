@@ -15,7 +15,8 @@ pub mod search_text;
 pub mod start_workflow;
 pub mod web_search;
 
-use crate::mcp::McpHubCaller;
+use crate::tools::web_search::LangSearch;
+use crate::{config::WebSearchConfig, mcp::McpHubCaller, tools::web_search::Brave};
 pub use analyze_image::AnalyzeImage;
 pub use ask_question::AskQuestion;
 pub use edit_file::EditFile;
@@ -29,7 +30,7 @@ use rig::tool::{DynamicTool, IntoToolOutput, Tool, ToolExecutionError};
 pub use run_command::RunCommand;
 pub use search_dependency_code::SearchDependencyCode;
 pub use search_text::SearchText;
-pub use web_search::{LangSearch, WebSearch};
+pub use web_search::WebSearch;
 
 use serde_json::Value;
 
@@ -155,9 +156,12 @@ pub fn all_tool_names() -> Vec<String> {
         "run_command".into(),
         "search_dependency_code".into(),
         "search_text".into(),
-        "web_search".into(),
         "analyze_image".into(),
     ];
+
+    if crate::get_application_config().tools.web_search.is_some() {
+        names.push("web_search".into());
+    }
 
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {
         for tool in mcp_tools {
@@ -271,13 +275,22 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<DynamicTool> {
             into_dynamic_tool(SearchDependencyCode),
         )),
         Some(("search_text".to_string(), into_dynamic_tool(SearchText))),
-        Some((
-            "web_search".to_string(),
-            into_dynamic_tool(WebSearch {
-                provider: LangSearch,
-            }),
-        )),
     ];
+
+    if let Some(web_search_config) = &crate::get_application_config().tools.web_search {
+        let provider: Box<dyn web_search::SearchProvider> = match web_search_config {
+            WebSearchConfig::Brave { api_key } => Box::new(Brave {
+                api_key: api_key.clone(),
+            }),
+            WebSearchConfig::LangSearch { api_key } => Box::new(LangSearch {
+                api_key: api_key.clone(),
+            }),
+        };
+        all_tools.push(Some((
+            "web_search".to_string(),
+            into_dynamic_tool(WebSearch { provider }),
+        )));
+    }
 
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {
         for tool in mcp_tools {

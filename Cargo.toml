@@ -14,7 +14,7 @@ nvim-oxi = { git = "https://github.com/chunleng/nvim-oxi", package = "nvim-oxi",
     "mlua",
 ] }
 mlua = { version = "*", features = ["module", "serialize", "luajit"] }
-reqwest = "0.13.2"
+reqwest = { version = "0.13.2", features = ["query"] }
 rig = "0.41.0"
 rig-bedrock = "0.41.0"
 fastembed = "4"
@@ -27,6 +27,7 @@ globset = "0.4"
 ignore = "0.4"
 regex = "1"
 dyn-clone = "1"
+async-trait = "0.1"
 shlex = "1"
 chrono = { version = "0.4", features = ["serde"] }
 skimtoken = "0.2"

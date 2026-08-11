@@ -15,7 +15,7 @@ use serde::Deserialize;
 /// Supports two formats in configuration:
 /// - Direct string: `api_key = "sk-..."`
 /// - Env reference: `api_key = { env = "MY_API_KEY" }`
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum ApiKey {
     /// Direct API key value.

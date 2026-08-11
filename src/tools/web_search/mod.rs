@@ -1,5 +1,8 @@
+mod brave;
 mod langsearch;
 
+use async_trait::async_trait;
+pub use brave::Brave;
 pub use langsearch::LangSearch;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
@@ -27,7 +30,8 @@ pub enum Freshness {
 }
 
 /// Provider-agnostic interface for web search backends.
-pub trait SearchProvider {
+#[async_trait]
+pub trait SearchProvider: Send + Sync {
     async fn search(
         &self,
         query: &str,
@@ -47,7 +51,7 @@ pub struct WebSearchArgs {
 }
 
 pub struct WebSearch {
-    pub provider: LangSearch,
+    pub provider: Box<dyn SearchProvider>,
 }
 
 impl Tool for WebSearch {
@@ -75,11 +79,11 @@ impl Tool for WebSearch {
                 },
                 "count": {
                     "type": "integer",
-                    "description": "Results count. 1-10. Default: 10"
+                    "description": "Results count. Default: 5"
                 },
                 "region": {
                     "type": "string",
-                    "description": "2-character country code. Omit for no region filter."
+                    "description": "2-character country code. Set to match the query's locale. Omit only for global queries"
                 }
             },
             "required": ["query"]
@@ -91,7 +95,7 @@ impl Tool for WebSearch {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
-        let count = args.count.unwrap_or(10).clamp(1, 10);
+        let count = args.count.unwrap_or(5);
 
         let results = self
             .provider

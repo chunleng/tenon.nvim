@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 
 use super::{Freshness, SearchProvider};
 
+use async_trait::async_trait;
+
 /// Minimum gap between the end of one search and the start of the next,
 /// shared across all chat sessions.
 const SEARCH_MIN_INTERVAL: Duration = Duration::from_secs(1);
@@ -62,7 +64,9 @@ struct WebPageValue {
 }
 
 /// LangSearch web search API provider.
-pub struct LangSearch;
+pub struct LangSearch {
+    pub api_key: String,
+}
 
 impl Freshness {
     /// Maps the short code to the LangSearch API's freshness format.
@@ -76,6 +80,7 @@ impl Freshness {
     }
 }
 
+#[async_trait]
 impl SearchProvider for LangSearch {
     async fn search(
         &self,
@@ -84,12 +89,9 @@ impl SearchProvider for LangSearch {
         count: u8,
         _region: Option<String>,
     ) -> Result<Vec<super::SearchResult>, ToolExecutionError> {
-        let api_key = std::env::var("LANGSEARCH_API_KEY")
-            .map_err(|_| ToolExecutionError::not_found("LANGSEARCH_API_KEY not set"))?;
-
         let mut body = json!({
             "query": query,
-            "count": count,
+            "count": count.clamp(1, 10),
             "summary": false,
         });
 
@@ -107,7 +109,7 @@ impl SearchProvider for LangSearch {
         let resp = loop {
             let resp = client
                 .post("https://api.langsearch.com/v1/web-search")
-                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")
                 .json(&body)
                 .send()

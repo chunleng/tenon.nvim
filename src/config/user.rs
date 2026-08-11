@@ -1,13 +1,14 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use nvim_oxi::serde::DeserializeError;
+use nvim_oxi::{api::types::LogLevel, serde::DeserializeError};
 use serde::Deserialize;
 
 use crate::{
     chat::TenonAgent,
-    clients::{ProviderConfig, SupportedModels},
-    config::TenonConfig,
+    clients::{ApiKey, ProviderConfig, SupportedModels},
+    config::{TenonConfig, WebSearchConfig},
     directive::{Directive, DirectiveSource},
+    utils::notify,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -35,11 +36,19 @@ pub struct TitleUserConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "provider", rename_all = "lowercase", deny_unknown_fields)]
+pub enum WebSearchProviderConfig {
+    Brave { api_key: ApiKey },
+    LangSearch { api_key: ApiKey },
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ToolsUserConfig {
     pub fetch_webpage: Option<FetchWebpageUserConfig>,
     pub analyze_image: Option<AnalyzeImageUserConfig>,
     pub run_command: Option<RunCommandUserConfig>,
+    pub web_search: Option<WebSearchProviderConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -272,6 +281,23 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
             }
+            conf.tools.web_search = match tools.web_search {
+                Some(WebSearchProviderConfig::Brave { api_key }) => match api_key.resolve() {
+                    Ok(key) => Some(WebSearchConfig::Brave { api_key: key }),
+                    Err(e) => {
+                        notify(format!("[tenon] web_search: {}", e), LogLevel::Warn);
+                        None
+                    }
+                },
+                Some(WebSearchProviderConfig::LangSearch { api_key }) => match api_key.resolve() {
+                    Ok(key) => Some(WebSearchConfig::LangSearch { api_key: key }),
+                    Err(e) => {
+                        notify(format!("[tenon] web_search: {}", e), LogLevel::Warn);
+                        None
+                    }
+                },
+                None => None,
+            };
         }
 
         if let Some(history) = value.history {
@@ -485,6 +511,7 @@ mod tests {
                 whitelist: vec![],
                 check_models: vec![Model("fast".to_string())],
             }),
+            web_search: None,
         };
 
         let title = TitleUserConfig {
@@ -527,6 +554,7 @@ mod tests {
             }),
             analyze_image: None,
             run_command: None,
+            web_search: None,
         };
 
         let config = TenonUserConfig {
@@ -540,6 +568,37 @@ mod tests {
 
         let result = TenonConfig::try_from(config);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn try_from_tools_web_search_passes_through() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+
+        let tools = ToolsUserConfig {
+            fetch_webpage: None,
+            analyze_image: None,
+            run_command: None,
+            web_search: Some(WebSearchProviderConfig::Brave {
+                api_key: ApiKey::Value("test-key".into()),
+            }),
+        };
+
+        let config = TenonUserConfig {
+            connectors: None,
+            agents: None,
+            models: None,
+            tools: Some(tools),
+            history: None,
+            title: None,
+        };
+
+        let result = TenonConfig::try_from(config).unwrap();
+        match &result.tools.web_search {
+            Some(WebSearchConfig::Brave { api_key }) => {
+                assert_eq!(api_key, "test-key");
+            }
+            other => panic!("expected Brave, got {other:?}"),
+        }
     }
 
     #[test]
