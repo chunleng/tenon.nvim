@@ -7,6 +7,8 @@ use serde_json::Value;
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 
 #[derive(Clone)]
+// Fields are only read in `into_dynamic_tool`, which is compiled out in test builds.
+#[allow(dead_code)]
 pub struct McpHubCaller {
     server_name: String,
     tool_name: String,
@@ -104,6 +106,8 @@ return result"#;
         Ok(mcp_tools)
     }
 
+    // Only used by `resolve_tools`, which is compiled out in test builds.
+    #[allow(dead_code)]
     pub fn into_dynamic_tool(self) -> DynamicTool {
         let name = self.tool_name();
         let description = self.description.clone();

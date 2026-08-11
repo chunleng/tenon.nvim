@@ -252,15 +252,8 @@ pub(crate) fn into_dynamic_tool<T: Tool + 'static>(tool: T) -> DynamicTool {
     })
 }
 
-/// Resolve a list of tool name strings into concrete `DynamicTool` instances.
-///
-/// Built-in names: "edit_file", "fetch_webpage",
-/// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search", "record_thought".
-/// MCP tool names: "server_name.tool_name" for a specific tool,
-/// or "server_name" to include all tools from that server.
-pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<DynamicTool> {
-    let name_refs: Vec<&str> = names.iter().map(|n| n.as_ref()).collect();
-
+/// Build the list of built-in tools (excluding MCP tools).
+fn builtin_tools() -> Vec<Option<(String, DynamicTool)>> {
     let mut all_tools: Vec<Option<(String, DynamicTool)>> = vec![
         Some(("edit_file".to_string(), into_dynamic_tool(EditFile))),
         Some(("fetch_webpage".to_string(), into_dynamic_tool(FetchWebpage))),
@@ -292,6 +285,21 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<DynamicTool> {
         )));
     }
 
+    all_tools
+}
+
+/// Resolve a list of tool name strings into concrete `DynamicTool` instances.
+///
+/// Built-in names: "edit_file", "fetch_webpage",
+/// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search", "record_thought".
+/// MCP tool names: "server_name.tool_name" for a specific tool,
+/// or "server_name" to include all tools from that server.
+#[cfg(not(test))]
+pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<DynamicTool> {
+    let name_refs: Vec<&str> = names.iter().map(|n| n.as_ref()).collect();
+
+    let mut all_tools = builtin_tools();
+
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {
         for tool in mcp_tools {
             all_tools.push(Some((tool.tool_name(), tool.into_dynamic_tool())));
@@ -299,6 +307,15 @@ pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<DynamicTool> {
     }
 
     select_in_order(all_tools, &name_refs)
+}
+
+// Test mock: resolves built-in tools only, skipping MCP tools.
+// The real implementation calls McpHubCaller::from_mcp_tools() which requires
+// a Neovim context (GLOBAL_EXECUTION_HANDLER), causing panics in unit tests.
+#[cfg(test)]
+pub fn resolve_tools(names: &[impl AsRef<str>]) -> Vec<DynamicTool> {
+    let name_refs: Vec<&str> = names.iter().map(|n| n.as_ref()).collect();
+    select_in_order(builtin_tools(), &name_refs)
 }
 
 #[cfg(test)]
