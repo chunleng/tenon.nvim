@@ -145,20 +145,16 @@ impl AgenticStreamEngine {
     /// the multi-turn loop), `false` otherwise.
     pub async fn process_turn(
         &mut self,
+        prompt: String,
         cancel_token: &AtomicBool,
         on_completion_call: impl Fn(Usage),
         max_turns: usize,
     ) -> bool {
         let agent = self.build_chat_adapter();
-        let next_prompt = self.log_handler.get_user_prompt();
-        let chat_history = self.log_handler.get_chat_history(&next_prompt);
-        let prompt = build_workflow_prompt(
-            &self.active_workflow,
-            &self.workflows,
-            &self.model,
-            next_prompt,
-        )
-        .await;
+        let chat_history = self.log_handler.get_chat_history(&prompt);
+        let prompt =
+            build_workflow_prompt(&self.active_workflow, &self.workflows, &self.model, prompt)
+                .await;
         let mut stream = agent.stream_chat(prompt, chat_history, max_turns).await;
 
         let mut should_continue = false;

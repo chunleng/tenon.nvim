@@ -204,7 +204,7 @@ impl ChatSession {
     /// Internal method to send a chat request.
     /// The user message must be added to the log handler before calling this.
     /// RAG context is computed inside the spawned thread to avoid blocking.
-    fn send_chat_request(&mut self) {
+    fn send_chat_request(&mut self, prompt: String) {
         // Cancel previous thread
         self.cancel_token.store(true, Ordering::SeqCst);
         self.cancel_token = Arc::new(AtomicBool::new(false));
@@ -250,7 +250,7 @@ impl ChatSession {
 
                 loop {
                     let should_continue = engine
-                        .process_turn(&cancel_token, &on_completion_call, 100)
+                        .process_turn(prompt.clone(), &cancel_token, &on_completion_call, 100)
                         .await;
 
                     if !should_continue || cancel_token.load(Ordering::SeqCst) {
@@ -264,12 +264,13 @@ impl ChatSession {
     /// Continue the chat without adding a new user message.
     /// Useful for prompting the LLM to continue from where it left off.
     pub fn continue_chat(&mut self) {
-        self.send_chat_request();
+        let prompt = self.engine.log_handler.get_user_prompt();
+        self.send_chat_request(prompt);
     }
 
     pub fn send_message(&mut self, message: String) {
-        self.engine.log_handler.add_user_message(message);
-        self.send_chat_request();
+        self.engine.log_handler.add_user_message(message.clone());
+        self.send_chat_request(message);
     }
 }
 

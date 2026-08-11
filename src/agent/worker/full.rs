@@ -172,15 +172,17 @@ impl GoalOrientedWorker {
              Once you have the answer, submit it using the `submit_answer` tool \
              with `is_answer` set to true."
         );
-        self.engine
-            .log_handler
-            .add_user_message(task_with_instruction);
 
         let cancel_token = AtomicBool::new(false);
 
         for _ in 0..self.rounds {
             self.engine
-                .process_turn(&cancel_token, |_| {}, self.max_turns)
+                .process_turn(
+                    task_with_instruction.clone(),
+                    &cancel_token,
+                    |_| {},
+                    self.max_turns,
+                )
                 .await;
 
             if let Some(result) = self.result_slot.read().ok().and_then(|g| g.clone()) {
@@ -188,17 +190,20 @@ impl GoalOrientedWorker {
             }
         }
 
-        if self.overtime_rounds > 0 {
-            self.engine.log_handler.add_user_message(
-                "Complete the task now with what you found so far. \
-                 Reply with the answer using the answer tool, or state that there is no answer."
-                    .to_string(),
-            );
-        }
+        let overtime_prompt = format!(
+            "{task_with_instruction}\n\n\
+             Complete the task now with what you found so far. \
+             Reply with the answer using the answer tool, or state that there is no answer."
+        );
 
         for _ in 0..self.overtime_rounds {
             self.engine
-                .process_turn(&cancel_token, |_| {}, self.max_turns)
+                .process_turn(
+                    overtime_prompt.clone(),
+                    &cancel_token,
+                    |_| {},
+                    self.max_turns,
+                )
                 .await;
 
             if let Some(result) = self.result_slot.read().ok().and_then(|g| g.clone()) {
