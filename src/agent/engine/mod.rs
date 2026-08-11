@@ -1,5 +1,5 @@
 pub mod agentic;
 pub mod single;
 
-pub use agentic::AgenticStreamEngine;
+pub use agentic::{AgenticAgentType, AgenticStreamEngine};
 pub use single::SingleTextResponseEngine;

@@ -18,6 +18,15 @@ use crate::directive::{Directive, DirectiveSource, directive_path};
 use crate::tools::{AskQuestion, RecordThought, into_dynamic_tool};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 
+/// Distinguishes agents with direct user access from sub-agents used as tools.
+/// Determines which system tools (e.g. AskQuestion) are available.
+pub enum AgenticAgentType {
+    /// Agent has direct access to the user (main chat).
+    Direct(Weak<EventChannel<PendingAction>>),
+    /// Agent runs as a sub-tool without user interaction.
+    Tool,
+}
+
 /// Streaming engine for agentic chat with tools, workflows, and multi-turn loops.
 /// Session-state interfaces (log handler, usage, cancel token, etc.) are injected per request.
 #[derive(Clone)]
@@ -28,7 +37,7 @@ pub struct AgenticStreamEngine {
     pub workflows: Vec<Arc<crate::chat::workflow::Workflow>>,
     pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
     pub log_handler: ChatLogHandler,
-    ask_question_tool: DynamicTool,
+    system_tools: Vec<DynamicTool>,
 }
 
 impl AgenticStreamEngine {
@@ -37,9 +46,12 @@ impl AgenticStreamEngine {
         directive: Vec<Directive>,
         tool_names: Vec<DynamicTool>,
         workflows: Vec<Arc<crate::chat::workflow::Workflow>>,
-        event_channel: Weak<EventChannel<PendingAction>>,
+        agent_type: AgenticAgentType,
     ) -> Self {
-        let ask_question_tool = into_dynamic_tool(AskQuestion { event_channel });
+        let mut system_tools = vec![into_dynamic_tool(RecordThought)];
+        if let AgenticAgentType::Direct(event_channel) = agent_type {
+            system_tools.insert(0, into_dynamic_tool(AskQuestion { event_channel }));
+        }
         Self {
             model,
             directive,
@@ -47,7 +59,7 @@ impl AgenticStreamEngine {
             workflows,
             active_workflow: Arc::new(RwLock::new(None)),
             log_handler: ChatLogHandler::new(),
-            ask_question_tool,
+            system_tools,
         }
     }
 
@@ -86,11 +98,9 @@ impl AgenticStreamEngine {
         }];
         combined.extend(self.directive.iter().cloned());
 
-        let mut tools = self.tool_names.clone();
-
-        // Prebuilt tools (e.g. AskQuestion) are always resolved
-        tools.insert(0, self.ask_question_tool.clone());
-        tools.insert(0, into_dynamic_tool(RecordThought));
+        // System tools must be resolved first
+        let mut tools = self.system_tools.clone();
+        tools.extend(self.tool_names.iter().cloned());
 
         let has_active = self
             .active_workflow
@@ -387,7 +397,6 @@ impl AgenticStreamEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::EventChannel;
     use crate::clients::{OllamaProviderConfig, ProviderConfig, SupportedModels};
     use crate::tools::{EditFile, ReadFile};
 
@@ -403,14 +412,8 @@ mod tests {
     #[test]
     fn test_engine_stores_dynamic_tool_names() {
         let tools = vec![into_dynamic_tool(ReadFile), into_dynamic_tool(EditFile)];
-        let event_channel = Arc::new(EventChannel::new());
-        let engine = AgenticStreamEngine::new(
-            test_model(),
-            vec![],
-            tools,
-            vec![],
-            Arc::downgrade(&event_channel),
-        );
+        let engine =
+            AgenticStreamEngine::new(test_model(), vec![], tools, vec![], AgenticAgentType::Tool);
         let names: Vec<&str> = engine.tool_names.iter().map(|t| t.name()).collect();
         assert_eq!(names, vec!["read_file", "edit_file"]);
     }
@@ -422,14 +425,8 @@ mod tests {
             .ok();
 
         let tools = vec![into_dynamic_tool(ReadFile), into_dynamic_tool(EditFile)];
-        let event_channel = Arc::new(EventChannel::new());
-        let mut engine = AgenticStreamEngine::new(
-            test_model(),
-            vec![],
-            tools,
-            vec![],
-            Arc::downgrade(&event_channel),
-        );
+        let mut engine =
+            AgenticStreamEngine::new(test_model(), vec![], tools, vec![], AgenticAgentType::Tool);
 
         // Navigate to step 2
         let step1_log = TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog {
