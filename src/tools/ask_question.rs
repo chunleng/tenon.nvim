@@ -36,10 +36,8 @@ impl Tool for AskQuestion {
         "Ask question with options and return the user's response. \
          Single answer only (no multi-select); call multiple times for more questions. \
          Use when you can either enumerate options that cover the likely answers, \
-         or offer options you can strongly recommend (mark with '★'). \
-         If neither holds, ask an open-ended question in chat instead. \
-         An 'Answer by chat' option is always appended automatically - never add an \
-         option that just leads back to typing (e.g. \"Something else\", \"Others\")"
+         or offer options you can strongly recommend. \
+         If neither holds, ask an open-ended question in chat instead."
             .to_string()
     }
 
@@ -54,7 +52,10 @@ impl Tool for AskQuestion {
                 "options": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Answer choices. Prefix with '★' to mark recommended. Every option must be a genuine, distinct choice."
+                    "description": "Answer choices. Prefix with '★' to mark recommended. \
+                        Every option must be a genuine, distinct choice. \
+                        Never add an option that just leads back to typing \
+                        (e.g. \"Something else\", \"Others\")"
                 }
             },
             "required": ["question", "options"]
