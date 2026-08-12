@@ -15,7 +15,7 @@ pub mod search_text;
 pub mod start_workflow;
 pub mod web_search;
 
-use crate::tools::web_search::LangSearch;
+use crate::tools::web_search::{LangSearch, Tavily};
 use crate::{config::WebSearchConfig, mcp::McpHubCaller, tools::web_search::Brave};
 pub use analyze_image::AnalyzeImage;
 pub use ask_question::AskQuestion;
@@ -276,6 +276,9 @@ fn builtin_tools() -> Vec<Option<(String, DynamicTool)>> {
                 api_key: api_key.clone(),
             }),
             WebSearchConfig::LangSearch { api_key } => Box::new(LangSearch {
+                api_key: api_key.clone(),
+            }),
+            WebSearchConfig::Tavily { api_key } => Box::new(Tavily {
                 api_key: api_key.clone(),
             }),
         };

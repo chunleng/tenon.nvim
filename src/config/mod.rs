@@ -13,6 +13,7 @@ pub mod user;
 pub enum WebSearchConfig {
     Brave { api_key: String },
     LangSearch { api_key: String },
+    Tavily { api_key: String },
 }
 
 #[derive(Debug, Clone)]

@@ -40,6 +40,7 @@ pub struct TitleUserConfig {
 pub enum WebSearchProviderConfig {
     Brave { api_key: ApiKey },
     LangSearch { api_key: ApiKey },
+    Tavily { api_key: ApiKey },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -291,6 +292,13 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                 },
                 Some(WebSearchProviderConfig::LangSearch { api_key }) => match api_key.resolve() {
                     Ok(key) => Some(WebSearchConfig::LangSearch { api_key: key }),
+                    Err(e) => {
+                        notify(format!("[tenon] web_search: {}", e), LogLevel::Warn);
+                        None
+                    }
+                },
+                Some(WebSearchProviderConfig::Tavily { api_key }) => match api_key.resolve() {
+                    Ok(key) => Some(WebSearchConfig::Tavily { api_key: key }),
                     Err(e) => {
                         notify(format!("[tenon] web_search: {}", e), LogLevel::Warn);
                         None

@@ -1,12 +1,16 @@
 mod brave;
 mod langsearch;
+mod tavily;
 
 use async_trait::async_trait;
 pub use brave::Brave;
 pub use langsearch::LangSearch;
+use rand::Rng;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::time::Duration;
+pub use tavily::Tavily;
 
 /// A single web search result returned by a search provider.
 #[derive(Serialize, Clone)]
@@ -39,6 +43,18 @@ pub trait SearchProvider: Send + Sync {
         count: u8,
         region: Option<String>,
     ) -> Result<Vec<SearchResult>, ToolExecutionError>;
+}
+
+/// Number of retry attempts after the initial request fails with a retryable
+/// status (5xx or 429 throttle).
+const MAX_RETRIES: u32 = 4;
+
+/// Random backoff before `retry`-th attempt (1-indexed): a random duration
+/// between `retry` and `retry * 3` seconds.
+fn retry_backoff(retry: u32) -> Duration {
+    let mut rng = rand::rng();
+    let secs = rng.random_range(retry..=(retry * 3));
+    Duration::from_secs(secs as u64)
 }
 
 #[derive(Deserialize)]
@@ -106,5 +122,25 @@ impl Tool for WebSearch {
             &serde_yaml::to_string(&results)
                 .unwrap_or_else(|e| format!("error: \"Serialize failed: {}\"", e)),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retry_backoff_within_bounds() {
+        for retry in 1..=MAX_RETRIES {
+            let min = Duration::from_secs(retry as u64);
+            let max = Duration::from_secs((retry * 3) as u64);
+            for _ in 0..100 {
+                let backoff = retry_backoff(retry);
+                assert!(
+                    backoff >= min && backoff <= max,
+                    "retry {retry}: backoff {backoff:?} not within [{min:?}, {max:?}]"
+                );
+            }
+        }
     }
 }
