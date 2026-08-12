@@ -36,15 +36,19 @@ fn perform_edit(
     replace_mode: &ReplaceMode,
     search_mode: &SearchMode,
 ) -> Result<(String, Vec<serde_json::Value>), std::io::Error> {
-    // Check if edit touches EOF (need to ensure trailing newline)
+    // Check if edit touches EOF (need to ensure trailing newline).
+    // No-op matches (matched text == replacement) are excluded.
     let edits_at_end = if *search_mode == SearchMode::Regex {
         RegexBuilder::new(search)
             .dot_matches_new_line(true)
             .build()
-            .map(|re| re.find_iter(content).any(|m| m.end() == content.len()))
+            .map(|re| {
+                re.find_iter(content)
+                    .any(|m| m.end() == content.len() && m.as_str() != replace)
+            })
             .unwrap_or(false)
     } else {
-        content.ends_with(search)
+        search != replace && content.ends_with(search)
     };
 
     let (new_content, edits) = if *search_mode == SearchMode::Regex {
@@ -58,13 +62,22 @@ fn perform_edit(
                 )
             })?;
 
-        let matches: Vec<_> = re.find_iter(content).collect();
+        let raw_matches: Vec<_> = re.find_iter(content).collect();
+        let matches: Vec<_> = raw_matches
+            .iter()
+            .filter(|m| m.as_str() != replace)
+            .cloned()
+            .collect();
         let match_count = matches.len();
 
         if match_count == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                "No match found".to_string(),
+                if !raw_matches.is_empty() {
+                    "Matched text equals replacement".to_string()
+                } else {
+                    "No match found".to_string()
+                },
             ));
         }
 
@@ -95,22 +108,37 @@ fn perform_edit(
             })
             .collect();
 
-        let result = match replace_mode {
-            ReplaceMode::One => re.replace(content, regex::NoExpand(replace)).to_string(),
-            _ => re
-                .replace_all(content, regex::NoExpand(replace))
-                .to_string(),
+        let replacements: Vec<_> = match replace_mode {
+            ReplaceMode::One => matches.iter().take(1).collect(),
+            _ => matches.iter().collect(),
         };
+        let mut result = String::new();
+        let mut last_end = 0;
+        for m in replacements {
+            result.push_str(&content[last_end..m.start()]);
+            result.push_str(replace);
+            last_end = m.end();
+        }
+        result.push_str(&content[last_end..]);
 
         (result, edits)
     } else {
-        let matches: Vec<_> = content.match_indices(search).collect();
+        let raw_matches: Vec<_> = content.match_indices(search).collect();
+        let matches: Vec<_> = raw_matches
+            .iter()
+            .filter(|(_, m)| *m != replace)
+            .cloned()
+            .collect();
         let match_count = matches.len();
 
         if match_count == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                "No match found".to_string(),
+                if !raw_matches.is_empty() {
+                    "Matched text equals replacement".to_string()
+                } else {
+                    "No match found".to_string()
+                },
             ));
         }
 
@@ -443,6 +471,41 @@ mod tests {
             &ReplaceMode::All,
             &SearchMode::Literal,
         );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_literal_noop_not_counted() {
+        let content = "hello world";
+        let result = perform_edit(
+            content,
+            "hello",
+            "hello",
+            &ReplaceMode::One,
+            &SearchMode::Literal,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_regex_noop_filtered_one_mode_succeeds() {
+        let content = "foo bar foo";
+        let (result, edits) = perform_edit(
+            content,
+            "foo|bar",
+            "foo",
+            &ReplaceMode::One,
+            &SearchMode::Regex,
+        )
+        .unwrap();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(result, "foo foo foo");
+    }
+
+    #[test]
+    fn test_regex_all_noop_returns_error() {
+        let content = "abc abc";
+        let result = perform_edit(content, "abc", "abc", &ReplaceMode::All, &SearchMode::Regex);
         assert!(result.is_err());
     }
 
