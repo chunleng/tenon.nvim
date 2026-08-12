@@ -1020,6 +1020,10 @@ fn chat_window_loop(
 
             let chat_key_for_push = chat_key.clone();
             let push_result = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(move || {
+                if api::get_mode().mode.to_string() == "i" {
+                    let _ = api::command("stopinsert");
+                }
+
                 let base_keymaps = input_buffer_keymaps();
                 let widget = QuestionWidget::new(event, completion_tx, base_keymaps)?;
 
