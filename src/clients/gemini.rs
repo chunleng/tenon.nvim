@@ -28,7 +28,8 @@ pub fn get_gemini_agent(
     mut params: serde_json::Map<String, serde_json::Value>,
 ) -> Agent<gemini::CompletionModel> {
     let api_key = config.api_key.resolve().unwrap_or_else(|e| {
-        eprintln!("[tenon] {}", e);
+        crate::utils::GLOBAL_EXECUTION_HANDLER
+            .notify_on_main_thread(format!("{}", e), nvim_oxi::api::types::LogLevel::Error);
         String::new()
     });
     let client = gemini::Client::builder()
