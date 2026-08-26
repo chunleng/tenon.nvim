@@ -54,6 +54,7 @@ impl Tool for FetchWebpage {
                 "Tenon/{} (+https://github.com/chunleng/tenon.nvim)",
                 env!("CARGO_PKG_VERSION")
             ))
+            .cookie_store(true)
             .build()
             .map_err(|e| ToolExecutionError::other(format!("Client build failed: {}", e)))?;
 
