@@ -49,7 +49,15 @@ impl Tool for FetchWebpage {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
-        let response = reqwest::get(&args.url).await.map_err(|e| {
+        let client = reqwest::Client::builder()
+            .user_agent(format!(
+                "Tenon/{} (+https://github.com/chunleng/tenon.nvim)",
+                env!("CARGO_PKG_VERSION")
+            ))
+            .build()
+            .map_err(|e| ToolExecutionError::other(format!("Client build failed: {}", e)))?;
+
+        let response = client.get(&args.url).send().await.map_err(|e| {
             ToolExecutionError::other(format!("Fetch failed: '{}' → {}", args.url, e))
         })?;
 
