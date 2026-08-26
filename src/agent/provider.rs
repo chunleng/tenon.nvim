@@ -3,83 +3,10 @@ use crate::clients::{
     get_ollama_agent, get_openai_completion_api_agent, get_openai_response_api_agent,
 };
 use crate::directive::Directive;
-use rig::agent::Agent;
+use rig::agent::{Agent, MultiTurnStreamItem, StreamingResult};
 use rig::message::Message;
-use rig::providers::{
-    anthropic as rig_anthropic, gemini as rig_gemini, ollama as rig_ollama, openai as rig_openai,
-};
-use rig::streaming::StreamingChat;
+use rig::streaming::{StreamedAssistantContent, StreamedUserContent, StreamingChat};
 use rig::tool::DynamicTool;
-
-pub enum ChatAgent {
-    Ollama(Agent<rig_ollama::CompletionModel>),
-    Gemini(Agent<rig_gemini::CompletionModel>),
-    OpenAICompletion(Agent<rig_openai::CompletionModel>),
-    OpenAIResponse(Agent<rig_openai::responses_api::ResponsesCompletionModel>),
-    Anthropic(Agent<rig_anthropic::completion::CompletionModel>),
-    Bedrock(Agent<rig_bedrock::completion::CompletionModel>),
-}
-
-pub enum ChatStream {
-    Ollama(
-        futures::stream::BoxStream<
-            'static,
-            Result<
-                rig::agent::MultiTurnStreamItem<rig_ollama::StreamingCompletionResponse>,
-                rig::agent::StreamingError,
-            >,
-        >,
-    ),
-    Gemini(
-        futures::stream::BoxStream<
-            'static,
-            Result<
-                rig::agent::MultiTurnStreamItem<rig_gemini::streaming::StreamingCompletionResponse>,
-                rig::agent::StreamingError,
-            >,
-        >,
-    ),
-    OpenAICompletion(
-        futures::stream::BoxStream<
-            'static,
-            Result<
-                rig::agent::MultiTurnStreamItem<rig_openai::streaming::StreamingCompletionResponse>,
-                rig::agent::StreamingError,
-            >,
-        >,
-    ),
-    OpenAIResponse(
-        futures::stream::BoxStream<
-            'static,
-            Result<
-                rig::agent::MultiTurnStreamItem<
-                    rig_openai::responses_api::streaming::StreamingCompletionResponse,
-                >,
-                rig::agent::StreamingError,
-            >,
-        >,
-    ),
-    Anthropic(
-        futures::stream::BoxStream<
-            'static,
-            Result<
-                rig::agent::MultiTurnStreamItem<
-                    rig_anthropic::streaming::StreamingCompletionResponse,
-                >,
-                rig::agent::StreamingError,
-            >,
-        >,
-    ),
-    Bedrock(
-        futures::stream::BoxStream<
-            'static,
-            Result<
-                rig::agent::MultiTurnStreamItem<rig_bedrock::streaming::BedrockStreamingResponse>,
-                rig::agent::StreamingError,
-            >,
-        >,
-    ),
-}
 
 pub enum StreamItem {
     ToolResult {
@@ -102,129 +29,64 @@ pub enum StreamItem {
     Other,
 }
 
-macro_rules! convert_stream_item {
-    ($item:expr) => {{
-        use rig::agent::MultiTurnStreamItem;
-        use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
-
-        match $item {
-            MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
-                tool_result,
-                internal_call_id,
-                ..
-            }) => StreamItem::ToolResult {
-                tool_result,
-                internal_call_id,
-            },
-            MultiTurnStreamItem::StreamAssistantItem(
-                StreamedAssistantContent::ReasoningDelta { reasoning, .. },
-            ) => StreamItem::ReasoningDelta { reasoning },
-            MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
-                text_struct,
-            )) => StreamItem::Text {
+fn convert_stream_item(item: MultiTurnStreamItem) -> StreamItem {
+    match item {
+        MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
+            tool_result,
+            internal_call_id,
+        }) => StreamItem::ToolResult {
+            tool_result,
+            internal_call_id,
+        },
+        MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ReasoningDelta {
+            reasoning,
+            ..
+        }) => StreamItem::ReasoningDelta { reasoning },
+        MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text_struct)) => {
+            StreamItem::Text {
                 text: text_struct.text,
-            },
-            MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
-                tool_call,
-                internal_call_id,
-            }) => StreamItem::ToolCall {
-                tool_call: tool_call.into(),
-                internal_call_id,
-            },
-            MultiTurnStreamItem::CompletionCall(call) => {
-                StreamItem::CompletionCall { usage: call.usage }
             }
-            _ => StreamItem::Other,
         }
-    }};
-}
-
-impl ChatStream {
-    pub async fn next(&mut self) -> Option<Result<StreamItem, rig::agent::StreamingError>> {
-        use futures::stream::StreamExt;
-        match self {
-            ChatStream::Ollama(stream) => stream.next().await.map(|result| match result {
-                Ok(item) => Ok(convert_stream_item!(item)),
-                Err(e) => Err(e),
-            }),
-            ChatStream::Gemini(stream) => stream.next().await.map(|result| match result {
-                Ok(item) => Ok(convert_stream_item!(item)),
-                Err(e) => Err(e),
-            }),
-            ChatStream::OpenAICompletion(stream) => {
-                stream.next().await.map(|result| match result {
-                    Ok(item) => Ok(convert_stream_item!(item)),
-                    Err(e) => Err(e),
-                })
-            }
-            ChatStream::OpenAIResponse(stream) => stream.next().await.map(|result| match result {
-                Ok(item) => Ok(convert_stream_item!(item)),
-                Err(e) => Err(e),
-            }),
-            ChatStream::Anthropic(stream) => stream.next().await.map(|result| match result {
-                Ok(item) => Ok(convert_stream_item!(item)),
-                Err(e) => Err(e),
-            }),
-            ChatStream::Bedrock(stream) => stream.next().await.map(|result| match result {
-                Ok(item) => Ok(convert_stream_item!(item)),
-                Err(e) => Err(e),
-            }),
+        MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
+            tool_call,
+            internal_call_id,
+        }) => StreamItem::ToolCall {
+            tool_call,
+            internal_call_id,
+        },
+        MultiTurnStreamItem::CompletionCall(call) => {
+            StreamItem::CompletionCall { usage: call.usage }
         }
+        _ => StreamItem::Other,
     }
 }
 
-impl ChatAgent {
-    pub async fn stream_chat(
-        &self,
+pub struct ChatStream {
+    inner: StreamingResult,
+}
+
+impl ChatStream {
+    pub async fn new(
+        agent: &Agent,
         message: impl Into<Message> + Send,
         history: Vec<Message>,
         max_turns: usize,
-    ) -> ChatStream {
+    ) -> Self {
         let tool_concurrency = 10;
-        match self {
-            ChatAgent::Ollama(agent) => ChatStream::Ollama(
-                agent
-                    .stream_chat(message, history)
-                    .max_turns(max_turns)
-                    .tool_concurrency(tool_concurrency)
-                    .await,
-            ),
-            ChatAgent::Gemini(agent) => ChatStream::Gemini(
-                agent
-                    .stream_chat(message, history)
-                    .max_turns(max_turns)
-                    .tool_concurrency(tool_concurrency)
-                    .await,
-            ),
-            ChatAgent::OpenAICompletion(agent) => ChatStream::OpenAICompletion(
-                agent
-                    .stream_chat(message, history)
-                    .max_turns(max_turns)
-                    .tool_concurrency(tool_concurrency)
-                    .await,
-            ),
-            ChatAgent::OpenAIResponse(agent) => ChatStream::OpenAIResponse(
-                agent
-                    .stream_chat(message, history)
-                    .max_turns(max_turns)
-                    .tool_concurrency(tool_concurrency)
-                    .await,
-            ),
-            ChatAgent::Anthropic(agent) => ChatStream::Anthropic(
-                agent
-                    .stream_chat(message, history)
-                    .max_turns(max_turns)
-                    .tool_concurrency(tool_concurrency)
-                    .await,
-            ),
-            ChatAgent::Bedrock(agent) => ChatStream::Bedrock(
-                agent
-                    .stream_chat(message, history)
-                    .max_turns(max_turns)
-                    .tool_concurrency(tool_concurrency)
-                    .await,
-            ),
-        }
+        let inner = agent
+            .stream_chat(message, history)
+            .max_turns(max_turns)
+            .tool_concurrency(tool_concurrency)
+            .await;
+        ChatStream { inner }
+    }
+
+    pub async fn next(&mut self) -> Option<Result<StreamItem, rig::agent::StreamingError>> {
+        use futures::stream::StreamExt;
+        self.inner
+            .next()
+            .await
+            .map(|result| result.map(convert_stream_item))
     }
 }
 
@@ -233,7 +95,7 @@ pub fn get_agent(
     directive: Vec<Directive>,
     tools: Vec<DynamicTool>,
     override_params: Option<serde_json::Map<String, serde_json::Value>>,
-) -> ChatAgent {
+) -> Agent {
     let resolved_directive = if directive.is_empty() {
         None
     } else {
@@ -256,50 +118,31 @@ pub fn get_agent(
     };
     let params = override_params.unwrap_or_else(|| model.default_parameters.clone());
     match model.config {
-        ProviderConfig::Ollama(config) => ChatAgent::Ollama(get_ollama_agent(
-            config,
-            model.model_name,
-            resolved_directive,
-            tools,
-            params,
-        )),
-        ProviderConfig::Gemini(config) => ChatAgent::Gemini(get_gemini_agent(
-            config,
-            model.model_name,
-            resolved_directive,
-            tools,
-            params,
-        )),
-        ProviderConfig::OpenAICompletion(config) => {
-            ChatAgent::OpenAICompletion(get_openai_completion_api_agent(
-                config,
-                model.model_name,
-                resolved_directive,
-                tools,
-                params,
-            ))
+        ProviderConfig::Ollama(config) => {
+            get_ollama_agent(config, model.model_name, resolved_directive, tools, params)
         }
-        ProviderConfig::OpenAIResponse(config) => {
-            ChatAgent::OpenAIResponse(get_openai_response_api_agent(
-                config,
-                model.model_name,
-                resolved_directive,
-                tools,
-                params,
-            ))
+        ProviderConfig::Gemini(config) => {
+            get_gemini_agent(config, model.model_name, resolved_directive, tools, params)
         }
-        ProviderConfig::Anthropic(config) => ChatAgent::Anthropic(get_anthropic_agent(
+        ProviderConfig::OpenAICompletion(config) => get_openai_completion_api_agent(
             config,
             model.model_name,
             resolved_directive,
             tools,
             params,
-        )),
-        ProviderConfig::Bedrock(_config) => ChatAgent::Bedrock(get_bedrock_agent(
+        ),
+        ProviderConfig::OpenAIResponse(config) => get_openai_response_api_agent(
+            config,
             model.model_name,
             resolved_directive,
             tools,
             params,
-        )),
+        ),
+        ProviderConfig::Anthropic(config) => {
+            get_anthropic_agent(config, model.model_name, resolved_directive, tools, params)
+        }
+        ProviderConfig::Bedrock(_config) => {
+            get_bedrock_agent(model.model_name, resolved_directive, tools, params)
+        }
     }
 }

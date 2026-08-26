@@ -240,7 +240,7 @@ mod tests {
                     ..
                 })) => {
                     if let Some(rig::message::ToolResultContent::Text(text)) =
-                        tool_result.content.first().into()
+                        tool_result.content.first()
                     {
                         tool_result_text = Some(text.text.clone());
                     }
@@ -296,7 +296,7 @@ mod tests {
                     ..
                 })) => {
                     if let Some(rig::message::ToolResultContent::Text(text)) =
-                        tool_result.content.first().into()
+                        tool_result.content.first()
                     {
                         tool_result_text = Some(text.text.clone());
                     }

@@ -6,7 +6,7 @@ use rig::completion::Usage;
 use rig::message::ToolResultContent;
 use rig::tool::DynamicTool;
 
-use crate::agent::provider::{ChatAgent, StreamItem, get_agent};
+use crate::agent::provider::{ChatStream, StreamItem, get_agent};
 use crate::chat::prompt::build_workflow_prompt;
 use crate::chat::{
     ActiveWorkflow, ChatLogHandler, EventChannel, PendingAction, TenonAssistantMessage,
@@ -17,6 +17,7 @@ use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource, directive_path};
 use crate::tools::{AskQuestion, RecordThought, into_dynamic_tool};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
+use rig::agent::Agent;
 
 /// Distinguishes agents with direct user access from sub-agents used as tools.
 /// Determines which system tools (e.g. AskQuestion) are available.
@@ -89,7 +90,7 @@ impl AgenticStreamEngine {
         *self.active_workflow.write().unwrap() = wf;
     }
 
-    fn build_chat_adapter(&self) -> ChatAgent {
+    fn build_chat_adapter(&self) -> Agent {
         let mut combined = vec![Directive {
             condition: None,
             source: DirectiveSource::File {
@@ -155,7 +156,7 @@ impl AgenticStreamEngine {
         let prompt =
             build_workflow_prompt(&self.active_workflow, &self.workflows, &self.model, prompt)
                 .await;
-        let mut stream = agent.stream_chat(prompt, chat_history, max_turns).await;
+        let mut stream = ChatStream::new(&agent, prompt, chat_history, max_turns).await;
 
         let mut should_continue = false;
 
@@ -214,7 +215,7 @@ impl AgenticStreamEngine {
                         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
                             log: Arc::new(TenonLog::new(TenonLogData::Tool(TenonToolLog {
                                 tool_call: TenonToolCall {
-                                    id: tool_call.id,
+                                    id: tool_call.id.to_string(),
                                     internal_call_id,
                                     name: tool_call.function.name,
                                     args: tool_call.function.arguments,
@@ -239,22 +240,24 @@ impl AgenticStreamEngine {
                             None
                         }) {
                             let log = Arc::make_mut(&mut log.log);
-                            let tool_result = tool_result.content.first();
-                            let result = match tool_result {
-                                ToolResultContent::Text(text) => {
+                            let result = match tool_result.content.first() {
+                                Some(ToolResultContent::Text(text)) => {
                                     if text.text.starts_with("ToolCallError: ") {
-                                        Err(TenonToolError(text.text))
+                                        Err(TenonToolError(text.text.clone()))
                                     } else {
-                                        Ok(TenonToolResult::Text(text))
+                                        Ok(TenonToolResult::Text(text.clone()))
                                     }
                                 }
-                                ToolResultContent::Image(img) => Ok(TenonToolResult::Image(img)),
-                                ToolResultContent::Json { value } => {
+                                Some(ToolResultContent::Image(img)) => {
+                                    Ok(TenonToolResult::Image(img.clone()))
+                                }
+                                Some(ToolResultContent::Json { value }) => {
                                     Ok(TenonToolResult::Text(rig::agent::Text {
                                         text: value.to_string(),
                                         ..Default::default()
                                     }))
                                 }
+                                None => Ok(TenonToolResult::Text(rig::agent::Text::default())),
                             };
 
                             log.set_tool_result(Some(result.clone()));
@@ -315,7 +318,7 @@ impl AgenticStreamEngine {
                             // No matching Tool log → record_thought result.
                             // The tool returns JSON: {"thought": "...", "summary": null|"..."}
                             let content = tool_result.content.first();
-                            if let ToolResultContent::Text(text) = content {
+                            if let Some(ToolResultContent::Text(text)) = content {
                                 if text.text.starts_with("ToolCallError: ") {
                                     // Invalid tool call was skipped by
                                     // InvalidToolCallHook — no preceding ToolCall
@@ -332,7 +335,7 @@ impl AgenticStreamEngine {
                                         log: Arc::new(TenonLog::new(TenonLogData::Tool(
                                             TenonToolLog {
                                                 tool_call: TenonToolCall {
-                                                    id: tool_result.id.clone(),
+                                                    id: tool_result.call.to_string(),
                                                     internal_call_id: internal_call_id.clone(),
                                                     name: tool_name,
                                                     args: serde_json::Value::Null,

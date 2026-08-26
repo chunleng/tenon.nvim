@@ -32,7 +32,7 @@ pub fn get_ollama_agent(
     preamble: Option<String>,
     tools: Vec<DynamicTool>,
     mut params: serde_json::Map<String, serde_json::Value>,
-) -> Agent<ollama::CompletionModel> {
+) -> Agent {
     let mut headers = HeaderMap::new();
     if let Some(bearer) = config.bearer
         && let Ok(token) = bearer.resolve()

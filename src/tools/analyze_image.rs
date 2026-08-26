@@ -2,7 +2,6 @@ use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use crate::utils::path_from_str;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use rig::OneOrMany;
 
 use rig::message::{ImageMediaType, Message, MimeType, UserContent};
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
@@ -126,8 +125,7 @@ impl Tool for AnalyzeImage {
             UserContent::image_base64(base64_data, Some(media_type), None)
         };
 
-        let content = OneOrMany::many(vec![UserContent::text(&args.prompt), image_content])
-            .map_err(|_| ToolExecutionError::other("Failed to build message content"))?;
+        let content = vec![UserContent::text(&args.prompt), image_content];
 
         let message = Message::User { content };
 

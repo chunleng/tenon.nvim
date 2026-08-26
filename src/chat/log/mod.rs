@@ -3,10 +3,7 @@ pub mod indexer;
 pub mod window;
 
 use chrono::{DateTime, TimeZone, Utc};
-use rig::{
-    OneOrMany,
-    message::{AssistantContent, Image, Message, ToolResult, ToolResultContent, UserContent},
-};
+use rig::message::{AssistantContent, Image, Message, ToolResultContent, UserContent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use skimtoken::estimate_tokens;
@@ -22,7 +19,7 @@ impl From<&TenonUserMessage> for Message {
     fn from(value: &TenonUserMessage) -> Self {
         match value {
             TenonUserMessage::Text(msg) => Message::User {
-                content: OneOrMany::one(UserContent::text(msg.clone())),
+                content: vec![UserContent::text(msg.clone())],
             },
         }
     }
@@ -50,9 +47,12 @@ pub struct TenonAssistantMessage {
 impl From<&TenonAssistantMessage> for Option<Message> {
     fn from(value: &TenonAssistantMessage) -> Self {
         // reasoning is not return to consciously reduce context
+        if value.content.is_empty() {
+            return None;
+        }
         Some(Message::Assistant {
             id: None,
-            content: OneOrMany::many(value.content.iter().map(Into::into)).ok()?,
+            content: value.content.iter().map(Into::into).collect(),
         })
     }
 }
@@ -94,33 +94,32 @@ pub struct TenonToolLog {
 
 impl From<&TenonToolLog> for Vec<Message> {
     fn from(value: &TenonToolLog) -> Self {
-        // Prefix with "fc_" to fit the most troublesome OpenAI response API
-        let call_id = format!("fc_{}", &value.tool_call.id);
+        // Dual ids to fit the most troublesome OpenAI response API:
+        // item handle `fc_...` + correlator `call_...`
+        let item_id = format!("fc_{}", &value.tool_call.id);
+        let call_id = format!("call_{}", &value.tool_call.id);
         let mut messages = vec![Message::Assistant {
             id: None,
-            content: OneOrMany::one(AssistantContent::tool_call_with_call_id(
-                &call_id,
+            content: vec![AssistantContent::tool_call_with_call_id(
+                item_id.clone(),
                 call_id.clone(),
                 value.tool_call.name.clone(),
                 value.tool_call.args.clone(),
-            )),
+            )],
         }];
         if let Some(res) = &value.tool_result {
             let tool_result_content = match res {
-                Ok(TenonToolResult::Text(text)) => {
-                    OneOrMany::one(ToolResultContent::Text(text.clone()))
-                }
-                Ok(TenonToolResult::Image(img)) => {
-                    OneOrMany::one(ToolResultContent::Image(img.clone()))
-                }
-                Err(err) => OneOrMany::one(ToolResultContent::text(&err.0)),
+                Ok(TenonToolResult::Text(text)) => vec![ToolResultContent::Text(text.clone())],
+                Ok(TenonToolResult::Image(img)) => vec![ToolResultContent::Image(img.clone())],
+                Err(err) => vec![ToolResultContent::text(&err.0)],
             };
             messages.push(Message::User {
-                content: OneOrMany::one(UserContent::ToolResult(ToolResult {
-                    id: call_id.clone(),
-                    call_id: Some(call_id),
-                    content: tool_result_content,
-                })),
+                content: vec![UserContent::tool_result_with_call_id(
+                    item_id,
+                    call_id,
+                    value.tool_call.name.clone(),
+                    tool_result_content,
+                )],
             });
         }
 
@@ -577,10 +576,10 @@ impl From<&TenonLog> for Vec<Message> {
             TenonLogData::Thought(thought_log) => {
                 vec![Message::Assistant {
                     id: None,
-                    content: OneOrMany::one(AssistantContent::text(format!(
+                    content: vec![AssistantContent::text(format!(
                         "Thoughts: {}",
                         thought_log.thought
-                    ))),
+                    ))],
                 }]
             }
             TenonLogData::Workflow(_) => vec![],

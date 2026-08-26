@@ -9,7 +9,7 @@ pub fn get_bedrock_agent(
     preamble: Option<String>,
     tools: Vec<DynamicTool>,
     mut params: serde_json::Map<String, serde_json::Value>,
-) -> Agent<rig_bedrock::completion::CompletionModel> {
+) -> Agent {
     // There's no config provider because bedrock is configured solely by env. Following are some
     // environment that you can override to provide the necessary configuration to bedrock (apart
     // from the standard env like AWS_REGION)
