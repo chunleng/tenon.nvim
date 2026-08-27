@@ -147,6 +147,7 @@ ALLOW patterns:
 - VCS read-only: git status, git log, git diff
 - Build/test: make, cargo build, npm test
 - Info: which, whereis, echo
+- Pure utilities (no side effects): sleep, date, wc, sort, jq, stat, du, ps, basename, realpath, sha256sum, base64
 
 Judge by similarity to patterns above. Commands matching DENY patterns → deny. Commands matching ALLOW patterns → allow. When uncertain, deny.
 
