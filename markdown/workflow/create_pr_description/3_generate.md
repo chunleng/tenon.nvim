@@ -17,7 +17,7 @@ Each subcomponent below is a level-3 header (`###`).
 1-2 liners to summarize the change and the impact
 
 ### Changes [Required]
-What was changed, why and how
+What was changed, why and how. One entry per logical unit of change; operations within the same change (e.g. clauses of one query, statements of one function) are one entry, regardless of which tables or files the operations touch. The "how" briefly qualifies the entry; it does not become its own entry.
 
 ### Tests [Required]
 What was done to verify the change works correctly
