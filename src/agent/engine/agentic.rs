@@ -93,8 +93,9 @@ impl AgenticStreamEngine {
     fn build_chat_adapter(&self) -> Agent {
         let mut combined = vec![Directive {
             condition: None,
-            source: DirectiveSource::File {
-                paths: vec![directive_path("tenon_constitution.md")],
+            source: DirectiveSource::Preset {
+                id: "Tenon Constitution".into(),
+                path: directive_path("tenon_constitution.md"),
             },
         }];
         combined.extend(self.directive.iter().cloned());

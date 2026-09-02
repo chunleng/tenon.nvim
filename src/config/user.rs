@@ -655,7 +655,10 @@ mod tests {
             directive.condition.as_deref(),
             Some("when making code changes")
         );
-        assert!(matches!(&directive.source, DirectiveSource::File { .. }));
+        assert!(matches!(
+            &directive.source,
+            DirectiveSource::Preset { id, .. } if id == "YAGNI Attitude"
+        ));
     }
 
     #[test]
