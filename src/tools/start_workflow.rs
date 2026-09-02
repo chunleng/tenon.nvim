@@ -36,11 +36,13 @@ impl Tool for StartWorkflow {
             .collect::<Vec<_>>()
             .join("\n");
         format!(
-            "Start a workflow to execute a task through a predefined procedure with built-in \
+            "Execute a task through a predefined procedure with built-in \
              verification and iteration.
-             Prefer a workflow over ad-hoc tool calls whenever a workflow description fits the problem.\
-             \n\n
-             \nAvailable Workflow ID — description:\
+             Workflows include their own exploration steps; do not explore or gather context \
+             beforehand to \"prepare\" for a workflow. \
+             Decision test: \"Does a workflow description below match the task?\" \
+             If yes, call start_workflow immediately.\
+             \n\nAvailable Workflow ID — description:\
              \n{}",
             candidate_workflow
         )
