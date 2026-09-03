@@ -285,11 +285,8 @@ mod tests {
     use super::*;
 
     fn write_temp_file(name: &str, content: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "tenon_directive_{}_{}",
-            name,
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("tenon_directive_{}_{}", name, std::process::id()));
         std::fs::write(&path, content).unwrap();
         path
     }
