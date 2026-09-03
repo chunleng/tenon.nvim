@@ -273,6 +273,40 @@ mod tests {
             "should extract artifact value from YAML, got: {joined}"
         );
     }
+
+    #[test]
+    fn test_workflow_detail_lines_extracts_artifact_from_end_workflow() {
+        let workflow_log = TenonWorkflowLog {
+            id: "wf-1".to_string(),
+            content: "Test Workflow".to_string(),
+            step: None,
+            tool_log: TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "call-1".to_string(),
+                    internal_call_id: "call-1".to_string(),
+                    name: "end_workflow".to_string(),
+                    args: serde_json::json!({"step_artifact": "final summary of work"}),
+                },
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                    text: "workflow completed. output: final summary of work".to_string(),
+                    ..Default::default()
+                }))),
+            },
+        };
+
+        let log = TenonLog::new(TenonLogData::Workflow(workflow_log));
+        let lines = log.data().detail_lines();
+
+        let joined = lines.join("\n");
+        assert!(
+            joined.contains("### Artifact (Final)"),
+            "should have Artifact (Final) header, got: {joined}"
+        );
+        assert!(
+            joined.contains("final summary of work"),
+            "should extract step_artifact value from args, got: {joined}"
+        );
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -522,6 +556,19 @@ impl TenonLogData {
                         }
                         _ => {}
                     }
+                } else if log.tool_log.tool_call.name == "end_workflow" {
+                    // end_workflow carries its artifact in the call args, not the result
+                    let artifact = log
+                        .tool_log
+                        .tool_call
+                        .args
+                        .get("step_artifact")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("(none)");
+                    lines.push(String::new());
+                    lines.push("### Artifact (Final)".to_string());
+                    lines.push(String::new());
+                    lines.extend(plain(artifact));
                 }
                 lines
             }
