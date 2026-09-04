@@ -154,9 +154,7 @@ impl AgenticStreamEngine {
     ) -> bool {
         let agent = self.build_chat_adapter();
         let chat_history = self.log_handler.get_chat_history(&prompt);
-        let prompt =
-            build_workflow_prompt(&self.active_workflow, &self.workflows, &self.model, prompt)
-                .await;
+        let prompt = build_workflow_prompt(&self.active_workflow, prompt).await;
         let mut stream = ChatStream::new(&agent, prompt, chat_history, max_turns).await;
 
         let mut should_continue = false;
