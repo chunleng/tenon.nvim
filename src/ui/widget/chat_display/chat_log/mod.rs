@@ -126,26 +126,9 @@ impl ChatLogRenderer {
 
                             let _ = nvim_oxi::api::set_option_value("modifiable", false, &buf_opts);
 
-                            // If cursor was at last line, snap last line to bottom via winrestview.
-                            // winrestview is not affected by scrolloff or smoothscroll, unlike zb.
-                            if follow_last_line
-                                && let Ok(new_line_count) = buffer.line_count()
-                                && let Ok(win_height) = window.get_height()
-                            {
-                                let topline = new_line_count
-                                    .saturating_sub(win_height as usize)
-                                    .saturating_add(1);
-                                let lnum = new_line_count;
-                                let _ = window.call(move |()| {
-                                    let _ = api::command(&format!("call cursor({lnum}, 1)"));
-                                    let winline: i64 = api::eval("winline()").unwrap_or(0);
-                                    let winheight: i64 = api::eval("winheight(0)").unwrap_or(0);
-                                    if winline < winheight {
-                                        let _ = api::command(&format!(
-                                            "lua vim.fn.winrestview({{topline = {topline}, lnum = {lnum}}})"
-                                        ));
-                                    }
-                                });
+                            // If cursor was at last line, follow the new last line.
+                            if follow_last_line {
+                                window_clone.snap_to_bottom();
                             }
                         }
                         Ok(())

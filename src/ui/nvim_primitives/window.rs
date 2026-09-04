@@ -153,4 +153,40 @@ impl NvimWindow {
             None
         }
     }
+
+    /// Moves the cursor to the last character of the last line and snaps the
+    /// view so the last line is visible at the bottom of the window.
+    ///
+    /// Scrolling uses `winrestview` because it is not affected by `scrolloff`
+    /// or `smoothscroll`, unlike `zb`. The `winrestview` dict omits `col`, so
+    /// the cursor column set by `cursor()` survives.
+    pub fn snap_to_bottom(&self) {
+        let Some(window) = self.get_window() else {
+            return;
+        };
+        let Ok(line_count) = window.get_buf().and_then(|b| b.line_count()) else {
+            return;
+        };
+        let Ok(win_height) = window.get_height() else {
+            return;
+        };
+
+        let topline = line_count
+            .saturating_sub(win_height as usize)
+            .saturating_add(1);
+        let lnum = line_count;
+        let _ = window.call(move |()| {
+            let _ = api::command(&format!("call cursor({lnum}, 1)"));
+            // col('$') must be evaluated with the cursor already on {lnum},
+            // so it cannot be merged into the first cursor() call.
+            let _ = api::command(&format!("call cursor({lnum}, col('$')+1)"));
+            let winline: i64 = api::eval("winline()").unwrap_or(0);
+            let winheight: i64 = api::eval("winheight(0)").unwrap_or(0);
+            if winline < winheight {
+                let _ = api::command(&format!(
+                    "lua vim.fn.winrestview({{topline = {topline}, lnum = {lnum}}})"
+                ));
+            }
+        });
+    }
 }

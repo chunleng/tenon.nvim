@@ -125,25 +125,7 @@ impl ChatWindow {
     }
 
     pub fn scroll_output_to_bottom(&mut self) -> OxiResult<()> {
-        if let Some(output_win_window) = self.get_or_create_output_window()?.window.get_window()
-            && let Ok(line_count) = output_win_window.get_buf().and_then(|b| b.line_count())
-            && let Ok(win_height) = output_win_window.get_height()
-        {
-            let topline = line_count
-                .saturating_sub(win_height as usize)
-                .saturating_add(1);
-            let lnum = line_count;
-            let _ = output_win_window.call(move |()| {
-                let _ = api::command(&format!("call cursor({lnum}, 1)"));
-                let winline: i64 = api::eval("winline()").unwrap_or(0);
-                let winheight: i64 = api::eval("winheight(0)").unwrap_or(0);
-                if winline < winheight {
-                    let _ = api::command(&format!(
-                        "lua vim.fn.winrestview({{topline = {topline}, lnum = {lnum}}})"
-                    ));
-                }
-            });
-        }
+        self.get_or_create_output_window()?.window.snap_to_bottom();
         Ok(())
     }
 
