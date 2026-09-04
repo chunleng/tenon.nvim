@@ -145,6 +145,7 @@ impl ChatWindow {
             if message.is_empty() {
                 notify("please enter your message before sending", LogLevel::Error);
             } else {
+                self.show_chat_view()?;
                 self.scroll_output_to_bottom()?;
                 if let Ok(loaded) = self.loaded_chat_session.read()
                     && let Ok(mut chat_session) = loaded.write()
@@ -161,6 +162,7 @@ impl ChatWindow {
     /// Continue the chat without adding new user input.
     /// Prompts the LLM to continue from where it left off.
     pub fn continue_chat(&mut self) -> OxiResult<()> {
+        self.show_chat_view()?;
         self.scroll_output_to_bottom()?;
         if let Ok(loaded) = self.loaded_chat_session.read()
             && let Ok(mut chat_session) = loaded.write()
