@@ -68,4 +68,4 @@ buffer.set_lines(start..end, false, lines);
 See `.agent/` folder:
 - [ui.md](.agent/ui.md) - UI architecture
 - [tools.md](.agent/tools.md) - Creating tools
-- [workflow.md](.agent/workflow.md) - Workflow-related information
+- [choreo.md](.agent/choreo.md) - Choreo-related information

@@ -7,11 +7,11 @@ use rig::message::ToolResultContent;
 use rig::tool::DynamicTool;
 
 use crate::agent::provider::{ChatStream, StreamItem, get_agent};
-use crate::chat::prompt::build_workflow_prompt;
+use crate::chat::prompt::build_choreo_prompt;
 use crate::chat::{
-    ActiveWorkflow, ChatLogHandler, EventChannel, PendingAction, TenonAssistantMessage,
-    TenonAssistantMessageContent, TenonLog, TenonLogData, TenonThoughtLog, TenonToolCall,
-    TenonToolError, TenonToolLog, TenonToolResult, TenonWorkflowLog,
+    ActiveChoreo, ChatLogHandler, EventChannel, PendingAction, TenonAssistantMessage,
+    TenonAssistantMessageContent, TenonChoreoLog, TenonLog, TenonLogData, TenonThoughtLog,
+    TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult,
 };
 use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource, directive_path};
@@ -28,15 +28,15 @@ pub enum AgenticAgentType {
     Tool,
 }
 
-/// Streaming engine for agentic chat with tools, workflows, and multi-turn loops.
+/// Streaming engine for agentic chat with tools, choreos, and multi-turn loops.
 /// Session-state interfaces (log handler, usage, cancel token, etc.) are injected per request.
 #[derive(Clone)]
 pub struct AgenticStreamEngine {
     pub model: SupportedModels,
     pub directive: Vec<Directive>,
     pub tool_names: Vec<DynamicTool>,
-    pub workflows: Vec<Arc<crate::chat::workflow::Workflow>>,
-    pub active_workflow: Arc<RwLock<Option<ActiveWorkflow>>>,
+    pub choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
+    pub active_choreo: Arc<RwLock<Option<ActiveChoreo>>>,
     pub log_handler: ChatLogHandler,
     system_tools: Vec<DynamicTool>,
 }
@@ -46,7 +46,7 @@ impl AgenticStreamEngine {
         model: SupportedModels,
         directive: Vec<Directive>,
         tool_names: Vec<DynamicTool>,
-        workflows: Vec<Arc<crate::chat::workflow::Workflow>>,
+        choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
         agent_type: AgenticAgentType,
     ) -> Self {
         let mut system_tools = vec![into_dynamic_tool(RecordThought)];
@@ -57,37 +57,37 @@ impl AgenticStreamEngine {
             model,
             directive,
             tool_names,
-            workflows,
-            active_workflow: Arc::new(RwLock::new(None)),
+            choreos,
+            active_choreo: Arc::new(RwLock::new(None)),
             log_handler: ChatLogHandler::new(),
             system_tools,
         }
     }
 
-    /// Replaces log_window from logs and reconstructs active_workflow from workflow logs.
+    /// Replaces log_window from logs and reconstructs active_choreo from choreo logs.
     pub fn load(&mut self, logs: Vec<TenonLog>) {
         self.log_handler.load(logs);
 
-        let registry = crate::get_workflow_registry();
-        let mut wf: Option<ActiveWorkflow> = None;
+        let registry = crate::get_choreo_registry();
+        let mut active: Option<ActiveChoreo> = None;
         {
             let log_window = self.log_handler.log_window.read().unwrap();
             for indexed in &log_window.logs {
-                if let TenonLogData::Workflow(wf_log) = indexed.log.data() {
-                    match wf_log.step {
-                        Some(step) => {
-                            if let Some(workflow) = registry.get(&wf_log.id) {
-                                wf = Some(ActiveWorkflow::new(workflow.clone(), step));
+                if let TenonLogData::Choreo(choreo_log) = indexed.log.data() {
+                    match choreo_log.r#move {
+                        Some(move_number) => {
+                            if let Some(choreo) = registry.get(&choreo_log.id) {
+                                active = Some(ActiveChoreo::new(choreo.clone(), move_number));
                             }
                         }
                         None => {
-                            wf = None;
+                            active = None;
                         }
                     }
                 }
             }
         }
-        *self.active_workflow.write().unwrap() = wf;
+        *self.active_choreo.write().unwrap() = active;
     }
 
     fn build_chat_adapter(&self) -> Agent {
@@ -105,33 +105,33 @@ impl AgenticStreamEngine {
         tools.extend(self.tool_names.iter().cloned());
 
         let has_active = self
-            .active_workflow
+            .active_choreo
             .read()
             .map(|g| g.is_some())
             .unwrap_or(false);
 
         if has_active {
-            use crate::tools::end_workflow::EndWorkflow;
-            use crate::tools::navigate_workflow::NavigateWorkflow;
+            use crate::tools::end_choreo::EndChoreo;
+            use crate::tools::navigate_choreo::NavigateChoreo;
             tools.insert(
                 0,
-                into_dynamic_tool(NavigateWorkflow {
-                    active_workflow: self.active_workflow.clone(),
+                into_dynamic_tool(NavigateChoreo {
+                    active_choreo: self.active_choreo.clone(),
                 }),
             );
             tools.insert(
                 0,
-                into_dynamic_tool(EndWorkflow {
-                    active_workflow: self.active_workflow.clone(),
+                into_dynamic_tool(EndChoreo {
+                    active_choreo: self.active_choreo.clone(),
                 }),
             );
-        } else if !self.workflows.is_empty() {
-            use crate::tools::start_workflow::StartWorkflow;
+        } else if !self.choreos.is_empty() {
+            use crate::tools::use_choreo::UseChoreo;
             tools.insert(
                 0,
-                into_dynamic_tool(StartWorkflow {
-                    workflows: self.workflows.clone(),
-                    active_workflow: self.active_workflow.clone(),
+                into_dynamic_tool(UseChoreo {
+                    choreos: self.choreos.clone(),
+                    active_choreo: self.active_choreo.clone(),
                 }),
             );
         }
@@ -143,7 +143,7 @@ impl AgenticStreamEngine {
     /// Text/Reasoning/ToolCall/ToolResult items are handled internally.
     /// `CompletionCall` is forwarded to `on_completion_call`; the caller owns
     /// usage tracking and history saving.
-    /// Returns `true` when a workflow tool result is received (signal to continue
+    /// Returns `true` when a choreo tool result is received (signal to continue
     /// the multi-turn loop), `false` otherwise.
     pub async fn process_turn(
         &mut self,
@@ -154,7 +154,7 @@ impl AgenticStreamEngine {
     ) -> bool {
         let agent = self.build_chat_adapter();
         let chat_history = self.log_handler.get_chat_history(&prompt);
-        let prompt = build_workflow_prompt(&self.active_workflow, prompt).await;
+        let prompt = build_choreo_prompt(&self.active_choreo, prompt).await;
         let mut stream = ChatStream::new(&agent, prompt, chat_history, max_turns).await;
 
         let mut should_continue = false;
@@ -261,49 +261,50 @@ impl AgenticStreamEngine {
 
                             log.set_tool_result(Some(result.clone()));
 
-                            // Handle workflow tool results
+                            // Handle choreo tool results
                             if let TenonLogData::Tool(tool_log) = log.data()
-                                && ["start_workflow", "navigate_workflow", "end_workflow"]
+                                && ["use_choreo", "navigate_choreo", "end_choreo"]
                                     .contains(&tool_log.tool_call.name.as_str())
                                 && result.is_ok()
                             {
                                 let tool_log_clone = tool_log.clone();
 
-                                if tool_log_clone.tool_call.name == "end_workflow" {
+                                if tool_log_clone.tool_call.name == "end_choreo" {
                                     let id = self
-                                        .active_workflow
+                                        .active_choreo
                                         .read()
                                         .ok()
                                         .and_then(|active| {
-                                            active.as_ref().map(|wf| wf.workflow.id.clone())
+                                            active.as_ref().map(|c| c.choreo.id.clone())
                                         })
                                         .unwrap_or_default();
-                                    if let Ok(mut active) = self.active_workflow.write() {
+                                    if let Ok(mut active) = self.active_choreo.write() {
                                         *active = None;
                                     }
                                     log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                        log: Arc::new(TenonLog::new(TenonLogData::Workflow(
-                                            TenonWorkflowLog::new(
+                                        log: Arc::new(TenonLog::new(TenonLogData::Choreo(
+                                            TenonChoreoLog::new(
                                                 id,
-                                                "Workflow ended",
+                                                "Choreo ended",
                                                 None,
                                                 tool_log_clone,
                                             ),
                                         ))),
                                         active: true,
                                     });
-                                } else if let Ok(active) = self.active_workflow.read()
-                                    && let Some(active_wf) = active.as_ref()
+                                } else if let Ok(active) = self.active_choreo.read()
+                                    && let Some(active_choreo) = active.as_ref()
                                 {
-                                    let step = active_wf.step;
-                                    if let Ok(wf_log) =
-                                        active_wf.workflow.generate_log(step, tool_log_clone)
+                                    let move_number = active_choreo.r#move;
+                                    if let Ok(choreo_log) = active_choreo
+                                        .choreo
+                                        .generate_log(move_number, tool_log_clone)
                                     {
                                         log_window.logs.push(
                                             crate::chat::log::indexer::IndexedLog {
-                                                log: Arc::new(TenonLog::new(
-                                                    TenonLogData::Workflow(wf_log),
-                                                )),
+                                                log: Arc::new(TenonLog::new(TenonLogData::Choreo(
+                                                    choreo_log,
+                                                ))),
                                                 active: true,
                                             },
                                         );
@@ -418,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_reconstructs_active_workflow_from_logs() {
+    fn test_load_reconstructs_active_choreo_from_logs() {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
@@ -427,45 +428,45 @@ mod tests {
         let mut engine =
             AgenticStreamEngine::new(test_model(), vec![], tools, vec![], AgenticAgentType::Tool);
 
-        // Navigate to step 2
-        let step1_log = TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog {
+        // Navigate to move 2
+        let move1_log = TenonLog::new(TenonLogData::Choreo(TenonChoreoLog {
             id: "find_software_bug_root_cause".to_string(),
-            content: "Step 1".to_string(),
-            step: Some(1),
+            content: "Move 1".to_string(),
+            r#move: Some(1),
             tool_log: TenonToolLog::default(),
         }));
-        let step2_log = TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog {
+        let move2_log = TenonLog::new(TenonLogData::Choreo(TenonChoreoLog {
             id: "find_software_bug_root_cause".to_string(),
-            content: "Step 2".to_string(),
-            step: Some(2),
+            content: "Move 2".to_string(),
+            r#move: Some(2),
             tool_log: TenonToolLog::default(),
         }));
 
-        engine.load(vec![step1_log, step2_log]);
+        engine.load(vec![move1_log, move2_log]);
 
         {
-            let active_workflow = engine.active_workflow.read().unwrap();
-            assert!(active_workflow.is_some());
-            assert_eq!(active_workflow.as_ref().unwrap().step, 2);
+            let active_choreo = engine.active_choreo.read().unwrap();
+            assert!(active_choreo.is_some());
+            assert_eq!(active_choreo.as_ref().unwrap().r#move, 2);
             assert_eq!(
-                active_workflow.as_ref().unwrap().workflow.id,
+                active_choreo.as_ref().unwrap().choreo.id,
                 "find_software_bug_root_cause"
             );
         }
 
-        // End workflow clears active_workflow
-        let end_log = TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog {
+        // End choreo clears active_choreo
+        let end_log = TenonLog::new(TenonLogData::Choreo(TenonChoreoLog {
             id: "find_software_bug_root_cause".to_string(),
             content: "End".to_string(),
-            step: None,
+            r#move: None,
             tool_log: TenonToolLog::default(),
         }));
 
         engine.load(vec![end_log]);
 
         {
-            let active_workflow = engine.active_workflow.read().unwrap();
-            assert!(active_workflow.is_none());
+            let active_choreo = engine.active_choreo.read().unwrap();
+            assert!(active_choreo.is_none());
         }
     }
 }

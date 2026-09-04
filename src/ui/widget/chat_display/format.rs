@@ -52,8 +52,8 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
                 }
                 lines
             }
-            TenonLogData::Workflow(wf) => {
-                vec![format!("# {}", wf.content)]
+            TenonLogData::Choreo(choreo_log) => {
+                vec![format!("# {}", choreo_log.content)]
             }
             TenonLogData::Thought(thought_log) => match &thought_log.summary {
                 Some(summary) => {
@@ -79,7 +79,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             }
             TenonLogData::Tool(_) => "TenonLineTool".to_string(),
             TenonLogData::Thought(_) => "TenonLineThought".to_string(),
-            TenonLogData::Workflow(_) => String::new(),
+            TenonLogData::Choreo(_) => String::new(),
         }
     }
 
@@ -95,7 +95,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
                 }
             }
             TenonLogData::Tool(_) => "󰣖 ".to_string(),
-            TenonLogData::Workflow(_) => " ".to_string(),
+            TenonLogData::Choreo(_) => " ".to_string(),
             TenonLogData::Thought(_) => " ".to_string(),
         }
     }
@@ -113,7 +113,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             }
             TenonLogData::Tool(_) => "TenonSignTool".to_string(),
             TenonLogData::Thought(_) => "TenonSignThought".to_string(),
-            TenonLogData::Workflow(_) => "TenonSignWorkflow".to_string(),
+            TenonLogData::Choreo(_) => "TenonSignChoreo".to_string(),
         }
     }
 }
@@ -122,9 +122,9 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
 mod tests {
     use super::*;
     use crate::chat::{
-        TenonAssistantMessage, TenonAssistantMessageContent, TenonLogData, TenonThoughtLog,
-        TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage,
-        TenonWorkflowLog,
+        TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog, TenonLogData,
+        TenonThoughtLog, TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult,
+        TenonUserMessage,
     };
     use serde_json::json;
 
@@ -281,26 +281,26 @@ mod tests {
     }
 
     #[test]
-    fn test_workflow_formatter() {
-        let workflow = TenonWorkflowLog::new(
-            "wf_1",
-            "Processing step 1",
+    fn test_choreo_formatter() {
+        let choreo = TenonChoreoLog::new(
+            "c_1",
+            "Processing move 1",
             Some(1),
             TenonToolLog {
                 tool_call: TenonToolCall {
                     id: "test-id".to_string(),
                     internal_call_id: "test-internal-id".to_string(),
-                    name: "navigate_workflow".to_string(),
+                    name: "navigate_choreo".to_string(),
                     args: serde_json::json!({}),
                 },
                 tool_result: None,
             },
         );
-        let data = TenonLogData::Workflow(workflow);
+        let data = TenonLogData::Choreo(choreo);
 
-        assert_eq!(data.lines(), vec!["# Processing step 1"]);
+        assert_eq!(data.lines(), vec!["# Processing move 1"]);
         assert_eq!(data.sign(), " ");
-        assert_eq!(data.sign_hl_group(), "TenonSignWorkflow");
+        assert_eq!(data.sign_hl_group(), "TenonSignChoreo");
         assert_eq!(data.line_hl_group(), "");
     }
 }

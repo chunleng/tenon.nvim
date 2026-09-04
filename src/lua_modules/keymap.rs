@@ -234,7 +234,7 @@ fn select_agent_fn() -> Function<(), ()> {
                                     session.engine.model = agent.model.clone();
                                     session.engine.directive = agent.directive.clone();
                                     session.engine.tool_names = resolve_tools(&agent.tool_names);
-                                    session.engine.workflows = agent.workflows.clone();
+                                    session.engine.choreos = agent.choreos.clone();
                                     win.force_render();
                                 }
                             }

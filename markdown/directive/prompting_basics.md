@@ -22,12 +22,12 @@ Schema and instructions for tool/function calling.
 - Use when:
     - Provide new system interaction capabilities
 
-### Workflow (Tenon Concept)
-Multi-step process. Each step yields artifact for next. Injected context focuses attention per step, preventing sidetracking. Best for long-running instructions.
+### Choreo (Tenon Concept)
+Multi-step process. Each move yields artifact for next. Injected context focuses attention per move, preventing sidetracking. Best for long-running instructions.
 
 How it works:
-- Use start_workflow to enter, end_workflow to exit, navigate_workflow to switch steps
-- Instructions injected only when reaching that step, not stored in history. Keeps attention focused, avoids cluttering conversation.
+- use_choreo to enter, end_choreo to exit, navigate_choreo to switch moves
+- Instructions injected only when reaching that move, not stored in history. Keeps attention focused, avoids cluttering conversation.
 - Use when:
     - Long-running instructions that risk sidetracking
 
@@ -39,4 +39,4 @@ Add information to `context` tag in latest user prompt. Gets the most attention 
 ### Use Harness to Show/Hide Information
 Harness can show or hide information as needed.
 
-Example: workflow reveals only the current step's instructions, hiding others until needed — like guiding the AI step by step.
+Example: choreo reveals only the current move's instructions, hiding others until needed — like guiding the AI step by step.

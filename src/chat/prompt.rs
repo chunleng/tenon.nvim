@@ -1,18 +1,18 @@
-use crate::chat::ActiveWorkflow;
+use crate::chat::ActiveChoreo;
 use std::sync::{Arc, RwLock};
 
-/// Builds a workflow-wrapped prompt if there's an active workflow.
-pub async fn build_workflow_prompt(
-    active_workflow: &Arc<RwLock<Option<ActiveWorkflow>>>,
+/// Builds a choreo-wrapped prompt if there's an active choreo.
+pub async fn build_choreo_prompt(
+    active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>,
     base_prompt: String,
 ) -> String {
-    if let Ok(active_lock) = active_workflow.read()
+    if let Ok(active_lock) = active_choreo.read()
         && let Some(active) = active_lock.as_ref()
     {
-        let workflow = &active.workflow;
-        let total_steps = workflow.steps.len();
-        if let Some(step) = workflow.steps.get(active.step - 1) {
-            let mut goto_lines: Vec<String> = step
+        let choreo = &active.choreo;
+        let total_moves = choreo.moves.len();
+        if let Some(current_move) = choreo.moves.get(active.r#move - 1) {
+            let mut goto_lines: Vec<String> = current_move
                 .goto_instructions
                 .iter()
                 .map(|instr| {
@@ -21,30 +21,30 @@ pub async fn build_workflow_prompt(
                         .as_ref()
                         .map(|x| format!("{} → ", x))
                         .unwrap_or_default();
-                    let target_step = instr.to.resolve_step_index(active.step);
-                    match target_step {
-                        None => format!("{}end_workflow", condition),
-                        Some(step) if step > total_steps => {
-                            format!("{}end_workflow", condition)
+                    let target_move = instr.to.resolve_move_index(active.r#move);
+                    match target_move {
+                        None => format!("{}end_choreo", condition),
+                        Some(move_number) if move_number > total_moves => {
+                            format!("{}end_choreo", condition)
                         }
-                        Some(step) => {
-                            format!("{}navigate_workflow step:{}", condition, step)
+                        Some(move_number) => {
+                            format!("{}navigate_choreo move:{}", condition, move_number)
                         }
                     }
                 })
                 .collect();
 
-            // Only add default ending if at last step and no goto already ends workflow
-            if active.step == total_steps {
-                let has_ending_goto = step.goto_instructions.iter().any(|instr| {
-                    let target_step = instr.to.resolve_step_index(active.step);
-                    match target_step {
+            // Only add default ending if at last move and no goto already ends choreo
+            if active.r#move == total_moves {
+                let has_ending_goto = current_move.goto_instructions.iter().any(|instr| {
+                    let target_move = instr.to.resolve_move_index(active.r#move);
+                    match target_move {
                         None => true,
-                        Some(s) => s > total_steps,
+                        Some(m) => m > total_moves,
                     }
                 });
                 if !has_ending_goto {
-                    goto_lines.push("end_workflow".to_string());
+                    goto_lines.push("end_choreo".to_string());
                 }
             }
 
@@ -64,9 +64,9 @@ pub async fn build_workflow_prompt(
 
             return format!(
                 "<context>\n\
-                    Currently in {} step of {} workflow.\n\
+                    Currently in {} move of {} choreo.\n\
                     Execute \"Process\" in `instruction` tag step by step if numbered, not all at once; don't stop partway unless explicitly asked. \
-                    Call a tool from `navigation` tag when the condition matches, using artifact from the \"Workflow Step Artifact\" section\n\
+                    Call a tool from `navigation` tag when the condition matches, using artifact from the \"Choreo Move Artifact\" section\n\
                     \n\n\
                     {}\
                     <instruction>\n\
@@ -77,10 +77,10 @@ pub async fn build_workflow_prompt(
                     </navigation>\n\
                     </context>\n\
                     {}",
-                step.title,
-                workflow.title,
+                current_move.title,
+                choreo.title,
                 memory_section,
-                step.instruction.resolve().unwrap_or_default(),
+                current_move.instruction.resolve().unwrap_or_default(),
                 goto_instruction,
                 base_prompt
             );
@@ -96,17 +96,17 @@ mod tests {
     use std::collections::HashMap;
 
     #[tokio::test]
-    async fn test_build_workflow_prompt_displays_memory() {
+    async fn test_build_choreo_prompt_displays_memory() {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
 
-        let registry = crate::get_workflow_registry();
-        let wf = registry.get("implement_code").unwrap().clone();
+        let registry = crate::get_choreo_registry();
+        let choreo = registry.get("implement_code").unwrap().clone();
 
-        let workflow = Arc::new(RwLock::new(Some(ActiveWorkflow {
-            workflow: wf,
-            step: 1,
+        let active = Arc::new(RwLock::new(Some(ActiveChoreo {
+            choreo,
+            r#move: 1,
             memory: {
                 let mut m = HashMap::new();
                 m.insert("previous_output".to_string(), "test result".to_string());
@@ -114,7 +114,7 @@ mod tests {
             },
         })));
 
-        let prompt = build_workflow_prompt(&workflow, "user input".to_string()).await;
+        let prompt = build_choreo_prompt(&active, "user input".to_string()).await;
 
         assert!(prompt.contains("<memory name=\"previous_output\">"));
         assert!(prompt.contains("test result"));
@@ -122,14 +122,60 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_build_workflow_prompt_no_workflows() {
+    async fn test_build_choreo_prompt_no_choreos() {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
 
-        let workflow = Arc::new(RwLock::new(None));
-        let prompt = build_workflow_prompt(&workflow, "user input".to_string()).await;
+        let active = Arc::new(RwLock::new(None));
+        let prompt = build_choreo_prompt(&active, "user input".to_string()).await;
         assert_eq!(prompt, "user input");
         assert!(!prompt.contains("<context>"));
+    }
+
+    #[tokio::test]
+    async fn test_build_choreo_prompt_navigates_to_next_move() {
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().unwrap())
+            .ok();
+
+        let registry = crate::get_choreo_registry();
+        let choreo = registry.get("implement_code").unwrap().clone();
+
+        let active = Arc::new(RwLock::new(Some(ActiveChoreo {
+            choreo,
+            r#move: 1,
+            memory: HashMap::new(),
+        })));
+
+        let prompt = build_choreo_prompt(&active, "user input".to_string()).await;
+
+        assert!(
+            prompt.contains("navigate_choreo move:2"),
+            "goto to next move should generate navigate_choreo line, got: {prompt}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_build_choreo_prompt_ends_at_final_move() {
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().unwrap())
+            .ok();
+
+        let registry = crate::get_choreo_registry();
+        let choreo = registry.get("implement_code").unwrap().clone();
+
+        let active = Arc::new(RwLock::new(Some(ActiveChoreo {
+            choreo,
+            r#move: 6,
+            memory: HashMap::new(),
+        })));
+
+        let prompt = build_choreo_prompt(&active, "user input".to_string()).await;
+
+        assert!(
+            prompt.contains("end_choreo"),
+            "EndChoreo goto should generate end_choreo line, got: {prompt}"
+        );
     }
 }

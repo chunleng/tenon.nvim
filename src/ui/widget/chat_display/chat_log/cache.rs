@@ -730,7 +730,7 @@ mod tests {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
-        add_tool_log(&mut cache, "start_workflow", 1);
+        add_tool_log(&mut cache, "use_choreo", 1);
         add_tool_log(&mut cache, "read_file", 2);
 
         let (updates, _) = cache.poll_render_update();
@@ -894,7 +894,7 @@ mod tests {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
-        add_system_tool_log_with_error(&mut cache, "start_workflow", 1);
+        add_system_tool_log_with_error(&mut cache, "use_choreo", 1);
 
         let (updates, _) = cache.poll_render_update();
 
@@ -902,7 +902,7 @@ mod tests {
         assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
         assert!(updates[0].line_separator_after);
         assert!(
-            updates[1].target_log.data.lines()[0].contains("start_workflow"),
+            updates[1].target_log.data.lines()[0].contains("use_choreo"),
             "errored system tool should be rendered"
         );
     }
@@ -912,7 +912,7 @@ mod tests {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
-        add_system_tool_log_with_ok(&mut cache, "start_workflow", 1);
+        add_system_tool_log_with_ok(&mut cache, "use_choreo", 1);
 
         let (updates, _) = cache.poll_render_update();
 
@@ -930,7 +930,7 @@ mod tests {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
-        add_tool_log(&mut cache, "start_workflow", 1);
+        add_tool_log(&mut cache, "use_choreo", 1);
 
         let (updates, _) = cache.poll_render_update();
 
@@ -948,7 +948,7 @@ mod tests {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
-        add_tool_log(&mut cache, "start_workflow", 1);
+        add_tool_log(&mut cache, "use_choreo", 1);
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1, "pending system tool should be hidden");
@@ -962,7 +962,7 @@ mod tests {
             "errored system tool should become visible"
         );
         assert!(
-            updates[0].target_log.data.lines()[0].contains("start_workflow"),
+            updates[0].target_log.data.lines()[0].contains("use_choreo"),
             "transitioned system tool should be rendered"
         );
     }
@@ -972,7 +972,7 @@ mod tests {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
-        add_tool_log(&mut cache, "start_workflow", 1);
+        add_tool_log(&mut cache, "use_choreo", 1);
 
         cache.poll_render_update();
 

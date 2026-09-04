@@ -1,18 +1,18 @@
 pub mod analyze_image;
 pub mod ask_question;
 pub mod edit_file;
-pub mod end_workflow;
+pub mod end_choreo;
 pub mod fetch_webpage;
 pub mod list_files;
 pub mod move_path;
-pub mod navigate_workflow;
+pub mod navigate_choreo;
 pub mod read_file;
 pub mod record_thought;
 pub mod remove_path;
 pub mod run_command;
 pub mod search_dependency_code;
 pub mod search_text;
-pub mod start_workflow;
+pub mod use_choreo;
 pub mod web_search;
 
 use crate::tools::web_search::{LangSearch, Tavily};
@@ -49,7 +49,7 @@ pub enum ToolClassification {
     /// Rerunning may have different effects or cause errors.
     Mutating,
 
-    /// Tenon system tools for workflow management.
+    /// Tenon system tools for choreo management.
     System,
 
     /// Tools with unknown classification (e.g., MCP tools).
@@ -62,7 +62,7 @@ pub enum ToolClassification {
 /// - Idempotent: read_file, list_files, search_text
 /// - NonMutating: web_search, fetch_webpage, record_thought
 /// - Mutating: edit_file, move_path, remove_path, run_command
-/// - System: start_workflow, navigate_workflow, end_workflow
+/// - System: use_choreo, navigate_choreo, end_choreo
 ///
 /// Unknown tool names (including MCP tools) return `ToolClassification::Unknown`.
 pub fn get_tool_classification(name: &str) -> ToolClassification {
@@ -80,8 +80,8 @@ pub fn get_tool_classification(name: &str) -> ToolClassification {
         // Mutating tools: modify state when run
         "edit_file" | "move_path" | "remove_path" | "run_command" => ToolClassification::Mutating,
 
-        // System tools: Tenon workflow management
-        "start_workflow" | "navigate_workflow" | "end_workflow" => ToolClassification::System,
+        // System tools: Tenon choreo management
+        "use_choreo" | "navigate_choreo" | "end_choreo" => ToolClassification::System,
 
         // Unknown: MCP tools or unrecognized names
         _ => ToolClassification::Unknown,
@@ -123,7 +123,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
         "fetch_webpage" => "url",
         "analyze_image" => "image",
         "ask_question" => "question",
-        "navigate_workflow" => "step",
+        "navigate_choreo" => "move",
         _ => return None,
     };
     args.get(core_arg).and_then(|v| v.as_str()).map(|x| {

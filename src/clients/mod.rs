@@ -145,7 +145,7 @@ mod tests {
     use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
     use rig::test_utils::{MockAddTool, MockCompletionModel, MockStreamEvent};
 
-    /// When the LLM calls a tool that is not registered (e.g. `record_workflow`
+    /// When the LLM calls a tool that is not registered (e.g. `record_choreo`
     /// when only `add` is available), the `InvalidToolCallHook` should treat it as
     /// a recoverable tool failure — emitting a synthetic ToolResult so the model
     /// can continue — rather than terminating the stream with a fatal
@@ -154,7 +154,7 @@ mod tests {
     async fn unknown_tool_call_yields_tool_result_not_streaming_error() {
         let model = MockCompletionModel::from_stream_turns([
             vec![
-                MockStreamEvent::tool_call("tool_call_1", "record_workflow", serde_json::json!({})),
+                MockStreamEvent::tool_call("tool_call_1", "record_choreo", serde_json::json!({})),
                 MockStreamEvent::final_response_with_default_usage(),
             ],
             vec![
@@ -168,10 +168,7 @@ mod tests {
             .add_hook(InvalidToolCallHook)
             .build();
 
-        let mut stream = agent
-            .stream_prompt("use record_workflow")
-            .max_turns(3)
-            .await;
+        let mut stream = agent.stream_prompt("use record_choreo").max_turns(3).await;
 
         let mut saw_tool_result = false;
         let mut streaming_error: Option<StreamingError> = None;
@@ -267,7 +264,7 @@ mod tests {
     async fn skipped_tool_result_not_double_prefixed() {
         let model = MockCompletionModel::from_stream_turns([
             vec![
-                MockStreamEvent::tool_call("tool_call_1", "record_workflow", serde_json::json!({})),
+                MockStreamEvent::tool_call("tool_call_1", "record_choreo", serde_json::json!({})),
                 MockStreamEvent::final_response_with_default_usage(),
             ],
             vec![
@@ -282,10 +279,7 @@ mod tests {
             .add_hook(ToolErrorHook)
             .build();
 
-        let mut stream = agent
-            .stream_prompt("use record_workflow")
-            .max_turns(3)
-            .await;
+        let mut stream = agent.stream_prompt("use record_choreo").max_turns(3).await;
 
         let mut tool_result_text: Option<String> = None;
 

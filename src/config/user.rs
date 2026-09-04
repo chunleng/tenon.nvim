@@ -83,7 +83,7 @@ pub struct TenonAgentConfig {
     #[serde(default)]
     default: bool,
     #[serde(default)]
-    workflows: Vec<String>,
+    choreos: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -227,14 +227,14 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                                 msg: e.to_string(),
                             })
                         })?;
-                    let workflows: Vec<std::sync::Arc<crate::chat::workflow::Workflow>> = v
-                        .workflows
+                    let choreos: Vec<std::sync::Arc<crate::chat::choreo::Choreo>> = v
+                        .choreos
                         .into_iter()
-                        .filter_map(|id| crate::get_workflow_registry().get(&id).cloned())
+                        .filter_map(|id| crate::get_choreo_registry().get(&id).cloned())
                         .collect();
                     Ok((
                         k,
-                        TenonAgent::new(model.clone(), directives, &v.tool_names, workflows),
+                        TenonAgent::new(model.clone(), directives, &v.tool_names, choreos),
                     ))
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?;
@@ -414,6 +414,17 @@ mod tests {
     }
 
     #[test]
+    fn choreos_config_key_deserializes() {
+        // The user-facing Lua config key for per-agent choreos is "choreos".
+        let config: TenonUserConfig = serde_json::from_str(
+            r#"{"agents":{"main":{"model":"fast","choreos":["edit_document"]}}}"#,
+        )
+        .unwrap();
+        let agent = config.agents.as_ref().unwrap().get("main").unwrap();
+        assert_eq!(agent.choreos, vec!["edit_document".to_string()]);
+    }
+
+    #[test]
     fn try_from_agent_resolves_model_from_registry() {
         let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
 
@@ -441,7 +452,7 @@ mod tests {
                 directive: vec![],
                 tool_names: vec![],
                 default: true,
-                workflows: vec![],
+                choreos: vec![],
             },
         );
 
@@ -472,7 +483,7 @@ mod tests {
                 directive: vec![],
                 tool_names: vec![],
                 default: true,
-                workflows: vec![],
+                choreos: vec![],
             },
         );
 

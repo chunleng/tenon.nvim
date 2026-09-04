@@ -17,16 +17,16 @@ pub mod helpers;
 pub mod history;
 pub mod log;
 
+pub mod choreo;
 pub mod prompt;
 pub mod usage;
-pub mod workflow;
 
 pub use event_channel::EventChannel;
 pub use log::handler::ChatLogHandler;
 pub use log::{
-    TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData, TenonThoughtLog,
-    TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage,
-    TenonWorkflowLog,
+    TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog, TenonLog, TenonLogData,
+    TenonThoughtLog, TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult,
+    TenonUserMessage,
 };
 pub use usage::SessionUsage;
 
@@ -65,17 +65,17 @@ fn generate_chat_id() -> String {
 }
 
 #[derive(Debug, Clone)]
-pub struct ActiveWorkflow {
-    pub workflow: Arc<crate::chat::workflow::Workflow>,
-    pub step: usize,
+pub struct ActiveChoreo {
+    pub choreo: Arc<crate::chat::choreo::Choreo>,
+    pub r#move: usize,
     pub memory: HashMap<String, String>,
 }
 
-impl ActiveWorkflow {
-    pub fn new(workflow: Arc<crate::chat::workflow::Workflow>, step: usize) -> Self {
+impl ActiveChoreo {
+    pub fn new(choreo: Arc<crate::chat::choreo::Choreo>, move_number: usize) -> Self {
         Self {
-            workflow,
-            step,
+            choreo,
+            r#move: move_number,
             memory: HashMap::new(),
         }
     }
@@ -120,7 +120,7 @@ impl ChatSession {
             agent.model,
             agent.directive,
             resolve_tools(&agent.tool_names),
-            agent.workflows,
+            agent.choreos,
             AgenticAgentType::Direct(Arc::downgrade(&pending_actions_channel)),
         );
         let log_window = engine.log_handler.log_window.clone();
@@ -162,7 +162,7 @@ impl ChatSession {
             agent.model,
             agent.directive,
             resolve_tools(&agent.tool_names),
-            agent.workflows,
+            agent.choreos,
             AgenticAgentType::Direct(Arc::downgrade(&pending_actions_channel)),
         );
         engine.load(logs);
@@ -282,28 +282,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_active_workflow_memory() {
+    fn test_active_choreo_memory() {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
-        let registry = crate::get_workflow_registry();
-        let wf = registry.get("implement_code").unwrap().clone();
-        let workflow = ActiveWorkflow::new(wf, 1);
-        assert!(workflow.memory.is_empty());
+        let registry = crate::get_choreo_registry();
+        let choreo = registry.get("implement_code").unwrap().clone();
+        let active = ActiveChoreo::new(choreo, 1);
+        assert!(active.memory.is_empty());
 
         // Verify memory field exists and can store values
-        let registry2 = crate::get_workflow_registry();
-        let wf2 = registry2.get("implement_code").unwrap().clone();
-        let mut workflow = ActiveWorkflow::new(wf2, 1);
-        workflow
+        let registry2 = crate::get_choreo_registry();
+        let choreo2 = registry2.get("implement_code").unwrap().clone();
+        let mut active = ActiveChoreo::new(choreo2, 1);
+        active
             .memory
             .insert("key1".to_string(), "value1".to_string());
-        workflow
+        active
             .memory
             .insert("key2".to_string(), "value2".to_string());
 
-        assert_eq!(workflow.memory.get("key1"), Some(&"value1".to_string()));
-        assert_eq!(workflow.memory.get("key2"), Some(&"value2".to_string()));
-        assert_eq!(workflow.memory.len(), 2);
+        assert_eq!(active.memory.get("key1"), Some(&"value1".to_string()));
+        assert_eq!(active.memory.get("key2"), Some(&"value2".to_string()));
+        assert_eq!(active.memory.len(), 2);
     }
 }

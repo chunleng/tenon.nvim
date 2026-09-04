@@ -134,28 +134,29 @@ pub struct TenonThoughtLog {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TenonWorkflowLog {
+pub struct TenonChoreoLog {
     pub id: String,
     pub content: String,
-    /// Step number within the workflow. `None` for end-of-workflow logs.
-    #[serde(default)]
-    pub step: Option<usize>,
-    /// The tool log (call + result) that navigated to this workflow step.
+    /// Move number within the choreo. `None` for end-of-choreo logs.
+    /// Alias "step" keeps histories saved before the workflow→choreo rename loadable.
+    #[serde(default, alias = "step")]
+    pub r#move: Option<usize>,
+    /// The tool log (call + result) that navigated to this choreo move.
     #[serde(default)]
     pub tool_log: TenonToolLog,
 }
 
-impl TenonWorkflowLog {
+impl TenonChoreoLog {
     pub fn new(
         id: impl ToString,
         content: impl ToString,
-        step: Option<usize>,
+        move_number: Option<usize>,
         tool_log: TenonToolLog,
     ) -> Self {
         Self {
             id: id.to_string(),
             content: content.to_string(),
-            step,
+            r#move: move_number,
             tool_log,
         }
     }
@@ -167,7 +168,9 @@ pub enum TenonLogData {
     Assistant(TenonAssistantMessage),
     Tool(TenonToolLog),
     Thought(TenonThoughtLog),
-    Workflow(TenonWorkflowLog),
+    /// Alias "Workflow" keeps histories saved before the workflow→choreo rename loadable.
+    #[serde(alias = "Workflow")]
+    Choreo(TenonChoreoLog),
 }
 
 fn zero() -> usize {
@@ -241,31 +244,31 @@ mod tests {
     }
 
     #[test]
-    fn test_workflow_detail_lines_extracts_artifact_from_navigate_workflow() {
-        let workflow_log = TenonWorkflowLog {
-            id: "wf-1".to_string(),
-            content: "Test Workflow".to_string(),
-            step: Some(2),
+    fn test_choreo_detail_lines_extracts_artifact_from_navigate_choreo() {
+        let choreo_log = TenonChoreoLog {
+            id: "c-1".to_string(),
+            content: "Test Choreo".to_string(),
+            r#move: Some(2),
             tool_log: TenonToolLog {
                 tool_call: TenonToolCall {
                     id: "call-1".to_string(),
                     internal_call_id: "call-1".to_string(),
-                    name: "navigate_workflow".to_string(),
-                    args: serde_json::json!({"step": 2, "step_artifact": "scope analysis done"}),
+                    name: "navigate_choreo".to_string(),
+                    args: serde_json::json!({"move": 2, "move_artifact": "scope analysis done"}),
                 },
                 tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                    text: "output:\n  step: 2\n  artifact: scope analysis done".to_string(),
+                    text: "output:\n  move: 2\n  artifact: scope analysis done".to_string(),
                     ..Default::default()
                 }))),
             },
         };
 
-        let log = TenonLog::new(TenonLogData::Workflow(workflow_log));
+        let log = TenonLog::new(TenonLogData::Choreo(choreo_log));
         let lines = log.data().detail_lines();
 
         let joined = lines.join("\n");
         assert!(
-            joined.contains("### Artifact (Previous Step)"),
+            joined.contains("### Artifact (Previous Move)"),
             "should have Artifact header, got: {joined}"
         );
         assert!(
@@ -275,26 +278,26 @@ mod tests {
     }
 
     #[test]
-    fn test_workflow_detail_lines_extracts_artifact_from_end_workflow() {
-        let workflow_log = TenonWorkflowLog {
-            id: "wf-1".to_string(),
-            content: "Test Workflow".to_string(),
-            step: None,
+    fn test_choreo_detail_lines_extracts_artifact_from_end_choreo() {
+        let choreo_log = TenonChoreoLog {
+            id: "c-1".to_string(),
+            content: "Test Choreo".to_string(),
+            r#move: None,
             tool_log: TenonToolLog {
                 tool_call: TenonToolCall {
                     id: "call-1".to_string(),
                     internal_call_id: "call-1".to_string(),
-                    name: "end_workflow".to_string(),
-                    args: serde_json::json!({"step_artifact": "final summary of work"}),
+                    name: "end_choreo".to_string(),
+                    args: serde_json::json!({"move_artifact": "final summary of work"}),
                 },
                 tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                    text: "workflow completed. output: final summary of work".to_string(),
+                    text: "choreo completed. output: final summary of work".to_string(),
                     ..Default::default()
                 }))),
             },
         };
 
-        let log = TenonLog::new(TenonLogData::Workflow(workflow_log));
+        let log = TenonLog::new(TenonLogData::Choreo(choreo_log));
         let lines = log.data().detail_lines();
 
         let joined = lines.join("\n");
@@ -304,8 +307,24 @@ mod tests {
         );
         assert!(
             joined.contains("final summary of work"),
-            "should extract step_artifact value from args, got: {joined}"
+            "should extract move_artifact value from args, got: {joined}"
         );
+    }
+
+    #[test]
+    fn test_choreo_log_deserializes_legacy_workflow_json() {
+        // History files saved before the workflow→choreo rename use the
+        // "Workflow" variant tag and "step" field name. They must keep loading.
+        let json = r#"{"token_count":5,"Workflow":{"id":"wf-1","content":"Test Workflow","step":2,"tool_log":{"tool_call":{"id":"1","internal_call_id":"1","name":"navigate_workflow","args":{}},"tool_result":null}}}"#;
+        let log: TenonLog = serde_json::from_str(json).unwrap();
+        assert!(matches!(log.data(), TenonLogData::Choreo(c) if c.r#move == Some(2)));
+    }
+
+    #[test]
+    fn test_choreo_log_deserializes_choreo_json() {
+        let json = r#"{"token_count":5,"Choreo":{"id":"c-1","content":"Test Choreo","move":2,"tool_log":{"tool_call":{"id":"1","internal_call_id":"1","name":"navigate_choreo","args":{}},"tool_result":null}}}"#;
+        let log: TenonLog = serde_json::from_str(json).unwrap();
+        assert!(matches!(log.data(), TenonLogData::Choreo(c) if c.r#move == Some(2)));
     }
 }
 
@@ -370,7 +389,7 @@ impl TenonLog {
                 Some(text)
             }
             TenonLogData::Thought(thought_log) => Some(thought_log.thought.clone()),
-            TenonLogData::Workflow(_) => None,
+            TenonLogData::Choreo(_) => None,
         }
     }
 
@@ -519,25 +538,25 @@ impl TenonLogData {
                 }
                 lines
             }
-            TenonLogData::Workflow(log) => {
-                let step = log
-                    .step
-                    .map(|s| s.to_string())
+            TenonLogData::Choreo(log) => {
+                let move_display = log
+                    .r#move
+                    .map(|m| m.to_string())
                     .unwrap_or_else(|| "(end)".to_string());
                 let mut lines = vec![
                     "### ID".to_string(),
                     String::new(),
                     log.id.clone(),
                     String::new(),
-                    "### Step".to_string(),
+                    "### Move".to_string(),
                     String::new(),
-                    step,
+                    move_display,
                     String::new(),
                 ];
-                lines.push("### Workflow Title".to_string());
+                lines.push("### Choreo Title".to_string());
                 lines.push(String::new());
                 lines.extend(plain(&log.content));
-                if log.tool_log.tool_call.name == "navigate_workflow" {
+                if log.tool_log.tool_call.name == "navigate_choreo" {
                     match &log.tool_log.tool_result {
                         Some(Ok(TenonToolResult::Text(text))) => {
                             let output_text = serde_yaml::from_str::<serde_yaml::Value>(&text.text)
@@ -550,19 +569,19 @@ impl TenonLogData {
                                 })
                                 .unwrap_or_else(|| text.text.clone());
                             lines.push(String::new());
-                            lines.push("### Artifact (Previous Step)".to_string());
+                            lines.push("### Artifact (Previous Move)".to_string());
                             lines.push(String::new());
                             lines.extend(plain(&output_text));
                         }
                         _ => {}
                     }
-                } else if log.tool_log.tool_call.name == "end_workflow" {
-                    // end_workflow carries its artifact in the call args, not the result
+                } else if log.tool_log.tool_call.name == "end_choreo" {
+                    // end_choreo carries its artifact in the call args, not the result
                     let artifact = log
                         .tool_log
                         .tool_call
                         .args
-                        .get("step_artifact")
+                        .get("move_artifact")
                         .and_then(|v| v.as_str())
                         .unwrap_or("(none)");
                     lines.push(String::new());
@@ -604,7 +623,7 @@ impl TenonLogData {
                 call_tokens + result_tokens
             }
             TenonLogData::Thought(log) => estimate_tokens(&log.thought),
-            TenonLogData::Workflow(_) => 0,
+            TenonLogData::Choreo(_) => 0,
         }
     }
 }
@@ -629,7 +648,7 @@ impl From<&TenonLog> for Vec<Message> {
                     ))],
                 }]
             }
-            TenonLogData::Workflow(_) => vec![],
+            TenonLogData::Choreo(_) => vec![],
         }
     }
 }

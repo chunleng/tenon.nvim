@@ -7,14 +7,14 @@ use serde_json::json;
 
 use crate::agent::engine::{AgenticAgentType, AgenticStreamEngine};
 use crate::tools::into_dynamic_tool;
-use crate::{chat::workflow::Workflow, clients::SupportedModels, directive::Directive};
+use crate::{chat::choreo::Choreo, clients::SupportedModels, directive::Directive};
 
 #[derive(Debug, Clone)]
 pub struct TenonAgent {
     pub model: SupportedModels,
     pub directive: Vec<Directive>,
     pub tool_names: Vec<String>,
-    pub workflows: Vec<Arc<Workflow>>,
+    pub choreos: Vec<Arc<Choreo>>,
 }
 
 impl TenonAgent {
@@ -22,13 +22,13 @@ impl TenonAgent {
         model: SupportedModels,
         directive: Vec<Directive>,
         tools: &[impl AsRef<str>],
-        workflows: Vec<Arc<Workflow>>,
+        choreos: Vec<Arc<Choreo>>,
     ) -> Self {
         Self {
             model,
             directive,
             tool_names: tools.iter().map(|t| t.as_ref().to_string()).collect(),
-            workflows,
+            choreos,
         }
     }
 }

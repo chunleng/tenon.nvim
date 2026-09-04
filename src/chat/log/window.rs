@@ -65,14 +65,14 @@ impl LogWindow {
             .position(|indexed| matches!(&indexed.log.data(), TenonLogData::User(_)))
     }
 
-    /// Determines if the log at the given index is "in workflow".
-    pub fn is_log_in_workflow(&self, log_idx: usize) -> bool {
+    /// Determines if the log at the given index is "in choreo".
+    pub fn is_log_in_choreo(&self, log_idx: usize) -> bool {
         self.logs[..log_idx]
             .iter()
             .rev()
-            .find(|indexed| matches!(indexed.log.data(), TenonLogData::Workflow(_)))
+            .find(|indexed| matches!(indexed.log.data(), TenonLogData::Choreo(_)))
             .map(|indexed| match indexed.log.data() {
-                TenonLogData::Workflow(wf) => wf.step.is_some(),
+                TenonLogData::Choreo(choreo_log) => choreo_log.r#move.is_some(),
                 _ => false,
             })
             .unwrap_or(false)
@@ -127,11 +127,11 @@ impl LogWindow {
 
         let last_idx = end - 1;
         let log_to_search = &logs[..end];
-        if self.is_log_in_workflow(last_idx) {
+        if self.is_log_in_choreo(last_idx) {
             log_to_search
                 .iter()
                 .rposition(|indexed| match indexed.data() {
-                    TenonLogData::Workflow(wf) => wf.step.is_some(),
+                    TenonLogData::Choreo(choreo_log) => choreo_log.r#move.is_some(),
                     _ => false,
                 })
         } else {
@@ -146,7 +146,7 @@ impl LogWindow {
 mod tests {
     use super::*;
     use crate::chat::{
-        TenonAssistantMessage, TenonAssistantMessageContent, TenonWorkflowLog,
+        TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog,
         log::{
             TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonToolResult, TenonUserMessage,
         },
@@ -169,20 +169,20 @@ mod tests {
         log
     }
 
-    fn create_workflow_log(id: &str, step: Option<usize>) -> TenonLog {
-        TenonLog::new(TenonLogData::Workflow(TenonWorkflowLog::new(
+    fn create_choreo_log(id: &str, move_number: Option<usize>) -> TenonLog {
+        TenonLog::new(TenonLogData::Choreo(TenonChoreoLog::new(
             id,
-            if step.is_some() {
-                "workflow step"
+            if move_number.is_some() {
+                "choreo move"
             } else {
-                "Workflow ended"
+                "Choreo ended"
             },
-            step,
+            move_number,
             TenonToolLog {
                 tool_call: TenonToolCall {
                     id: "test-id".to_string(),
                     internal_call_id: "test-internal-id".to_string(),
-                    name: "navigate_workflow".to_string(),
+                    name: "navigate_choreo".to_string(),
                     args: serde_json::json!({}),
                 },
                 tool_result: None,
@@ -203,27 +203,27 @@ mod tests {
     }
 
     #[test]
-    fn test_is_log_in_workflow() {
+    fn test_is_log_in_choreo() {
         let logs = vec![
-            create_user_log(1),                 // 0: no workflow before
-            create_workflow_log("wf", Some(1)), // 1: workflow start
-            create_user_log(1),                 // 2: in workflow
-            create_workflow_log("wf", None),    // 3: workflow end
-            create_user_log(1),                 // 4: after workflow ended
+            create_user_log(1),               // 0: no choreo before
+            create_choreo_log("wf", Some(1)), // 1: choreo start
+            create_user_log(1),               // 2: in choreo
+            create_choreo_log("wf", None),    // 3: choreo end
+            create_user_log(1),               // 4: after choreo ended
         ];
         let log_window = create_log_window(logs);
-        assert!(!log_window.is_log_in_workflow(0)); // before workflow
-        assert!(log_window.is_log_in_workflow(2)); // in workflow
-        assert!(!log_window.is_log_in_workflow(4)); // after workflow ended
+        assert!(!log_window.is_log_in_choreo(0)); // before choreo
+        assert!(log_window.is_log_in_choreo(2)); // in choreo
+        assert!(!log_window.is_log_in_choreo(4)); // after choreo ended
     }
 
     #[test]
-    fn test_find_last_checkpoint_in_workflow_uses_workflow_tool() {
+    fn test_find_last_checkpoint_in_choreo_uses_choreo_tool() {
         let logs = vec![
             create_user_log(1),
-            create_workflow_log("test_workflow", Some(1)), // start
+            create_choreo_log("test_choreo", Some(1)), // start
             create_user_log(1),
-            create_workflow_log("test_workflow", Some(2)), // navigate to step 2
+            create_choreo_log("test_choreo", Some(2)), // navigate to move 2
             create_user_log(1),
         ];
         let log_window = create_log_window(logs);
@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_last_checkpoint_not_in_workflow_uses_user_message() {
+    fn test_find_last_checkpoint_not_in_choreo_uses_user_message() {
         use crate::chat::{TenonAssistantMessage, TenonAssistantMessageContent};
 
         fn create_assistant_log(token_count: usize) -> TenonLog {
@@ -254,11 +254,11 @@ mod tests {
     }
 
     #[test]
-    fn test_find_last_checkpoint_after_workflow_ends() {
+    fn test_find_last_checkpoint_after_choreo_ends() {
         let logs = vec![
-            create_workflow_log("test_workflow", Some(1)),
+            create_choreo_log("test_choreo", Some(1)),
             create_user_log(1),
-            create_workflow_log("test_workflow", None), // end
+            create_choreo_log("test_choreo", None), // end
             create_user_log(1),
         ];
         let log_window = create_log_window(logs);

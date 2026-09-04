@@ -9,7 +9,7 @@ use nvim_oxi::{
 use serde::Deserialize;
 
 use crate::{
-    chat::workflow::Workflow,
+    chat::choreo::Choreo,
     config::{TenonConfig, user::TenonUserConfig},
     directive::Directive,
     lua_modules::{action::create_lua_action_module, keymap::create_lua_keymap_module},
@@ -39,14 +39,14 @@ pub fn get_directive_registry() -> HashMap<String, Directive> {
         .clone()
 }
 
-pub static WORKFLOW_REGISTRY: OnceLock<HashMap<String, Arc<Workflow>>> = OnceLock::new();
+pub static CHOREO_REGISTRY: OnceLock<HashMap<String, Arc<Choreo>>> = OnceLock::new();
 
-pub fn get_workflow_registry() -> HashMap<String, Arc<Workflow>> {
-    WORKFLOW_REGISTRY
+pub fn get_choreo_registry() -> HashMap<String, Arc<Choreo>> {
+    CHOREO_REGISTRY
         .get_or_init(|| {
-            chat::workflow::load_system_workflows()
+            chat::choreo::load_system_choreos()
                 .into_iter()
-                .map(|w| (w.id.clone(), w))
+                .map(|c| (c.id.clone(), c))
                 .collect()
         })
         .clone()
