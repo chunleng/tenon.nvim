@@ -146,17 +146,6 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
     );
 
     map.insert(
-        "Situation Sensitivity".into(),
-        Directive {
-            condition: None,
-            source: DirectiveSource::Preset {
-                id: "Situation Sensitivity".into(),
-                path: directive_path("situation_sensitivity.md"),
-            },
-        },
-    );
-
-    map.insert(
         "Read First Attitude".into(),
         Directive {
             condition: None,
