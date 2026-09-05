@@ -19,6 +19,7 @@ pub struct FooterValues {
     pub cached_tokens: u64,
     pub total_tokens: u64,
     pub context_tokens: u64,
+    pub work_queue_count: usize,
     // Delta values for last exchange
     pub input_tokens_delta: u64,
     pub output_tokens_delta: u64,
@@ -77,6 +78,13 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
                 .map(|log_window| log_window.active_context_token_count())
                 .unwrap_or(0);
 
+            let work_queue_count = session
+                .engine
+                .work_queue
+                .read()
+                .map(|queue| queue.entries.len())
+                .unwrap_or(0);
+
             return Self {
                 title,
                 chat_index,
@@ -89,6 +97,7 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
                 cached_tokens,
                 total_tokens,
                 context_tokens: context_tokens as u64,
+                work_queue_count,
                 input_tokens_delta,
                 output_tokens_delta,
                 cached_tokens_delta,
@@ -108,6 +117,7 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
             cached_tokens: 0,
             total_tokens: 0,
             context_tokens: 0,
+            work_queue_count: 0,
             input_tokens_delta: 0,
             output_tokens_delta: 0,
             cached_tokens_delta: 0,
@@ -151,6 +161,7 @@ impl FooterState {
                     || prev.cached_tokens != current.cached_tokens
                     || prev.total_tokens != current.total_tokens
                     || prev.context_tokens != current.context_tokens
+                    || prev.work_queue_count != current.work_queue_count
                     || prev.input_tokens_delta != current.input_tokens_delta
                     || prev.output_tokens_delta != current.output_tokens_delta
                     || prev.cached_tokens_delta != current.cached_tokens_delta
@@ -231,11 +242,17 @@ impl FooterState {
         };
 
         // Build title line
+        let queue_segment = if values.work_queue_count > 0 {
+            format!(", queue: {}", values.work_queue_count)
+        } else {
+            String::new()
+        };
         let title_line = format!(
-            "󰭹 {} {} of {}, agent: {}{}",
+            "󰭹 {} {} of {}{}, agent: {}{}",
             values.title.clone().unwrap_or_default(),
             values.chat_index + 1,
             values.total_count,
+            queue_segment,
             values.agent_name,
             meta_suffix
         );
@@ -273,6 +290,7 @@ mod tests {
                 cached_tokens: 0,
                 total_tokens: 0,
                 context_tokens: 0,
+                work_queue_count: 0,
                 input_tokens_delta: 0,
                 output_tokens_delta: 0,
                 cached_tokens_delta: 0,
@@ -322,6 +340,19 @@ mod tests {
     }
 
     #[test]
+    fn test_footer_should_render_when_work_queue_count_changes() {
+        let mut state = FooterState::new();
+        let values1 = FooterValues::test_default();
+        assert!(state.should_render(&values1));
+
+        let values2 = FooterValues {
+            work_queue_count: 2,
+            ..values1.clone()
+        };
+        assert!(state.should_render(&values2));
+    }
+
+    #[test]
     fn test_footer_should_not_render_when_unchanged() {
         let mut state = FooterState::new();
         let values = FooterValues::test_default();
@@ -346,6 +377,7 @@ mod tests {
             cached_tokens: 25,
             total_tokens: 175,
             context_tokens: 200,
+            work_queue_count: 0,
             input_tokens_delta: 100,
             output_tokens_delta: 50,
             cached_tokens_delta: 25,
@@ -424,6 +456,36 @@ mod tests {
         // No diff shown - delta omitted when 0
         assert_eq!(title_line, "󰭹 Test Chat 1 of 1, agent: default");
         assert_eq!(token_line, "tokens: 0~ | usage: 0 󰕒 + 0 󰇚 + 0  = 0 total");
+    }
+
+    #[test]
+    fn test_footer_state_get_footer_lines_with_queue() {
+        let mut state = FooterState::new();
+        // Default model and tools - only the queue segment differs
+        let values = FooterValues {
+            title: Some("Test Chat".to_string()),
+            model_display: "ollama_cloud: glm-5.1".to_string(),
+            current_tool_names: vec![
+                "edit_file".to_string(),
+                "fetch_webpage".to_string(),
+                "list_files".to_string(),
+                "read_file".to_string(),
+                "remove_path".to_string(),
+                "run_command".to_string(),
+                "search_text".to_string(),
+                "web_search".to_string(),
+                "record_thought".to_string(),
+            ],
+            work_queue_count: 2,
+            ..FooterValues::test_default()
+        };
+
+        // Populate cache
+        state.should_render(&values);
+
+        let (title_line, _) = state.get_footer_lines(&values);
+
+        assert_eq!(title_line, "󰭹 Test Chat 1 of 1, queue: 2, agent: default");
     }
 
     #[test]
