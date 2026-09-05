@@ -20,6 +20,7 @@ pub mod log;
 pub mod choreo;
 pub mod prompt;
 pub mod usage;
+pub mod work_queue;
 
 pub use event_channel::EventChannel;
 pub use log::handler::ChatLogHandler;
@@ -29,6 +30,7 @@ pub use log::{
     TenonUserMessage,
 };
 pub use usage::SessionUsage;
+pub use work_queue::WorkQueue;
 
 pub use crate::agent::worker::full::TenonAgent;
 
@@ -166,6 +168,9 @@ impl ChatSession {
             AgenticAgentType::Direct(Arc::downgrade(&pending_actions_channel)),
         );
         engine.load(logs);
+        if let Ok(mut queue) = engine.work_queue.write() {
+            *queue = history.work_queue.clone();
+        }
         let log_window = engine.log_handler.log_window.clone();
 
         let session = Self {
@@ -214,6 +219,7 @@ impl ChatSession {
 
         let mut engine = self.engine.clone();
         let usage_clone = Arc::clone(&self.usage);
+        let work_queue_clone = Arc::clone(&engine.work_queue);
         let agent_name = self.active_agent_name.clone();
         let model_display = self.engine.model.display_name();
         let chat_id = self.id.clone();
@@ -243,6 +249,7 @@ impl ChatSession {
                             },
                             &log_window,
                             &usage_clone,
+                            &work_queue_clone,
                             &history_dir,
                         );
                     }

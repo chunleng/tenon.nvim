@@ -6,6 +6,8 @@ pub mod fetch_webpage;
 pub mod list_files;
 pub mod move_path;
 pub mod navigate_choreo;
+pub mod pop_task;
+pub mod push_tasks;
 pub mod read_file;
 pub mod record_thought;
 pub mod remove_path;
@@ -23,6 +25,8 @@ pub use edit_file::EditFile;
 pub use fetch_webpage::FetchWebpage;
 pub use list_files::ListFiles;
 pub use move_path::MovePath;
+pub use pop_task::PopTask;
+pub use push_tasks::PushTasks;
 pub use read_file::ReadFile;
 pub use record_thought::RecordThought;
 pub use remove_path::RemovePath;
@@ -60,9 +64,9 @@ pub enum ToolClassification {
 ///
 /// Built-in tools have fixed classifications:
 /// - Idempotent: read_file, list_files, search_text
-/// - NonMutating: web_search, fetch_webpage, record_thought
+/// - NonMutating: web_search, fetch_webpage, record_thought, pop_task
 /// - Mutating: edit_file, move_path, remove_path, run_command
-/// - System: use_choreo, navigate_choreo, end_choreo
+/// - System: use_choreo, navigate_choreo, end_choreo, push_tasks
 ///
 /// Unknown tool names (including MCP tools) return `ToolClassification::Unknown`.
 pub fn get_tool_classification(name: &str) -> ToolClassification {
@@ -73,15 +77,18 @@ pub fn get_tool_classification(name: &str) -> ToolClassification {
         }
 
         // Non-mutating tools: read-only, may produce different results
-        "web_search" | "fetch_webpage" | "record_thought" | "analyze_image" | "ask_question" => {
-            ToolClassification::NonMutating
-        }
+        // pop_task is NonMutating (not System) so its result stays in the
+        // chat history for reference
+        "web_search" | "fetch_webpage" | "record_thought" | "analyze_image" | "ask_question"
+        | "pop_task" => ToolClassification::NonMutating,
 
         // Mutating tools: modify state when run
         "edit_file" | "move_path" | "remove_path" | "run_command" => ToolClassification::Mutating,
 
-        // System tools: Tenon choreo management
-        "use_choreo" | "navigate_choreo" | "end_choreo" => ToolClassification::System,
+        // System tools: Tenon choreo management and work queue
+        "use_choreo" | "navigate_choreo" | "end_choreo" | "push_tasks" => {
+            ToolClassification::System
+        }
 
         // Unknown: MCP tools or unrecognized names
         _ => ToolClassification::Unknown,
@@ -124,6 +131,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
         "analyze_image" => "image",
         "ask_question" => "question",
         "navigate_choreo" => "move",
+        "pop_task" => "group",
         _ => return None,
     };
     args.get(core_arg).and_then(|v| v.as_str()).map(|x| {
@@ -347,5 +355,17 @@ mod tests {
         let selectors = ["srv", "other"];
         let result: Vec<i32> = select_in_order(tools, &selectors);
         assert_eq!(result, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn pop_task_is_non_mutating_not_system() {
+        assert_eq!(
+            get_tool_classification("pop_task"),
+            ToolClassification::NonMutating
+        );
+        assert_eq!(
+            get_tool_classification("push_tasks"),
+            ToolClassification::System
+        );
     }
 }

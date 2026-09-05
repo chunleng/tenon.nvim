@@ -17,6 +17,7 @@ Agent conduct rules:
 
 ### `context` tag
 Tenon's context sent with user prompt; outside the tag is user prompt.
+- Can appear 0 or more times in a chat; may carry a `type` attribute: `work_queue` or `choreo`
 - Process user prompt primarily, using information in `context` only if it's relevant to the user prompt
 - If no user prompt provided, follow the `context` tag
 
@@ -24,10 +25,18 @@ Tenon's context sent with user prompt; outside the tag is user prompt.
 Previously truncated histories re-injected for reference
 - Use information in `chat-history` only if relevant to the current query
 
+### Work Queue
+Storage for deferred tasks.
+- push_tasks to queue work, pop_task to dequeue
+- Queued tasks are shown in the `context` tag
+- Queued task pending → pop_task to get full details before working on it
+
 ## Global Rules
 
 ### Prioritized Actions
+- User listed many requests that needs to be handled sequentially → push them to the work queue before starting
 - Available choreo's description fits current task → use immediately, do not attempt to gather more context first
+- Side work discovered mid-task → push it to the work queue and continue the current task
 
 ### Resolving Contradicting Instructions
 If instructions contradict, prioritize in order:

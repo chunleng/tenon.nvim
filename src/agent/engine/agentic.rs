@@ -11,7 +11,7 @@ use crate::chat::prompt::build_choreo_prompt;
 use crate::chat::{
     ActiveChoreo, ChatLogHandler, EventChannel, PendingAction, TenonAssistantMessage,
     TenonAssistantMessageContent, TenonChoreoLog, TenonLog, TenonLogData, TenonThoughtLog,
-    TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult,
+    TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, WorkQueue,
 };
 use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource, directive_path};
@@ -37,6 +37,7 @@ pub struct AgenticStreamEngine {
     pub tool_names: Vec<DynamicTool>,
     pub choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
     pub active_choreo: Arc<RwLock<Option<ActiveChoreo>>>,
+    pub work_queue: Arc<RwLock<WorkQueue>>,
     pub log_handler: ChatLogHandler,
     system_tools: Vec<DynamicTool>,
 }
@@ -49,8 +50,21 @@ impl AgenticStreamEngine {
         choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
         agent_type: AgenticAgentType,
     ) -> Self {
+        let work_queue = Arc::new(RwLock::new(WorkQueue::default()));
         let mut system_tools = vec![into_dynamic_tool(RecordThought)];
         if let AgenticAgentType::Direct(event_channel) = agent_type {
+            system_tools.insert(
+                0,
+                into_dynamic_tool(crate::tools::PushTasks {
+                    work_queue: work_queue.clone(),
+                }),
+            );
+            system_tools.insert(
+                0,
+                into_dynamic_tool(crate::tools::PopTask {
+                    work_queue: work_queue.clone(),
+                }),
+            );
             system_tools.insert(0, into_dynamic_tool(AskQuestion { event_channel }));
         }
         Self {
@@ -59,6 +73,7 @@ impl AgenticStreamEngine {
             tool_names,
             choreos,
             active_choreo: Arc::new(RwLock::new(None)),
+            work_queue,
             log_handler: ChatLogHandler::new(),
             system_tools,
         }
@@ -154,7 +169,7 @@ impl AgenticStreamEngine {
     ) -> bool {
         let agent = self.build_chat_adapter();
         let chat_history = self.log_handler.get_chat_history(&prompt);
-        let prompt = build_choreo_prompt(&self.active_choreo, prompt).await;
+        let prompt = build_choreo_prompt(&self.active_choreo, &self.work_queue, prompt).await;
         let mut stream = ChatStream::new(&agent, prompt, chat_history, max_turns).await;
 
         let mut should_continue = false;
