@@ -5,6 +5,7 @@ mod create_pr_description;
 mod create_software_specification;
 mod edit_choreo;
 mod edit_directive;
+mod edit_tutorial_document;
 mod find_software_bug_root_cause;
 mod implement_code;
 mod implement_code_together;
@@ -77,6 +78,7 @@ pub fn load_system_choreos() -> Vec<Arc<Choreo>> {
         Arc::new(implement_code_together::choreo()),
         Arc::new(analyze_software_change::choreo()),
         Arc::new(assess_project_doc_needs::choreo()),
+        Arc::new(edit_tutorial_document::choreo()),
         Arc::new(review_code::choreo()),
     ]
 }
