@@ -10,8 +10,8 @@
 3. Flow check: verify steps are ordered so each builds on the previous. If issues found → navigate to plan move
 4. If all checks pass, present scope and plan to the user for confirmation
   - On confirmation → end choreo
-  - On scope issue → navigate to scope move
-  - On plan issue → navigate to plan move
+  - On scope changed/issue → navigate to scope move
+  - On plan changed/issue → navigate to plan move
 
 ## Choreo Move Artifact
 When scope issues are found:
