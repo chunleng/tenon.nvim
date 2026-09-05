@@ -1,6 +1,6 @@
 ## Process
 1. If the user stated nothing before the choreo was triggered, ask what they want to accomplish
-2. If choreo_id is null, determine it — build on what the user stated during the interview; if the user stated a name, use it as-is — do not normalize or validate it against any convention. If no name is stated, generate one from the requirements — it must follow the `<verb>_*` format (e.g. `review_code`, `edit_choreo`)
+2. If choreo_id is null, determine it during the interview (process step 4) — build on what the user stated; if the user stated a name, use it as-is — do not normalize or validate it against any convention. If no name is stated, generate one from the requirements — it must follow the `<verb>_*` format (e.g. `review_code`, `edit_choreo`)
 3. If mode is update, investigate the existing choreo — read its config and all instruction files and understand what it currently does. Requirements describe what the user wants to change, not a complete re-derivation of the choreo's purpose. Existing instruction files are the baseline — preserved as-is unless explicitly changed
 4. Interview the user relentlessly until you reach a shared understanding. Repeat this step until there are no further questions. See the Interview Guide section below
    - Ask one question at a time, waiting for feedback before continuing
