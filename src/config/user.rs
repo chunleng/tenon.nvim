@@ -417,11 +417,11 @@ mod tests {
     fn choreos_config_key_deserializes() {
         // The user-facing Lua config key for per-agent choreos is "choreos".
         let config: TenonUserConfig = serde_json::from_str(
-            r#"{"agents":{"main":{"model":"fast","choreos":["edit_document"]}}}"#,
+            r#"{"agents":{"main":{"model":"fast","choreos":["implement_code_together"]}}}"#,
         )
         .unwrap();
         let agent = config.agents.as_ref().unwrap().get("main").unwrap();
-        assert_eq!(agent.choreos, vec!["edit_document".to_string()]);
+        assert_eq!(agent.choreos, vec!["implement_code_together".to_string()]);
     }
 
     #[test]
