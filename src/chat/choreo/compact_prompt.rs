@@ -32,7 +32,11 @@ pub fn choreo() -> Choreo {
                 instruction: Instruction::File {
                     file: choreo_path("compact_prompt/3_compact.md"),
                 },
-                goto_instructions: vec![],
+                goto_instructions: vec![MoveGotoInstruction {
+                    to: GotoMove::EndChoreo,
+                    condition: Some("nothing to compact".to_string()),
+                    output_to_choreo_memory: None,
+                }],
             },
             Move {
                 title: "Verify".to_string(),
