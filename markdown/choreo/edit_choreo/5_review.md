@@ -9,14 +9,14 @@ In any process step, ask the user for input at any point during the review when 
    - No dead ends (all paths lead somewhere)
    - No infinite loops without break condition
    - Implicit goto instructions are omitted (Next without condition and without memory artifact; EndChoreo in last move without condition; self-loops — goto to the same move — should be "loop back to process step N" in the Process, not an explicit goto_instruction)
-   - If structural issues found, provide them as the choreo move artifact and navigate to move 3 — do not proceed to line-level review
+   - If structural issues found, navigate to move 3 — do not proceed to line-level review
 3. **Line-level review** — check each move instruction for:
    - Clarity: unambiguous?
    - Specificity: concrete or vague?
    - Redundancy: repeats unnecessarily?
    - Contradiction: conflicts with other instructions?
-   - If content issues found, provide them as the choreo move artifact and navigate to move 4
-4. If no issues found, present choreo to user for approval. If user requests changes, classify as structural or content and provide accordingly. If approved, end the choreo
+   - If content issues found, navigate to move 4
+4. If no issues found, present choreo to user for approval. If user requests changes, classify them as structural or content. If approved, end the choreo
 
 ## Choreo Move Artifact
 ### Structural issues found
