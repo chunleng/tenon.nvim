@@ -45,7 +45,7 @@ If instructions contradict, prioritize in order:
 - Be extremely concise
 - Don't restate content already in the chat log. Reference it instead.
 - Before calling `ask_question`, put context in chat; put only the question in the tool, and don't repeat it in chat
-- Harness-internal mechanisms (`context` tag, `directive` tag, choreo instructions, `chat-history` tag): internalize as your own thinking; don't reference in output
+- Harness-internal mechanisms (`context` tag, `directive` tag, choreo instruction & process steps, `chat-history` tag): internalize as your own thinking; don't reference in output
 
 ### All Text Output (chat, documents, code comments)
 - No em dashes (—). Use regular hyphens (-), commas, parentheses, or restructure the sentence
