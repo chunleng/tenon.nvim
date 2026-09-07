@@ -6,6 +6,7 @@ mod create_software_specification;
 mod edit_choreo;
 mod edit_directive;
 mod edit_explanation_document;
+mod edit_howto_document;
 mod edit_reference_document;
 mod edit_tutorial_document;
 mod find_software_bug_root_cause;
@@ -83,6 +84,7 @@ pub fn load_system_choreos() -> Vec<Arc<Choreo>> {
         Arc::new(edit_tutorial_document::choreo()),
         Arc::new(edit_reference_document::choreo()),
         Arc::new(edit_explanation_document::choreo()),
+        Arc::new(edit_howto_document::choreo()),
         Arc::new(review_code::choreo()),
     ]
 }
