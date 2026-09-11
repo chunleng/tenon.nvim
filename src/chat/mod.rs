@@ -255,14 +255,18 @@ impl ChatSession {
                     }
                 };
 
+                let mut prompt = prompt.clone();
                 loop {
                     let should_continue = engine
-                        .process_turn(prompt.clone(), &cancel_token, &on_completion_call, 100)
+                        .process_turn(prompt, &cancel_token, &on_completion_call, 100)
                         .await;
 
                     if !should_continue || cancel_token.load(Ordering::SeqCst) {
                         break;
                     }
+
+                    // Reset or else it will continue the same prompt
+                    prompt = "".to_string();
                 }
             });
         }));

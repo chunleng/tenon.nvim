@@ -170,6 +170,11 @@ impl AgenticStreamEngine {
         let agent = self.build_chat_adapter();
         let chat_history = self.log_handler.get_chat_history(&prompt);
         let prompt = build_choreo_prompt(&self.active_choreo, &self.work_queue, prompt).await;
+        let prompt = if prompt.is_empty() {
+            "<context></context>".to_string()
+        } else {
+            prompt
+        };
         let mut stream = ChatStream::new(&agent, prompt, chat_history, max_turns).await;
 
         let mut should_continue = false;
