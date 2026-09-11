@@ -7,7 +7,7 @@ use crate::{
     chat::TenonAgent,
     clients::{ApiKey, ProviderConfig, SupportedModels},
     config::{TenonConfig, WebSearchConfig},
-    directive::{Directive, DirectiveSource},
+    directive::{Directive, DirectiveSource, PresetContent},
     utils::notify,
 };
 
@@ -103,8 +103,8 @@ pub struct Model(pub String);
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum DirectiveSourceConfig {
-    /// An inline string.
-    Text { value: String },
+    /// An inline string, identified by an id.
+    Text { id: String, value: String },
 
     /// File paths.
     File { paths: Vec<PathBuf> },
@@ -129,7 +129,10 @@ impl TryFrom<DirectiveConfig> for Directive {
 
     fn try_from(config: DirectiveConfig) -> Result<Self, Self::Error> {
         let source = match config.source {
-            DirectiveSourceConfig::Text { value } => DirectiveSource::Text { value },
+            DirectiveSourceConfig::Text { id, value } => DirectiveSource::Preset {
+                id,
+                content: PresetContent::Text(value),
+            },
             DirectiveSourceConfig::File { paths } => DirectiveSource::File { paths },
             DirectiveSourceConfig::System { name } => {
                 let registry = crate::get_directive_registry();
@@ -625,6 +628,7 @@ mod tests {
         let config = DirectiveConfig {
             condition: Some("when coding".into()),
             source: DirectiveSourceConfig::Text {
+                id: "Custom".into(),
                 value: "be careful".into(),
             },
         };
@@ -632,7 +636,8 @@ mod tests {
         assert_eq!(directive.condition.as_deref(), Some("when coding"));
         assert!(matches!(
             &directive.source,
-            DirectiveSource::Text { value } if value == "be careful"
+            DirectiveSource::Preset { id, content: PresetContent::Text(value) }
+                if id == "Custom" && value == "be careful"
         ));
     }
 

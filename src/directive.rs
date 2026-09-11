@@ -5,28 +5,34 @@ use std::{
 
 use crate::utils::plugin_path;
 
-/// Describes where a directive's content comes from: an inline string, file paths,
-/// or a registered preset file.
+/// Describes where a directive's content comes from: user files or a named
+/// registry preset.
 #[derive(Debug, Clone)]
 pub enum DirectiveSource {
-    /// An inline string. Easy for user to provide directly
-    Text { value: String },
-
     /// File paths. Relative paths are resolved against the current working directory.
     /// Each file resolves into its own `<directive>` tag.
     File { paths: Vec<PathBuf> },
 
-    /// A built-in preset file identified by a registry id.
-    Preset { id: String, path: PathBuf },
+    /// A registry preset identified by an id, with inline text or file content.
+    Preset { id: String, content: PresetContent },
+}
+
+/// The content of a registry preset: inline text or a preset file.
+#[derive(Debug, Clone)]
+pub enum PresetContent {
+    /// Inline text.
+    Text(String),
+
+    /// A preset file path.
+    File(PathBuf),
 }
 
 impl DirectiveSource {
     /// Resolve the source into its final XML string format.
     ///
-    /// - `Text` emits a single `<directive>` tag.
     /// - `File` emits one `<directive file="...">` tag per non-empty file.
-    /// - `Preset` emits a single `<directive preset="...">` tag; a missing or
-    ///   empty preset file returns an error (no tag is generated).
+    /// - `Preset` emits a single `<directive preset="...">` tag; a file preset
+    ///   with a missing or empty file returns an error (no tag is generated).
     ///
     /// Missing or empty files produce no tag. The condition, when present,
     /// is emitted as an attribute on every produced tag.
@@ -35,9 +41,6 @@ impl DirectiveSource {
             .map(|c| format!(r#" condition="{}""#, c))
             .unwrap_or_default();
         match self {
-            DirectiveSource::Text { value } => {
-                Ok(format!("<directive{}>{}</directive>", cond_attr, value))
-            }
             DirectiveSource::File { paths } => {
                 let mut tags = Vec::new();
                 for path in paths {
@@ -52,18 +55,24 @@ impl DirectiveSource {
                 }
                 Ok(tags.join("\n"))
             }
-            DirectiveSource::Preset { id, path } => {
-                let Some(content) = read_non_empty(path)? else {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        format!("Preset file not found or empty: {}", path.display()),
-                    ));
-                };
-                Ok(format!(
+            DirectiveSource::Preset { id, content } => match content {
+                PresetContent::Text(value) => Ok(format!(
                     "<directive{} preset=\"{}\">{}</directive>",
-                    cond_attr, id, content
-                ))
-            }
+                    cond_attr, id, value
+                )),
+                PresetContent::File(path) => {
+                    let Some(content) = read_non_empty(path)? else {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            format!("Preset file not found or empty: {}", path.display()),
+                        ));
+                    };
+                    Ok(format!(
+                        "<directive{} preset=\"{}\">{}</directive>",
+                        cond_attr, id, content
+                    ))
+                }
+            },
         }
     }
 }
@@ -140,7 +149,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "No Perfect Solution Attitude".into(),
-                path: directive_path("no_perfect_solution_attitude.md"),
+                content: PresetContent::File(directive_path("no_perfect_solution_attitude.md")),
             },
         },
     );
@@ -151,7 +160,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Read First Attitude".into(),
-                path: directive_path("read_first_attitude.md"),
+                content: PresetContent::File(directive_path("read_first_attitude.md")),
             },
         },
     );
@@ -162,7 +171,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "YAGNI Attitude".into(),
-                path: directive_path("yagni_attitude.md"),
+                content: PresetContent::File(directive_path("yagni_attitude.md")),
             },
         },
     );
@@ -173,7 +182,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Fix Software Bug Process".into(),
-                path: directive_path("fix_software_bug_process.md"),
+                content: PresetContent::File(directive_path("fix_software_bug_process.md")),
             },
         },
     );
@@ -184,7 +193,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Bug Isolation".into(),
-                path: directive_path("bug_isolation.md"),
+                content: PresetContent::File(directive_path("bug_isolation.md")),
             },
         },
     );
@@ -195,7 +204,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Prompt Editing Basics".into(),
-                path: directive_path("prompt_editing_basics.md"),
+                content: PresetContent::File(directive_path("prompt_editing_basics.md")),
             },
         },
     );
@@ -206,7 +215,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Prompting Basics".into(),
-                path: directive_path("prompting_basics.md"),
+                content: PresetContent::File(directive_path("prompting_basics.md")),
             },
         },
     );
@@ -217,7 +226,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Code Comment Basics".into(),
-                path: directive_path("code_comment_basics.md"),
+                content: PresetContent::File(directive_path("code_comment_basics.md")),
             },
         },
     );
@@ -228,7 +237,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Testing Basics".into(),
-                path: directive_path("testing_basics.md"),
+                content: PresetContent::File(directive_path("testing_basics.md")),
             },
         },
     );
@@ -239,7 +248,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Reduce Commentary".into(),
-                path: directive_path("reduce-commentary.md"),
+                content: PresetContent::File(directive_path("reduce-commentary.md")),
             },
         },
     );
@@ -250,7 +259,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Speak With Facts".into(),
-                path: directive_path("speak_with_facts.md"),
+                content: PresetContent::File(directive_path("speak_with_facts.md")),
             },
         },
     );
@@ -261,7 +270,7 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Tenon Constitution".into(),
-                path: directive_path("tenon_constitution.md"),
+                content: PresetContent::File(directive_path("tenon_constitution.md")),
             },
         },
     );
@@ -281,23 +290,28 @@ mod tests {
     }
 
     #[test]
-    fn resolve_text_wraps_in_directive_tag() {
-        let source = DirectiveSource::Text {
-            value: "be careful".into(),
+    fn resolve_text_preset_wraps_in_directive_tag() {
+        let source = DirectiveSource::Preset {
+            id: "Custom".into(),
+            content: PresetContent::Text("be careful".into()),
         };
         let resolved = source.resolve(None).unwrap();
-        assert_eq!(resolved, "<directive>be careful</directive>");
+        assert_eq!(
+            resolved,
+            "<directive preset=\"Custom\">be careful</directive>"
+        );
     }
 
     #[test]
-    fn resolve_text_includes_condition_attribute() {
-        let source = DirectiveSource::Text {
-            value: "be careful".into(),
+    fn resolve_text_preset_includes_condition_attribute() {
+        let source = DirectiveSource::Preset {
+            id: "Custom".into(),
+            content: PresetContent::Text("be careful".into()),
         };
         let resolved = source.resolve(Some("when coding")).unwrap();
         assert_eq!(
             resolved,
-            r#"<directive condition="when coding">be careful</directive>"#
+            r#"<directive condition="when coding" preset="Custom">be careful</directive>"#
         );
     }
 
@@ -342,7 +356,7 @@ mod tests {
         let file = write_temp_file("preset_file", "preset content");
         let source = DirectiveSource::Preset {
             id: "YAGNI Attitude".into(),
-            path: file,
+            content: PresetContent::File(file),
         };
         let resolved = source.resolve(Some("when making code changes")).unwrap();
         assert_eq!(
@@ -356,7 +370,7 @@ mod tests {
         let missing = std::env::temp_dir().join("tenon_directive_preset_missing_nonexistent");
         let source = DirectiveSource::Preset {
             id: "X".into(),
-            path: missing.clone(),
+            content: PresetContent::File(missing.clone()),
         };
         let err = source.resolve(None).unwrap_err();
         assert_eq!(

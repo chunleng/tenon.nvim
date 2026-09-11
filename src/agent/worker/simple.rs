@@ -2,7 +2,7 @@ use std::io;
 
 use crate::agent::engine::SingleTextResponseEngine;
 use crate::clients::SupportedModels;
-use crate::directive::{Directive, DirectiveSource};
+use crate::directive::{Directive, DirectiveSource, PresetContent};
 use crate::get_application_config;
 use rig::message::Message;
 
@@ -30,8 +30,9 @@ impl SimpleTenonWorkerAgent {
 
         let directive = Directive {
             condition: None,
-            source: DirectiveSource::Text {
-                value: directive_text.to_string(),
+            source: DirectiveSource::Preset {
+                id: "Simple Worker".into(),
+                content: PresetContent::Text(directive_text.to_string()),
             },
         };
 

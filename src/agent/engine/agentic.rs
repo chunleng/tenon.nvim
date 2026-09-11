@@ -14,7 +14,7 @@ use crate::chat::{
     TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, WorkQueue,
 };
 use crate::clients::SupportedModels;
-use crate::directive::{Directive, DirectiveSource, directive_path};
+use crate::directive::{Directive, DirectiveSource, PresetContent, directive_path};
 use crate::tools::{AskQuestion, RecordThought, into_dynamic_tool};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use rig::agent::Agent;
@@ -110,7 +110,7 @@ impl AgenticStreamEngine {
             condition: None,
             source: DirectiveSource::Preset {
                 id: "Tenon Constitution".into(),
-                path: directive_path("tenon_constitution.md"),
+                content: PresetContent::File(directive_path("tenon_constitution.md")),
             },
         }];
         combined.extend(self.directive.iter().cloned());
