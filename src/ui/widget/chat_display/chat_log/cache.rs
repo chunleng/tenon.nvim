@@ -222,7 +222,7 @@ impl ChatLogCache {
 
                     let render_type = match current_log {
                         TenonLogData::Assistant(msg)
-                            if msg.content.is_empty() && msg.reasoning.is_some() =>
+                            if msg.chat_is_empty() && msg.reasoning.is_some() =>
                         {
                             if next_log.is_some() {
                                 RenderType::Tail(1)

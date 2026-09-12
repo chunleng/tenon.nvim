@@ -44,6 +44,15 @@ pub struct TenonAssistantMessage {
     pub content: Vec<TenonAssistantMessageContent>,
 }
 
+impl TenonAssistantMessage {
+    /// Chat counts as empty when missing or whitespace-only, so reasoning can be shown instead.
+    pub fn chat_is_empty(&self) -> bool {
+        self.content.iter().all(|c| match c {
+            TenonAssistantMessageContent::Text(s) => s.trim().is_empty(),
+        })
+    }
+}
+
 impl From<&TenonAssistantMessage> for Option<Message> {
     fn from(value: &TenonAssistantMessage) -> Self {
         // reasoning is not return to consciously reduce context

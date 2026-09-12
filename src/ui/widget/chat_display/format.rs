@@ -16,18 +16,20 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             },
             TenonLogData::Assistant(msg) => {
                 // If content exists, show content; otherwise show reasoning
-                if msg.content.is_empty() {
+                if msg.chat_is_empty() {
                     msg.reasoning
                         .as_ref()
-                        .map(|r| r.lines().map(|s| s.to_string()).collect())
+                        .map(|r| r.trim().lines().map(|s| s.to_string()).collect())
                         .unwrap_or_default()
                 } else {
                     msg.content
                         .iter()
                         .flat_map(|c| match c {
-                            TenonAssistantMessageContent::Text(text) => {
-                                text.lines().map(|s| s.to_string()).collect::<Vec<_>>()
-                            }
+                            TenonAssistantMessageContent::Text(text) => text
+                                .trim()
+                                .lines()
+                                .map(|s| s.to_string())
+                                .collect::<Vec<_>>(),
                         })
                         .collect()
                 }
@@ -71,7 +73,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
         match self {
             TenonLogData::User(_) => String::new(),
             TenonLogData::Assistant(msg) => {
-                if msg.content.is_empty() {
+                if msg.chat_is_empty() {
                     "TenonLineAssistantReasoning".to_string()
                 } else {
                     String::new()
@@ -88,7 +90,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
         match self {
             TenonLogData::User(_) => " ".to_string(),
             TenonLogData::Assistant(msg) => {
-                if msg.content.is_empty() {
+                if msg.chat_is_empty() {
                     " ".to_string()
                 } else {
                     "󰚩 ".to_string()
@@ -105,7 +107,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
         match self {
             TenonLogData::User(_) => "TenonSignUser".to_string(),
             TenonLogData::Assistant(msg) => {
-                if msg.content.is_empty() {
+                if msg.chat_is_empty() {
                     "TenonSignAssistantReasoning".to_string()
                 } else {
                     "TenonSignAssistantTalk".to_string()
