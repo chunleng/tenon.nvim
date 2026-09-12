@@ -22,4 +22,4 @@
 ### Examples
 
 Stay silent: `idx` vs `index`; rephrasing a clear sentence; style nit in throwaway script.
-Comment: off-by-one in loop — bug; factual error in docs — misleads; ambiguous API contract — future debugging pain.
+Comment: off-by-one in loop (bug); factual error in docs (misleads); ambiguous API contract (future debugging pain).

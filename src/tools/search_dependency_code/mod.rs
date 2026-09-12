@@ -33,8 +33,8 @@ impl Tool for SearchDependencyCode {
     type Output = String;
 
     fn description(&self) -> String {
-        "Search a project dependency's source code to understand how it works, \
-         find implementation details, or investigate library internals."
+        "Search a project dependency's source code to understand how it works \
+         or find implementation details."
             .to_string()
     }
 

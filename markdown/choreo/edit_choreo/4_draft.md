@@ -14,9 +14,9 @@
 - Clear, minimal language
 - Include examples when the instruction is abstract or complex
 - Use generic examples (not tied to specific tools/frameworks)
-- Do not use "output" to mean "artifact" — the agent will confuse it with printing to chat. Use "provide" or "artifact" instead
-- Do not include routing in instruction files unless necessary. Routing is only needed mid-process to invoke a navigation check during processing (e.g. "if X → go to move Y"). Do NOT put routing at the end or as a separate section — this is defined in moves
-- Do not include explicit steps to provide the Choreo Move Artifact or to proceed to the next move. The Choreo Move Artifact section (including conditional variants) defines what the move provides; the harness handles artifact provision and navigation
+- Do not use "output" to mean "artifact". Use "provide artifact" instead
+- Do not include routing in instruction files unless necessary. Routing is only needed mid-process to invoke a navigation check during processing (e.g. "if X → go to move Y")
+- Do not include explicit steps to provide the Choreo Move Artifact or to proceed to the next move. All artifacts should be defined in the Choreo Move Artifact section
 
 ## Choreo Move Artifact
 ### Default

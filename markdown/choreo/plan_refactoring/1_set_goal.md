@@ -23,14 +23,3 @@ constraints:
   - "must maintain Z performance characteristic"
 context: "relevant information discovered during investigation"
 ```
-
-## Example
-```yaml
-requirement: "refactor login module to make it easier to add new authentication methods"
-constraints:
-  - "public API must remain unchanged"
-  - "all existing tests must pass"
-  - "login flow behavior must be identical"
-  - "no performance regression"
-context: "login.rs has 3 auth methods (password, oauth, sso). Team wants to add 2 more methods next quarter."
-```

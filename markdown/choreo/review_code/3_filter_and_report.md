@@ -22,7 +22,7 @@
 4. After reporting blockers, ask the user to address findings by fixing or let you know if they decide to not fix it.
 5. When the user responds, assign a decision to EVERY finding before navigating:
    - **resolved-via-code**: the user made code changes addressing this finding. A generic statement not naming a specific finding (e.g., "I've made the necessary code changes") → mark all outstanding findings as `resolved-via-code`
-   - **dropped**: the user disagreed with reasoning you accept — drop the finding
+   - **dropped**: the user disagreed with reasoning you accept; drop the finding
    - **pending**: the user disagreed with reasoning you reject (explain why), or did not address this finding
 6. Only after every finding has a decision, determine the action (first match wins):
    - Any finding marked `resolved-via-code` → go to move 2 (re-review the updated diff)
@@ -31,20 +31,14 @@
 
 ### Output examples
 
-No blockers:
-```
-LGTM!
-```
-
 Blockers found:
 ```
-<One-line summary of main concern>
+<One-line summary>
 
-## 1. **Race condition in user fetch** (src/api/user.rs L45-52)
+## 1. **<Title>** (<path> L<lines>)
+<Problem and impact>
 
-Concurrent requests can overwrite `self.cache` without synchronization. Causes stale data on rapid navigation.
-
-Fix: Wrap in `Mutex` or use `DashMap` for concurrent access.
+Fix: <fix>
 ```
 
 ## Choreo Move Artifact

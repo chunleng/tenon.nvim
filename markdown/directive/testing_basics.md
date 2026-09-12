@@ -1,12 +1,10 @@
 ## Don't
 
 ### Dynamic Imports
-In test-driven development, test target may not exist yet.
-
-Don't use dynamic imports because "test target doesn't exist"
+In test-driven development, the test target may not exist yet, so don't use dynamic imports.
 
 ### Testing for Absence of a Removed Component
-When removing a feature, don't write tests asserting the removed component is gone (e.g., `assert content does not contain "step: 2"`).
+When removing a feature, don't write tests asserting the removed component is gone.
 
 Instead:
 - Remove or edit tests that use the component being removed
@@ -16,14 +14,14 @@ Instead:
 Tests that pass but prove nothing.
 
 **Mirrors production logic (tautology)**
-Test recomputes the expected value using the same approach as the code under test. Shared bug → both pass while code is broken.
+Test recomputes the expected value using the same approach as the code under test.
 ```
-// Bad: re-implements the same logic
+// Bad
 test totalAge:
     users = [{age: 10}, {age: 20}]
     assert totalAge(users) == sum of user.age for each user in users
 
-// Good: expected value is independent (hardcoded)
+// Good: hardcoded expected value
 test totalAge:
     users = [{age: 10}, {age: 20}]
     assert totalAge(users) == 30
@@ -44,7 +42,7 @@ test totalAge:
 ```
 
 **Tests trivial code that cannot be wrong**
-Logic so simple it has no meaningful failure mode — pure noise.
+Logic so simple it has no meaningful failure mode.
 ```
 // Bad: assignment can't be wrong
 test setName:

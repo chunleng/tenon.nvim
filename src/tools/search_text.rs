@@ -88,7 +88,7 @@ impl Tool for SearchText {
                 },
                 "is_regex": {
                     "type": "boolean",
-                    "description": "Treat pattern as regex if true. Turn on when regex is needed. e.g. alternation regex (`a|b`)"
+                    "description": "Treat pattern as regex if true, e.g. alternation (`a|b`)"
                 },
                 "ignore_case": {
                     "type": "boolean",

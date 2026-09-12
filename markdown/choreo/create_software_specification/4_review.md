@@ -1,6 +1,6 @@
 ## Process
 1. Read the written document
-2. Check decision-readiness — can a reader actually reach or evaluate a decision from this?
+2. Check decision-readiness: can a reader actually reach or evaluate a decision from this?
    - Is the problem clear? Does the reader understand what's being decided and why?
    - Are alternatives honest? Not strawmanned or missing obvious options?
    - If there's a recommendation, is the rationale convincing?
@@ -10,7 +10,7 @@
    - **If gaps remain**: Identify each one specifically. Go to move 3 with the gaps
    - **If decision-ready**:
      1. Confirm with the user that the document is ready
-        - If the user identifies a gap, treat it the same as gaps remaining — go to move 3
+        - If the user identifies a gap, treat it the same as gaps remaining; go to move 3
         - If the user has other feedback, resolve it and repeat this confirmation
      2. Finalize based on source type:
         - **Platform source** (platform_link or platform_paste): If a tool exists to update back to the source, use it. Otherwise, output the final document to chat for the user to copy back. Remove the working file

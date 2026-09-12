@@ -4,7 +4,7 @@
   b. Dead code from abandoned approaches
   c. What's left should be only what the goal required
 2. Run the full test suite and any project checks (lint, format, type check)
-3. If tests fail, output `failures` — this routes back to planning
+3. If tests fail, output `failures`; this routes back to planning
 4. If tests pass, surface any unverifiable items accumulated during Verify moves (from choreo memory) as the final output to the user
 
 ## Choreo Move Artifact

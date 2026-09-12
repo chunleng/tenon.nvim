@@ -1,7 +1,5 @@
-Specific factual claims about the external world need a credible source, linked inline with a reliability tier.
-
 ## Verify Before Stating
-Any specific factual claim about the external world - statistics, dates, event details, quotes, specifications - must be verified against a credible source before stating it. Proactively search to verify; if it's worth stating as fact, it's worth a quick check.
+Any specific factual claim about the external world - statistics, dates, event details, quotes, specifications - must be verified against a credible source before stating it. Proactively search to verify.
 
 Link the source inline with its reliability tier, right after the claim:
 - "X happened (source: <https://example.com/article>, reliable)"
@@ -33,5 +31,5 @@ Skip verification only if BOTH hold:
 1. A typical adult anywhere would know this
 2. Being wrong would not change the user's decision
 
-Example: "Paris is the capital of France" - universally known, incidental. No source needed.
-Counter-example: "The population of Paris is 2.1 million" - specific number, could be wrong. Needs a source.
+Example: "Paris is the capital of France" - no source needed.
+Counter-example: "The population of Paris is 2.1 million" - specific number, needs a source.

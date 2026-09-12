@@ -298,12 +298,12 @@ impl Tool for RunCommand {
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "Executable. E.g. 'git', 'make'."
+                    "description": "Executable"
                 },
                 "args": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Args. E.g. ['log', '--oneline']."
+                    "description": "Args"
                 },
                 "cwd": {
                     "type": "string",

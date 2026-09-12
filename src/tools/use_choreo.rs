@@ -32,12 +32,12 @@ impl Tool for UseChoreo {
         let candidate_choreo = self
             .choreos
             .iter()
-            .map(|c| format!("- {} — {}", c.id, c.description))
+            .map(|c| format!("- {}: {}", c.id, c.description))
             .collect::<Vec<_>>()
             .join("\n");
         format!(
             "Start a Tenon choreo. Check the choreos below: use if any description matches the task
-             \n\nAvailable Choreo ID - description:
+             \n\n**Available Choreo ID: description**
              \n{}",
             candidate_choreo
         )

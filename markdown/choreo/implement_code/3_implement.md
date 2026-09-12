@@ -1,5 +1,5 @@
 ## Process
-1. Read the target files first — understand what exists before changing it
+1. Read the target files first; understand what exists before changing it
 2. Implement `next` from the plan
   a. Write only what this step calls for
   b. No speculative abstractions, no changes to unrelated code

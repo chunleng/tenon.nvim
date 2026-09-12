@@ -23,7 +23,7 @@ Schema and instructions for tool/function calling.
     - Provide new system interaction capabilities
 
 ### Choreo (Tenon Concept)
-Multi-step process. Each move yields artifact for next. Injected context focuses attention per move, preventing sidetracking. Best for long-running instructions.
+Multi-step process. Each move yields artifact for next.
 
 How it works:
 - use_choreo to enter, end_choreo to exit, navigate_choreo to switch moves
@@ -46,9 +46,9 @@ Use when:
 ## Techniques
 
 ### Injected Context
-Add information to `context` tag in latest user prompt. Gets the most attention — use for highest-priority information.
+Add information to `context` tag in latest user prompt. Gets the most attention; use for highest-priority information.
 
 ### Use Harness to Show/Hide Information
 Harness can show or hide information as needed.
 
-Example: choreo reveals only the current move's instructions, hiding others until needed — like guiding the AI step by step.
+Example: choreo reveals only the current move's instructions, hiding others until needed, guiding the AI step by step.

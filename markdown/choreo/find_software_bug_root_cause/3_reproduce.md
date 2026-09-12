@@ -18,10 +18,3 @@ test_file: "path/to/test/file"
 test_name: "test function name"
 description: "expected behavior being asserted"
 ```
-
-## Example
-```yaml
-test_file: "src/auth/tests/login_test.rs"
-test_name: "test_empty_password_crash"
-description: "tests that empty password is handled gracefully"
-```

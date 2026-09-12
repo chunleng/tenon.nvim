@@ -1,7 +1,7 @@
 ## Debug Test
 - Extract suspect code into test function for isolated observation
 - Debug tests create a testable entry point by copying the minimum flow from production
-- Test frameworks suppress output on pass. Fail debug tests deliberately to see prints. Temporary — acceptable to violate production standards
+- Test frameworks suppress output on pass. Fail debug tests deliberately to see prints. Temporary - acceptable to violate production standards
 
 ## Example
 Function fails on input `[{"id": 1, "age": 2}, {"id": 2}, (IDs with age)..]`

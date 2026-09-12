@@ -4,7 +4,7 @@
 1. Read the goal and the relevant parts of the codebase
 2. Break the work into discrete changes
   a. Small enough to implement and verify on its own
-  b. Describe what to change — not which specific files or how to verify
+  b. Describe what to change, not which specific files or how to verify
   c. Ordered so earlier changes don't get invalidated by later ones
 3. Pick the first change to make
 

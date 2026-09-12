@@ -18,8 +18,6 @@ If known special conditions trigger bug → add to output
 - If impossible → ask user for details
 
 ### Observe Bug Via Tool
-There are many ways to observe what's happening inside code
-
 - Use existing context: execute code, run tests, inspect logs
 - Bug isolation technique
 
@@ -38,7 +36,7 @@ There are many ways to observe what's happening inside code
 - steps_to_reproduce:
     - "login"
     - "click button A"
-  conditions: "user has admin role and browser is Safari"
+  conditions: "admin role, Safari"
   expected_behavior: "go to settings page"
   actual_behavior: "user got logged out"
 ```

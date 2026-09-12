@@ -77,7 +77,7 @@ impl Tool for AnalyzeImage {
     type Output = String;
 
     fn description(&self) -> String {
-        "Analyze image and answer questions about its content. Accepts local file path or URL. Use to identify objects, read text, describe scenes, answer visual queries, or extract info. Returns text answer based on prompt."
+        "Analyze image and answer questions about its content. Accepts local file path or URL. Returns text answer based on prompt."
             .to_string()
     }
 
@@ -91,7 +91,7 @@ impl Tool for AnalyzeImage {
                 },
                 "prompt": {
                     "type": "string",
-                    "description": "Question or instruction about the image. Scalar: 'How many people are in this image?' Structured: 'List all visible objects with their colors.' Compressed: 'Summarize this image in one sentence.'"
+                    "description": "Question or instruction about the image"
                 }
             },
             "required": ["image", "prompt"]

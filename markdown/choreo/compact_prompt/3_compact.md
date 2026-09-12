@@ -1,12 +1,12 @@
 ## Process
 1. Read the classification from choreo memory and the goal to identify the target text. The target may be file-based (file paths and sections) or inline text provided directly by the user. If re-entered from the Verify move, address each issue from the Verify move's output before proceeding.
 2. For the target text:
-   - Shorten passages classified as shorten — condense each to its brief form while preserving the core meaning
+   - Shorten passages classified as shorten: condense each to its brief form while preserving the core meaning
    - Drop passages classified as redundant
-   - Preserve all load-bearing passages — conditions, constraints, decision criteria, and meaning-carrying examples — as-is
+   - Preserve all load-bearing passages (conditions, constraints, decision criteria, and meaning-carrying examples) as-is
 3. Write all compacted text in **neutral reference-manual prose**. The compacted form should read like documentation, not like commands. Avoid terse fragments that an agent might imitate in its own output.
 
-   Style-contaminating (terse fragments — do not write this way):
+   Style-contaminating (terse fragments, do not write this way):
    ```
    Cut rationale. Keep conditions. Merge duplicates.
    ```
@@ -19,8 +19,8 @@
 4. If the target is file-based, apply edits to the files in-place using the edit tool. If the target is inline text, output the compacted text directly.
 
 ## Guidelines
-- Each behavioral instruction must remain individually identifiable after compaction — do not combine two rules into one sentence where their conditions or scopes differ
-- When shortening a passage, preserve its core meaning — do not drop conditions, constraints, or exceptions embedded within it
+- Each behavioral instruction must remain individually identifiable after compaction: do not combine two rules into one sentence where their conditions or scopes differ
+- When shortening a passage, preserve its core meaning: do not drop conditions, constraints, or exceptions embedded within it
 
 
 ## Wording Conciseness

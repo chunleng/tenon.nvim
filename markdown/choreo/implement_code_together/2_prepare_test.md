@@ -50,24 +50,3 @@ Determine if code behavior changes:
   status: failing|passing
   purpose: why this test is crucial for verifying the change
 ```
-
-## Example
-**Code change:**
-```yaml
-- test_file: src/auth/tests/validation_test.rs
-  test_name: test_empty_password_validation
-  status: failing
-  purpose: Confirms password validation rejects empty strings
-```
-
-**Refactor change:**
-```yaml
-- test_file: src/utils/parser_test.rs
-  test_name: test_parse_config
-  status: passing
-  purpose: Ensures config parsing stays correct after extracting parse logic to separate module
-- test_file: src/utils/parser_test.rs
-  test_name: test_parse_edge_cases
-  status: passing
-  purpose: Covers edge cases that must work after refactoring
-```

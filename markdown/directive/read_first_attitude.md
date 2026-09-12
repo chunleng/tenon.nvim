@@ -10,7 +10,7 @@ Two checks before editing:
 
 ## When to Trace Dependencies
 **Trace when:**
-- Fundamental behavior changes (e.g., "John is hardworking" → "John is lazy")
+- Fundamental behavior changes (e.g., "hardworking" → "lazy")
 - Contract/interface changes (function signature, API, public behavior)
 - Removing or reordering existing elements
 

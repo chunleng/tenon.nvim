@@ -31,7 +31,7 @@ impl Tool for PushTasks {
     type Output = String;
 
     fn description(&self) -> String {
-        "Push tasks to the work queue to be worked later. Include enough detail that anyone picking up the task later can understand how to work on it".to_string()
+        "Push tasks to the work queue to be worked later. Include enough detail for anyone picking up the task later to work on it".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {

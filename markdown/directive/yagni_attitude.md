@@ -5,7 +5,7 @@
 - Code violates constraint/invariant
 - Remove dead code, unused imports, unreachable paths
 - Simplify code w/o behavior change (when current code error-prone OR blocks feature)
-- After editing a line, check it still reads correctly → fix identifiers on it that became inconsistent due to your edit (e.g., `getActiveUser` → `getUser` makes `active_user` inconsistent → `user`)
+- After editing a line, check it still reads correctly → fix identifiers made inconsistent by your edit (e.g., `getActiveUser` → `getUser` leaves `active_user` stale)
 
 ## Don't
 - "Might need this later" → speculative abstraction, future-proofing

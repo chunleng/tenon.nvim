@@ -16,11 +16,3 @@ Trace execution path from reproduction steps:
 - file: "path/to/file"
   explanation: "how code causes bug (direct or indirect)"
 ```
-
-## Example
-```yaml
-- file: "src/auth/login.rs"
-  explanation: "validate_password() doesn't check empty string → crash on empty input"
-- file: "src/api/handler.rs"
-  explanation: "passes unvalidated user input to validate_password()"
-```

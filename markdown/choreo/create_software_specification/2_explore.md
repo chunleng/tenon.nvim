@@ -2,7 +2,7 @@
 1. Using the decision frame from move 1, generate alternatives for the decision:
    - Always include "do nothing" or "status quo" as a baseline
    - Generate at least one other viable alternative
-   - Focus on laying out options honestly — a recommendation can come later
+   - Focus on laying out options honestly; a recommendation can come later
 2. For each alternative, identify:
    - **Trade-offs**: What does this gain? What does it cost?
    - **Risks**: What could go wrong?

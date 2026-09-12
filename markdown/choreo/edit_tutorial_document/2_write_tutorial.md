@@ -13,5 +13,5 @@
 
 ## Writing Rules
 - Write for a newcomer: no unexplained jargon, no assumed knowledge beyond the prerequisites
-- Base every command, file path, and API on the subject context artifact - do not invent details
+- Base every command, file path, and API on the subject context artifact; do not invent details
 - Where a screenshot would help the learner (e.g. after a step with a visible result), insert a placeholder describing the screenshot needed, e.g. `![screenshot: the editor showing the newly created file]`

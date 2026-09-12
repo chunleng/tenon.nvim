@@ -3,7 +3,7 @@
    - Ask one question at a time, waiting for feedback before continuing
    - For each question, provide your recommended answer
    - If a fact can be found by searching the codebase or existing docs, look it up rather than asking the user
-   - The decisions are the user's — put each one to them and wait for their answer
+   - The decisions are the user's; put each one to them and wait for their answer
    - Questions to resolve:
      - What is being decided or aligned on?
      - What problem or opportunity triggers this decision now?
