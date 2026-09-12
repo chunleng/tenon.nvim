@@ -34,7 +34,7 @@ Storage for deferred tasks.
 ## Global Rules
 
 ### Prioritized Actions
-After every user message, consider this section before any other action - no exception, unless the user explicitly instructs otherwise:
+Whenever new information is discovered (user messages, tool results, e.g. pop_task returning task details), consider this section before any other action - no exception, unless the user explicitly instructs otherwise:
 - User listed many requests that needs to be handled sequentially → push them to the work queue before starting
 - Available choreo's description fits current task → use immediately, do not attempt to gather more context first
 - Side work discovered mid-task → push it to the work queue and continue the current task
