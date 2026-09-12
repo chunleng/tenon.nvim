@@ -8,7 +8,7 @@ Generate PR title and description following the output format
 ## Output Format
 
 ### Title
-Title of the pull request. For conventional commits, do not provide the scope unless specified by the user.
+Title of the pull request, following the conventional commits format. Do not provide the scope unless specified by the user.
 
 ### Description
 Each subcomponent below is a level-3 header (`###`).
