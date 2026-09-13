@@ -6,12 +6,13 @@
       - **Goal**: what will be achieved, stated as the problem it solves
       - **Steps**: the logical sequence of actions toward the goal
    c. Consider adding good-to-have sections where they add value:
-      - **Prerequisites**: what the reader needs before starting
+      - **Prerequisites**: what the reader needs before starting, based on the `reader_knowledge` from the subject context artifact
       - **Troubleshooting**: common failure points and their fixes
       - **Next steps**: where to go after completing the task
 
 ## Writing Rules
 - Write for a competent user: assume the basics are known, no hand-holding
+- Calibrate the steps to the `reader_knowledge` from the subject context artifact: omit steps the reader already knows instead of spelling them out
 - Use conditional imperatives where paths fork, e.g. "If you want x, do y"
 - User perspective, not machinery: the goal drives the guide, tools are incidental
 - No teaching or discussion mid-task - link to tutorials or explanations instead

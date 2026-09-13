@@ -5,7 +5,11 @@
    - Locate the code relevant to the task
    - Identify the commands, file paths, and APIs a user would actually use
    - If an existing document covers the task, read it to determine what to keep and what to update
-4. If information needed for the guide cannot be determined from the user's input or the code, ask the user, then go back to step 3
+4. Infer the reader's existing knowledge:
+   - Locate the tutorial document(s) covering the task's area
+   - The reader is assumed to have completed them: whatever they teach counts as already known
+   - If no tutorial covers the task's area, fall back to: competent user, basics known
+5. If information needed for the guide cannot be determined from the user's input or the code, ask the user, then go back to step 3
 
 ## Choreo Move Artifact
 ```yaml
@@ -14,5 +18,7 @@ changes:
   - "what was developed or changed, if updating an existing document"
 key_information:
   - "behaviors, decisions, constraints worth recording"
+reader_knowledge:
+  - "what the reader is assumed to already know, inferred from the tutorial(s); 'competent user, basics known' if none"
 doc_path: "path of the how-to document to create or update"
 ```
