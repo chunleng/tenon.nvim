@@ -17,8 +17,7 @@ const OUTPUT_CAP: usize = 32 * 1024;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunCommandArgs {
-    pub command: String,
-    pub args: Option<Vec<String>>,
+    pub argv: Vec<String>,
     pub cwd: Option<String>,
     pub timeout: Option<u64>,
     pub filter: Option<String>,
@@ -288,7 +287,13 @@ impl Tool for RunCommand {
     type Output = String;
 
     fn description(&self) -> String {
-        "Run command (exec form). Pipes and redirects are not allowed (e.g. `2>&1`, `> out.txt`). Tool outputs yaml with both stdout and stderr.\nE.g.\n`git log` → command='git', args=['log'].\n`make 2>&1` → command='make' (drop `2>&1` as error is always output)\n`cat ./in.txt|grep foo` → Run for `cat` command and think of alternative for `grep`"
+        "Run command (exec form). Tool outputs yaml with both stdout and stderr\n
+         Use filter, head, or tail (mutually exclusive, stdout only) to reduce output\n
+         E.g.\n
+         `git log` → argv=['git', 'log']\n
+         `make 2>&1` → argv=['make'] (drop `2>&1`)\n
+         `cat ./in.txt|grep foo` → argv=['cat', './in.txt'], filter='foo'\n
+         `cargo build && cargo fmt` → Split into 2 sequential calls: `cargo build` first, then `cargo fmt` after it succeeds"
             .to_string()
     }
 
@@ -296,43 +301,39 @@ impl Tool for RunCommand {
         json!({
             "type": "object",
             "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "Executable"
-                },
-                "args": {
+                "argv": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Args"
+                    "description": "Exec-form argv. First element is the executable, rest are its args"
                 },
                 "cwd": {
                     "type": "string",
-                    "description": "Working dir. cwd if omitted."
+                    "description": "Working dir. cwd if omitted"
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "Timeout (sec).",
+                    "description": "Timeout (sec)",
                     "default": 30
                 },
                 "filter": {
                     "type": "string",
-                    "description": "Filter lines containing substring."
+                    "description": "Keep stdout lines containing substring"
                 },
                 "head": {
                     "type": "integer",
-                    "description": "Keep first N lines. Exclusive with tail."
+                    "description": "Keep first N stdout lines"
                 },
                 "tail": {
                     "type": "integer",
-                    "description": "Keep last N lines. Exclusive with head."
+                    "description": "Keep last N stdout lines"
                 },
                 "env": {
                     "type": "object",
                     "additionalProperties": {"type": "string"},
-                    "description": "Env vars."
+                    "description": "Env vars"
                 }
             },
-            "required": ["command"]
+            "required": ["argv"]
         })
     }
 
@@ -341,23 +342,23 @@ impl Tool for RunCommand {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
-        // Validate mutual exclusivity of head and tail
-        if args.head.is_some() && args.tail.is_some() {
+        // filter, head, and tail are mutually exclusive
+        let set_count = args.filter.is_some() as usize
+            + args.head.is_some() as usize
+            + args.tail.is_some() as usize;
+        if set_count > 1 {
             return Err(ToolExecutionError::invalid_args(
-                "Cannot set both 'head' and 'tail'. Use only one.",
+                "filter, head, and tail are mutually exclusive. Use only one.",
             ));
         }
 
-        // Command is required and must not be empty
-        if args.command.trim().is_empty() {
-            return Err(ToolExecutionError::invalid_args("Empty command"));
+        // argv is required and must contain the executable
+        if args.argv.is_empty() || args.argv[0].trim().is_empty() {
+            return Err(ToolExecutionError::invalid_args("Empty argv"));
         }
 
-        // Build command tokens for whitelist matching: [command, ...args]
-        let mut command_tokens = vec![args.command.clone()];
-        if let Some(ref cmd_args) = args.args {
-            command_tokens.extend(cmd_args.clone());
-        }
+        let command_tokens = args.argv.clone();
+        let full_command = args.argv.join(" ");
 
         // Check whitelist
         let config = get_application_config();
@@ -365,18 +366,12 @@ impl Tool for RunCommand {
 
         if !command_matches_whitelist(&command_tokens, whitelist) {
             // Whitelist doesn't match - use LLM to check if command is safe
-            // Combine command + args for the check
-            let full_command = if let Some(ref cmd_args) = args.args {
-                format!("{} {}", args.command, cmd_args.join(" "))
-            } else {
-                args.command.clone()
-            };
             check_command_safety(&full_command).await?;
         }
 
         // Build the process
-        let program = &args.command;
-        let program_args = args.args.as_deref().unwrap_or(&[]);
+        let program = &args.argv[0];
+        let program_args = &args.argv[1..];
 
         let timeout_secs = args.timeout.unwrap_or(30);
 
@@ -410,7 +405,7 @@ impl Tool for RunCommand {
                 // Timeout — try to get partial output by killing
                 return Err(ToolExecutionError::timeout(format!(
                     "Command timed out after {}s: '{}'",
-                    timeout_secs, args.command
+                    timeout_secs, full_command
                 )));
             }
         };
@@ -419,15 +414,13 @@ impl Tool for RunCommand {
         let raw_stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let raw_stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-        // Apply output filters to both stdout and stderr
+        // Output filters apply to stdout only; stderr passes through raw
         let filtered_stdout =
             apply_output_filters(&raw_stdout, args.filter.as_deref(), args.head, args.tail);
-        let filtered_stderr =
-            apply_output_filters(&raw_stderr, args.filter.as_deref(), args.head, args.tail);
 
         // Truncate each stream individually to OUTPUT_CAP
         let (truncated_stdout, stdout_was_truncated) = truncate_output(&filtered_stdout);
-        let (truncated_stderr, stderr_was_truncated) = truncate_output(&filtered_stderr);
+        let (truncated_stderr, stderr_was_truncated) = truncate_output(&raw_stderr);
         let truncated = stdout_was_truncated || stderr_was_truncated;
 
         let result = RunCommandOutput {
@@ -448,6 +441,8 @@ impl Tool for RunCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TenonConfig;
+    use rig::tool::ToolErrorKind;
 
     #[test]
     fn test_parse_whitelist_exact() {
@@ -471,28 +466,22 @@ mod tests {
     }
 
     #[test]
-    fn test_command_matches_whitelist_with_separated_args() {
-        // Test: command + args should match whitelist patterns
-        // This test will FAIL before the change (function signature mismatch)
-        // and PASS after implementing command + args separation
+    fn test_command_matches_whitelist_with_argv() {
+        // Test: argv (executable + args) should match whitelist patterns
 
         let whitelist = vec!["git log *".to_string(), "make".to_string()];
 
         // git log with args should match "git log *"
-        let command = "git".to_string();
-        let args = vec!["log".to_string(), "--oneline".to_string()];
-        let combined: Vec<String> = std::iter::once(command.clone())
-            .chain(args.clone())
-            .collect();
-        assert!(command_matches_whitelist(&combined, &whitelist));
+        let argv = vec![
+            "git".to_string(),
+            "log".to_string(),
+            "--oneline".to_string(),
+        ];
+        assert!(command_matches_whitelist(&argv, &whitelist));
 
         // make without args should match "make"
-        let command = "make".to_string();
-        let args: Vec<String> = vec![];
-        let combined: Vec<String> = std::iter::once(command.clone())
-            .chain(args.clone())
-            .collect();
-        assert!(command_matches_whitelist(&combined, &whitelist));
+        let argv = vec!["make".to_string()];
+        assert!(command_matches_whitelist(&argv, &whitelist));
     }
 
     #[test]
@@ -509,18 +498,87 @@ mod tests {
         assert_eq!(result, "line3\nline4\nline5");
     }
 
-    #[test]
-    fn test_filter_with_head() {
-        let stdout = "error line1\ninfo line2\nerror line3\ninfo line4\nerror line5";
-        let result = apply_output_filters(stdout, Some("error"), Some(2), None);
-        assert_eq!(result, "error line1\nerror line3");
+    /// Set global config with whitelist ["*"] so commands run without the LLM
+    /// safety check. First caller wins (OnceLock); safe under parallel tests.
+    fn setup_whitelist_all() {
+        let mut config = TenonConfig::default();
+        config.tools.run_command.whitelist = vec!["*".to_string()];
+        let _ = crate::CONFIG.set(config);
     }
 
-    #[test]
-    fn test_filter_with_tail() {
-        let stdout = "error line1\ninfo line2\nerror line3\ninfo line4\nerror line5";
-        let result = apply_output_filters(stdout, Some("error"), None, Some(2));
-        assert_eq!(result, "error line3\nerror line5");
+    #[tokio::test]
+    async fn test_filter_head_tail_mutually_exclusive() {
+        setup_whitelist_all();
+        let tool = RunCommand;
+        let mut context = ToolContext::new();
+
+        // filter + head
+        let args = RunCommandArgs {
+            argv: vec!["echo".to_string()],
+            cwd: None,
+            timeout: None,
+            filter: Some("a".to_string()),
+            head: Some(1),
+            tail: None,
+            env: None,
+        };
+        let err = tool.call(&mut context, args).await.unwrap_err();
+        assert_eq!(err.kind(), ToolErrorKind::InvalidArgs);
+
+        // filter + tail
+        let args = RunCommandArgs {
+            argv: vec!["echo".to_string()],
+            cwd: None,
+            timeout: None,
+            filter: Some("a".to_string()),
+            head: None,
+            tail: Some(1),
+            env: None,
+        };
+        let err = tool.call(&mut context, args).await.unwrap_err();
+        assert_eq!(err.kind(), ToolErrorKind::InvalidArgs);
+
+        // all three
+        let args = RunCommandArgs {
+            argv: vec!["echo".to_string()],
+            cwd: None,
+            timeout: None,
+            filter: Some("a".to_string()),
+            head: Some(1),
+            tail: Some(1),
+            env: None,
+        };
+        let err = tool.call(&mut context, args).await.unwrap_err();
+        assert_eq!(err.kind(), ToolErrorKind::InvalidArgs);
+    }
+
+    #[tokio::test]
+    async fn test_filter_applies_to_stdout() {
+        setup_whitelist_all();
+
+        let tool = RunCommand;
+        let mut context = ToolContext::new();
+        let args = RunCommandArgs {
+            argv: vec![
+                "sh".to_string(),
+                "-c".to_string(),
+                "echo alpha-out; echo beta-err >&2".to_string(),
+            ],
+            cwd: None,
+            timeout: None,
+            filter: Some("alpha".to_string()),
+            head: None,
+            tail: None,
+            env: None,
+        };
+
+        let output = tool.call(&mut context, args).await.unwrap();
+
+        // stdout filtered: keeps matching line
+        assert!(
+            output.contains("alpha-out"),
+            "stdout should keep 'alpha-out': {output}"
+        );
     }
 
     #[test]
