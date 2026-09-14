@@ -96,14 +96,16 @@ impl ChatLogRenderer {
                                 if update.line_separator_after {
                                     lines.push("");
                                 }
+                                let data = &update.target_log.data;
                                 update_buffer(
                                     &mut buffer,
                                     ns,
                                     update.replace_line_start,
                                     update.replace_line_end,
-                                    &update.sign,
-                                    &update.sign_hl_group,
-                                    &update.line_hl_group,
+                                    &data.sign(),
+                                    &data.sign_hl_group(),
+                                    &data.line_hl_group(),
+                                    &data.prefix_hl_group(),
                                     &lines,
                                 );
                             }
@@ -151,6 +153,7 @@ fn update_buffer(
     sign: &str,
     sign_hl_group: &str,
     line_hl_group: &str,
+    prefix_hl_group: &str,
     lines: &[&str],
 ) {
     let new_end = lines.len() + replace_start;
@@ -193,15 +196,57 @@ fn update_buffer(
         let _ = buffer.set_extmark(ns, replace_start, 0, &opts);
     }
 
+    // TODO: prefix_hl_group is currently used for tool prefix highlighting. We will need to
+    // refactor for a more flexible text formatting
+    //
+    // Neovim's line_hl_group extmark overrides inline hl_group extmarks on
+    // the same line regardless of priority (neovim#31151). So for the first
+    // line of a prefixed log, split the highlight: the icon gets an inline
+    // extmark, and the rest of the line gets an inline extmark with hl_eol
+    // instead of a line_hl extmark.
+    let prefix_split = !prefix_hl_group.is_empty() && diverge_at == 0;
+    let prefix_bytes = lines
+        .first()
+        .map(|l| l.chars().take(2).map(|c| c.len_utf8()).sum())
+        .unwrap_or(0);
+
+    // Place inline highlight over the status prefix icon (tick/cross) on the
+    // first line. Only re-place when the first line was rewritten
+    // (diverge_at == 0); otherwise the existing extmark is preserved.
+    if prefix_split {
+        let opts = SetExtmarkOpts::builder()
+            .hl_group(prefix_hl_group)
+            .end_row(replace_start)
+            .end_col(prefix_bytes)
+            .build();
+        let _ = buffer.set_extmark(ns, replace_start, 0, &opts);
+    }
+
     // Place line highlight extmark on changed lines only
     if !line_hl_group.is_empty() {
         for line in write_start..new_end {
-            let opts = SetExtmarkOpts::builder()
-                .end_row(line)
-                .line_hl_group(line_hl_group)
-                .hl_eol(true)
-                .build();
-            let _ = buffer.set_extmark(ns, line, 0, &opts);
+            if line == replace_start && prefix_split {
+                // Zero-width extmarks with hl_eol highlight nothing; an
+                // explicit end_col is required
+                let line_len = lines
+                    .first()
+                    .map(|l| l.len())
+                    .unwrap_or(prefix_bytes)
+                    .max(prefix_bytes);
+                let opts = SetExtmarkOpts::builder()
+                    .end_row(line)
+                    .end_col(line_len)
+                    .hl_group(line_hl_group)
+                    .build();
+                let _ = buffer.set_extmark(ns, line, prefix_bytes, &opts);
+            } else {
+                let opts = SetExtmarkOpts::builder()
+                    .end_row(line)
+                    .line_hl_group(line_hl_group)
+                    .hl_eol(true)
+                    .build();
+                let _ = buffer.set_extmark(ns, line, 0, &opts);
+            }
         }
     }
 }

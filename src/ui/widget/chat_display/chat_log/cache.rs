@@ -17,9 +17,6 @@ pub struct StreamUpdate {
     pub target_log: Arc<TenonLog>,
     pub render_type: RenderType,
     pub line_separator_after: bool,
-    pub line_hl_group: String,
-    pub sign: String,
-    pub sign_hl_group: String,
 }
 
 enum RenderedLocation {
@@ -268,9 +265,6 @@ impl ChatLogCache {
                         target_log: log.clone(),
                         render_type,
                         line_separator_after,
-                        line_hl_group: log.data.line_hl_group(),
-                        sign: log.data.sign(),
-                        sign_hl_group: log.data.sign_hl_group(),
                     })
                 })
                 .collect();
@@ -431,12 +425,21 @@ mod tests {
             "should show all lines of user log"
         );
         assert!(updates[0].line_separator_after);
-        assert_eq!(updates[0].sign, " ", "should show User sign");
         assert_eq!(
-            updates[0].sign_hl_group, "TenonSignUser",
+            updates[0].target_log.data.sign(),
+            " ",
+            "should show User sign"
+        );
+        assert_eq!(
+            updates[0].target_log.data.sign_hl_group(),
+            "TenonSignUser",
             "should show User sign hl group"
         );
-        assert_eq!(updates[0].line_hl_group, "", "User has no line hl group");
+        assert_eq!(
+            updates[0].target_log.data.line_hl_group(),
+            "",
+            "User has no line hl group"
+        );
         assert_eq!(updates[0].replace_line_start, 0);
         assert_eq!(updates[0].replace_line_end, 0);
 

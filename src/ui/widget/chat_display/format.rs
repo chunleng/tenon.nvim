@@ -3,6 +3,9 @@ pub trait DisplayChatFormatter {
     fn line_hl_group(&self) -> String;
     fn sign(&self) -> String;
     fn sign_hl_group(&self) -> String;
+    /// Highlight group for the status prefix icon (tick/cross) on the first
+    /// line. Empty string means no prefix highlight.
+    fn prefix_hl_group(&self) -> String;
 }
 
 impl DisplayChatFormatter for crate::chat::TenonLogData {
@@ -118,6 +121,18 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             TenonLogData::Choreo(_) => "TenonSignChoreo".to_string(),
         }
     }
+
+    fn prefix_hl_group(&self) -> String {
+        use crate::chat::TenonLogData;
+        match self {
+            TenonLogData::Tool(log) => match &log.tool_result {
+                Some(Ok(_)) => "TenonLineToolSuccess".to_string(),
+                Some(Err(_)) => "TenonLineToolError".to_string(),
+                None => String::new(),
+            },
+            _ => String::new(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -206,6 +221,49 @@ mod tests {
         assert_eq!(data.sign(), "󰣖 ");
         assert_eq!(data.sign_hl_group(), "TenonSignTool");
         assert_eq!(data.line_hl_group(), "TenonLineTool");
+    }
+
+    #[test]
+    fn test_tool_prefix_hl_group() {
+        let tool_call = TenonToolCall {
+            id: "1".to_string(),
+            internal_call_id: "call_1".to_string(),
+            name: "read_file".to_string(),
+            args: json!({"path": "test.txt"}),
+        };
+
+        // Pending: no prefix highlight
+        let pending = TenonLogData::Tool(TenonToolLog {
+            tool_call: tool_call.clone(),
+            tool_result: None,
+        });
+        assert_eq!(pending.prefix_hl_group(), "");
+
+        // Success: green tick
+        let success = TenonLogData::Tool(TenonToolLog {
+            tool_call: tool_call.clone(),
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                text: "content".to_string(),
+                ..Default::default()
+            }))),
+        });
+        assert_eq!(success.prefix_hl_group(), "TenonLineToolSuccess");
+
+        // Error: red cross
+        let error = TenonLogData::Tool(TenonToolLog {
+            tool_call,
+            tool_result: Some(Err(TenonToolError("File not found".to_string()))),
+        });
+        assert_eq!(error.prefix_hl_group(), "TenonLineToolError");
+
+        // Non-tool logs: no prefix highlight
+        let user = TenonLogData::User(TenonUserMessage::Text("Hello".to_string()));
+        assert_eq!(user.prefix_hl_group(), "");
+        let assistant = TenonLogData::Assistant(TenonAssistantMessage {
+            reasoning: None,
+            content: vec![TenonAssistantMessageContent::Text("Hello".to_string())],
+        });
+        assert_eq!(assistant.prefix_hl_group(), "");
     }
 
     #[test]
