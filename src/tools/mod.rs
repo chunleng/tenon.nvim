@@ -122,7 +122,7 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
         "analyze_image" => "image",
         "ask_question" => "question",
         "navigate_choreo" => "move",
-        "pop_task" => "group",
+        "pop_task" => "title",
         _ => return None,
     };
     args.get(core_arg).and_then(|v| v.as_str()).map(|x| {
