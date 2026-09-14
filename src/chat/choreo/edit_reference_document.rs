@@ -30,7 +30,13 @@ pub fn choreo() -> Choreo {
                 instruction: Instruction::File {
                     file: choreo_path("edit_reference_document/2_write_reference.md"),
                 },
-                goto_instructions: vec![],
+                goto_instructions: vec![MoveGotoInstruction {
+                    to: GotoMove::Move(1),
+                    condition: Some(
+                        "the kind is other and the format field is absent from the subject context artifact".to_string(),
+                    ),
+                    output_to_choreo_memory: None,
+                }],
             },
             Move {
                 title: "Verify Reference".to_string(),

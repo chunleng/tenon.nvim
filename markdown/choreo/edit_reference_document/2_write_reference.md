@@ -6,8 +6,9 @@
       - **CLI**: per command - usage, options, arguments, examples
       - **Configuration**: per option - name, type, default, description
       - **Data model**: per entity - fields, types, constraints, relations
-      - **Other**: structure the document to mirror the code
+      - **Other**: use the sections in `format` from the subject context artifact; do not invent sections beyond it. If `format` is absent, navigate back to Understand Subject
    b. Cover every item in the subject context artifact
+   c. If `format` is provided in the subject context artifact, include its sections as mandatory, in addition to the template above
 
 ## Writing Rules
 - Dry, factual, neutral: no opinions, no discussion, no teaching
