@@ -112,11 +112,20 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
         return Some(format!("command: {}", display));
     }
 
+    // Special case for "search_text": pattern (regex) or literal (literal text), exactly one set
+    if name == "search_text" {
+        let core_arg = ["pattern", "literal"]
+            .into_iter()
+            .find(|k| args.get(k).and_then(|v| v.as_str()).is_some())?;
+        let text = args.get(core_arg).and_then(|v| v.as_str())?;
+        return Some(format!("{}: {}", core_arg, text));
+    }
+
     let core_arg: &str = match name {
         "web_search" => "query",
         "read_file" | "edit_file" | "remove_path" => "filepath",
         "move_path" => "source",
-        "list_files" | "search_text" => "pattern",
+        "list_files" => "pattern",
         "search_dependency_code" => "dependency",
         "fetch_webpage" => "url",
         "analyze_image" => "image",

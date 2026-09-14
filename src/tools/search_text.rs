@@ -13,10 +13,10 @@ const MATCH_LIMIT: usize = 100;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SearchTextArgs {
-    pub pattern: String,
+    pub pattern: Option<String>,
+    pub literal: Option<String>,
     pub path: Option<String>,
     pub glob: Option<String>,
-    pub is_regex: bool,
     pub ignore_case: Option<bool>,
     pub context_lines: Option<usize>,
     pub max_files: Option<usize>,
@@ -76,7 +76,11 @@ impl Tool for SearchText {
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Text to find"
+                    "description": "Regex pattern to find, e.g. alternation (`a|b`)"
+                },
+                "literal": {
+                    "type": "string",
+                    "description": "Literal text to find (exact match, no regex interpretation)"
                 },
                 "path": {
                     "type": "string",
@@ -85,10 +89,6 @@ impl Tool for SearchText {
                 "glob": {
                     "type": "string",
                     "description": "File filter. `**/*.rs` matches recursively in all subdirs; `*.rs` matches files directly under path. All files if omitted"
-                },
-                "is_regex": {
-                    "type": "boolean",
-                    "description": "Treat pattern as regex if true, e.g. alternation (`a|b`)"
                 },
                 "ignore_case": {
                     "type": "boolean",
@@ -105,7 +105,10 @@ impl Tool for SearchText {
                     "description": "Max files returned. All files if omitted"
                 }
             },
-            "required": ["pattern", "is_regex"]
+            "oneOf": [
+                {"required": ["pattern"]},
+                {"required": ["literal"]}
+            ]
         })
     }
 
@@ -124,15 +127,25 @@ impl Tool for SearchText {
             )));
         }
 
-        let is_regex = args.is_regex;
         let ignore_case = args.ignore_case.unwrap_or(false);
         let context_lines = args.context_lines.unwrap_or(0);
         let max_files = args.max_files;
 
+        let (pattern_text, is_regex) = match (args.pattern.as_deref(), args.literal.as_deref()) {
+            (Some(p), None) => (p, true),
+            (None, Some(l)) => (l, false),
+            _ => {
+                return Err(ToolExecutionError::invalid_args(
+                    "Provide exactly one of `pattern` (regex) or `literal` (literal text)"
+                        .to_string(),
+                ));
+            }
+        };
+
         let pattern_str = if is_regex {
-            args.pattern.clone()
+            pattern_text.to_string()
         } else {
-            regex::escape(&args.pattern)
+            regex::escape(pattern_text)
         };
 
         let re = RegexBuilder::new(&pattern_str)
@@ -141,7 +154,7 @@ impl Tool for SearchText {
             .map_err(|e| {
                 ToolExecutionError::invalid_args(format!(
                     "Invalid regex pattern '{}': {}",
-                    args.pattern, e
+                    pattern_text, e
                 ))
             })?;
 
@@ -515,7 +528,7 @@ mod tests {
 
         #[test]
         fn regex_special_chars_escaped_in_literal() {
-            // When is_regex is false, special chars should be escaped
+            // When mode is literal, special chars should be escaped
             // This is tested indirectly through pattern_str construction
             let pattern = "foo.bar";
             let escaped = regex::escape(pattern);

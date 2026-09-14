@@ -190,10 +190,11 @@ fn perform_edit(
 #[serde(deny_unknown_fields)]
 pub struct EditFileArgs {
     pub filepath: String,
-    pub search: String,
+    pub literal: Option<String>,
+    pub pattern: Option<String>,
     pub replace: String,
-    pub replace_mode: Option<ReplaceMode>,
-    pub search_mode: SearchMode,
+    #[serde(default)]
+    pub all: bool,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -206,7 +207,7 @@ impl Tool for EditFile {
     type Output = String;
 
     fn description(&self) -> String {
-        "Find → replace. Non-existent file → auto-created (use search='', replace='content')"
+        "Find and replace. File doesn't exist → use literal=\"\", replace=\"content\" to create with content"
             .to_string()
     }
 
@@ -215,20 +216,20 @@ impl Tool for EditFile {
             "type": "object",
             "properties": {
                 "filepath": { "type": "string", "description": "File path" },
-                "search": { "type": "string", "description": "Search text or regex (see search_mode)" },
+                "literal": { "type": "string", "description": "Search exact text match" },
+                "pattern": { "type": "string", "description": "Search regex pattern, dot matches \\n" },
                 "replace": { "type": "string", "description": "Replacement text" },
-                "replace_mode": {
-                    "type": "string",
-                    "enum": ["one", "all"],
-                    "description": "one = first match (error if >1). all = every match"
-                },
-                "search_mode": {
-                    "type": "string",
-                    "enum": ["literal", "regex"],
-                    "description": "literal = exact match. regex = pattern, dot matches \\n"
+                "all": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "true = replace every match, false = error if >1 match"
                 }
             },
-            "required": ["filepath", "search", "replace", "search_mode"]
+            "oneOf": [
+                { "required": ["literal"] },
+                { "required": ["pattern"] }
+            ],
+            "required": ["filepath", "replace"]
         })
     }
 
@@ -237,7 +238,20 @@ impl Tool for EditFile {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
-        let replace_mode = args.replace_mode.unwrap_or(ReplaceMode::One);
+        let (search, search_mode) = match (&args.literal, &args.pattern) {
+            (Some(l), None) => (l.as_str(), SearchMode::Literal),
+            (None, Some(p)) => (p.as_str(), SearchMode::Regex),
+            _ => {
+                return Err(ToolExecutionError::invalid_args(
+                    "Provide exactly one of `literal` or `pattern`".to_string(),
+                ));
+            }
+        };
+        let replace_mode = if args.all {
+            ReplaceMode::All
+        } else {
+            ReplaceMode::One
+        };
         let path = path_from_str(&args.filepath);
 
         let content = match fs::read_to_string(&path) {
@@ -262,14 +276,9 @@ impl Tool for EditFile {
             }
         };
 
-        let (final_content, edits) = perform_edit(
-            &content,
-            &args.search,
-            &args.replace,
-            &replace_mode,
-            &args.search_mode,
-        )
-        .map_err(|e| ToolExecutionError::other(e.to_string()))?;
+        let (final_content, edits) =
+            perform_edit(&content, search, &args.replace, &replace_mode, &search_mode)
+                .map_err(|e| ToolExecutionError::other(e.to_string()))?;
 
         fs::write(path, &final_content).map_err(|e| {
             ToolExecutionError::other(format!("Write fail '{}': {}", args.filepath, e))
