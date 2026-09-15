@@ -96,10 +96,15 @@ pub fn get_tool_classification(name: &str) -> ToolClassification {
 }
 
 /// Returns a short human-readable summary of what a tool call is doing,
-/// by extracting the core parameter from its args JSON.
+/// by extracting the core parameter from its args JSON (or, for tools whose
+/// meaningful info is in the output, from the tool result).
 ///
 /// Returns `None` for tools with no useful display arg (e.g. "record_thought", MCP tools).
-pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
+pub fn tool_display_summary(
+    name: &str,
+    args: &Value,
+    result: Option<&Result<crate::chat::TenonToolResult, crate::chat::TenonToolError>>,
+) -> Option<String> {
     // Special case for "run_command": join argv elements for display
     if name == "run_command" {
         let argv = args.get("argv").and_then(|v| v.as_array())?;
@@ -121,6 +126,18 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
         return Some(format!("{}: {}", core_arg, text));
     }
 
+    // Special case for "pop_task": the meaningful info (task title) is in the
+    // output YAML, not in the args (which only contain the group).
+    if name == "pop_task" {
+        let text = match result? {
+            Ok(crate::chat::TenonToolResult::Text(t)) => &t.text,
+            _ => return None,
+        };
+        let yaml: serde_yaml::Value = serde_yaml::from_str(text).ok()?;
+        let title = yaml.get("title")?.as_str()?;
+        return Some(format!("title: {}", title));
+    }
+
     let core_arg: &str = match name {
         "web_search" => "query",
         "read_file" | "edit_file" | "remove_path" => "filepath",
@@ -131,7 +148,6 @@ pub fn tool_display_summary(name: &str, args: &Value) -> Option<String> {
         "analyze_image" => "image",
         "ask_question" => "question",
         "navigate_choreo" => "move",
-        "pop_task" => "title",
         _ => return None,
     };
     args.get(core_arg).and_then(|v| v.as_str()).map(|x| {
@@ -355,6 +371,21 @@ mod tests {
         let selectors = ["srv", "other"];
         let result: Vec<i32> = select_in_order(tools, &selectors);
         assert_eq!(result, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn pop_task_summary_extracts_title_from_output() {
+        use crate::chat::TenonToolResult;
+        let result = Ok(TenonToolResult::Text(rig::agent::Text {
+            text: "group: bugs\ntitle: fix crash\ndetails: crash details\n".to_string(),
+            ..Default::default()
+        }));
+        let summary = tool_display_summary(
+            "pop_task",
+            &serde_json::json!({"group": "bugs"}),
+            Some(&result),
+        );
+        assert_eq!(summary, Some("title: fix crash".to_string()));
     }
 
     #[test]

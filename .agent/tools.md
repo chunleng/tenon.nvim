@@ -77,3 +77,5 @@ Add match arm in `src/tools/mod.rs` → `tool_display_summary()`:
 ```
 
 No useful display arg → omit. Fallback: `[tool_name] Done!`.
+
+If the meaningful info lives in the tool output instead of args, add a special case (see `pop_task` in `tool_display_summary()`).

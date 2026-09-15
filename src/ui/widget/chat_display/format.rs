@@ -43,8 +43,11 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
                     Some(Ok(_)) => " ",
                     Some(Err(_)) => " ",
                 };
-                let summary =
-                    crate::tools::tool_display_summary(&log.tool_call.name, &log.tool_call.args);
+                let summary = crate::tools::tool_display_summary(
+                    &log.tool_call.name,
+                    &log.tool_call.args,
+                    log.tool_result.as_ref(),
+                );
                 let first_line = match summary {
                     Some(s) => format!("{} {} | {}", prefix, log.tool_call.name, s),
                     None => format!("{} {}", prefix, log.tool_call.name),
