@@ -18,7 +18,7 @@ const OUTPUT_CAP: usize = 32 * 1024;
 #[serde(deny_unknown_fields)]
 pub struct RunCommandArgs {
     pub argv: Vec<String>,
-    pub cwd: Option<String>,
+    pub path: Option<String>,
     pub timeout: Option<u64>,
     pub filter: Option<String>,
     pub head: Option<usize>,
@@ -306,7 +306,7 @@ impl Tool for RunCommand {
                     "items": {"type": "string"},
                     "description": "Exec-form argv. First element is the executable, rest are its args"
                 },
-                "cwd": {
+                "path": {
                     "type": "string",
                     "description": "Working dir. cwd if omitted"
                 },
@@ -380,8 +380,8 @@ impl Tool for RunCommand {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        if let Some(ref cwd) = args.cwd {
-            cmd.current_dir(cwd);
+        if let Some(ref path) = args.path {
+            cmd.current_dir(path);
         }
 
         if let Some(ref env) = args.env {
@@ -515,7 +515,7 @@ mod tests {
         // filter + head
         let args = RunCommandArgs {
             argv: vec!["echo".to_string()],
-            cwd: None,
+            path: None,
             timeout: None,
             filter: Some("a".to_string()),
             head: Some(1),
@@ -528,7 +528,7 @@ mod tests {
         // filter + tail
         let args = RunCommandArgs {
             argv: vec!["echo".to_string()],
-            cwd: None,
+            path: None,
             timeout: None,
             filter: Some("a".to_string()),
             head: None,
@@ -541,7 +541,7 @@ mod tests {
         // all three
         let args = RunCommandArgs {
             argv: vec!["echo".to_string()],
-            cwd: None,
+            path: None,
             timeout: None,
             filter: Some("a".to_string()),
             head: Some(1),
@@ -564,7 +564,7 @@ mod tests {
                 "-c".to_string(),
                 "echo alpha-out; echo beta-err >&2".to_string(),
             ],
-            cwd: None,
+            path: None,
             timeout: None,
             filter: Some("alpha".to_string()),
             head: None,
