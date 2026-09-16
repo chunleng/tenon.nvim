@@ -130,15 +130,17 @@ async fn check_command_safety_with_llm(
         Some(model.clone()),
         r#"Judge command safety. Output YAML only.
 
-Step 1 - Extract the subject:
+Step 1 - Shell gate: if the command invokes a shell interpreter with inline code (bash -c, sh -c, zsh -c, dash -c, ...), deny immediately. Do not extract a subject or continue further.
+
+Step 2 - Extract the subject:
 - Default: the whole command.
 - Inline code: command is an interpreter with an inline-code flag (python3 -c, node -e, ruby -e, perl -e, php -r, ...) → subject is the inline code only.
 - Fallback: script files (python3 script.py), extra flags, or unrecognized forms → subject is the whole command.
 
-Step 2 - Test the subject against the patterns. For code subjects, interpret patterns against code operations (open() read → read files; os.remove → delete; requests/urllib → network; eval/exec → code exec).
+Step 3 - Test the subject against the patterns. For code subjects, interpret patterns against code operations (open() read → read files; os.remove → delete; requests/urllib → network; eval/exec → code exec).
 
 DENY patterns:
-- Secrets: env vars (*KEY*, *SECRET*, *TOKEN*, *API*), files (.env, id_rsa, credentials, .pem)
+- Access to secrets: env vars (*KEY*, *SECRET*, *TOKEN*, *API*), files (.env, id_rsa, credentials, .pem)
 - System modify: install packages, system config, services
 - Delete: rm, rmdir, unlink, rmtree, shred
 - Network: curl, wget, nc, netcat, http requests
