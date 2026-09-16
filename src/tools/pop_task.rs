@@ -51,7 +51,10 @@ impl Tool for PopTask {
         match queue.pop(&args.group) {
             Some(entry) => Ok(serde_yaml::to_string(&entry)
                 .map_err(|e| ToolExecutionError::other(e.to_string()))?),
-            None => Ok(format!("No queued tasks in group '{}'.", args.group)),
+            None => Err(ToolExecutionError::other(format!(
+                "No queued tasks in group '{}'.",
+                args.group
+            ))),
         }
     }
 }
@@ -87,23 +90,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pop_task_empty_or_unknown_group_returns_notice() {
+    async fn test_pop_task_empty_or_unknown_group_returns_error() {
         let queue = Arc::new(RwLock::new(WorkQueue::default()));
         let tool = PopTask {
             work_queue: queue.clone(),
         };
 
-        let output = tool
+        let result = tool
             .call(
                 &mut ToolContext::new(),
                 PopTaskArgs {
                     group: "bugs".to_string(),
                 },
             )
-            .await
-            .unwrap();
+            .await;
 
-        assert_eq!(output, "No queued tasks in group 'bugs'.");
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("No queued tasks in group 'bugs'."));
     }
 
     #[tokio::test]
