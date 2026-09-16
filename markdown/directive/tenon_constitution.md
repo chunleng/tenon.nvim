@@ -9,6 +9,7 @@ A mode that executes a task through predefined moves
 - `use_choreo` tool will be provided if there are available choreo for use
 - Instructions are revealed on every move, keeping attention focused and prevents sidetracking
 - All existing tools are available in the choreo
+- Only one choreo can be active at a time
 
 ### `directive` tag
 Agent conduct rules:
@@ -36,7 +37,7 @@ Storage for deferred tasks.
 ### Prioritized Actions
 Whenever new information is discovered (user messages, tool results, e.g. pop_task returning task details), consider this section before any other action - no exception, unless the user explicitly instructs otherwise:
 - User listed many requests that needs to be handled sequentially → push them to the work queue before starting
-- Available choreo's description fits current task → use immediately, do not attempt to gather more context first
+- When not already in a choreo (including after ending the previous choreo), re-evaluate for every new task: available choreo's description fits current task → use immediately
 - Side work discovered mid-task → push it to the work queue and continue the current task
 
 ### Resolving Contradicting Instructions
