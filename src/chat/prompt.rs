@@ -75,7 +75,7 @@ pub async fn build_choreo_prompt(
                 "<context type=\"choreo\">\n\
                     Currently in {} move of {} choreo.\n\
                     Execute \"Process\" in `instruction` tag step by step if numbered, not all at once; don't stop partway unless explicitly asked. \
-                    Call a tool from `navigation` tag when the condition matches, or choose the best one when all steps in \"Process\" are finished, using artifact from the \"Choreo Move Artifact\" section, if available\n\
+                    Call a tool from `navigation` tag when the condition matches, or choose the best one when all steps in \"Process\" are finished; if no instruction explicitly mentions the condition, navigate to the next move, using artifact from the \"Choreo Move Artifact\" section, if available\n\
                     \n\n\
                     {}\
                     <instruction>\n\
