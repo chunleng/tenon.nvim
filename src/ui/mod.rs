@@ -21,7 +21,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::{
     chat::chat_session_count,
-    get_chat_window,
+    get_application_config, get_chat_window,
+    hooks::run_needs_attention_hooks,
     ui::widget::{BasicWidget, Widget},
 };
 use crate::{
@@ -682,7 +683,7 @@ impl ChatWindow {
     /// Shared navigational keymaps for both output buffers (chat display and detail).
     /// Only `<cr>` differs between the two buffers, provided via `cr_rhs`.
     fn output_keymaps(cr_rhs: &str) -> Vec<NvimKeymap> {
-        vec![
+        let mut keymaps = vec![
             NvimKeymap {
                 modes: vec![Mode::Normal],
                 lhs: "q".to_string(),
@@ -761,7 +762,9 @@ impl ChatWindow {
                 rhs: cr_rhs.to_string(),
                 opts: SetKeymapOpts::default(),
             },
-        ]
+        ];
+        push_hooks_keymap(&mut keymaps);
+        keymaps
     }
 
     pub fn show_detail_view(&mut self) -> OxiResult<()> {
@@ -815,9 +818,22 @@ enum QuestionOutcome {
     Sync,
 }
 
+/// Appends the `gH` hooks keymap only when hooks are configured.
+fn push_hooks_keymap(keymaps: &mut Vec<NvimKeymap>) {
+    if get_application_config().hooks.is_empty() {
+        return;
+    }
+    keymaps.push(NvimKeymap {
+        modes: vec![Mode::Normal],
+        lhs: "gH".to_string(),
+        rhs: "<cmd>lua require('tenon').action.select_hooks()<cr>".to_string(),
+        opts: SetKeymapOpts::default(),
+    });
+}
+
 /// Returns the standard keymaps shared by the input buffer and question widgets.
 fn input_buffer_keymaps() -> Vec<NvimKeymap> {
-    vec![
+    let mut keymaps = vec![
         NvimKeymap {
             modes: vec![Mode::Insert, Mode::Normal],
             lhs: "<c-cr>".to_string(),
@@ -908,7 +924,9 @@ fn input_buffer_keymaps() -> Vec<NvimKeymap> {
             rhs: "<cmd>lua require('tenon').action.continue_chat()<cr>".to_string(),
             opts: SetKeymapOpts::default(),
         },
-    ]
+    ];
+    push_hooks_keymap(&mut keymaps);
+    keymaps
 }
 
 /// The single ChatWindow thread loop. Subscribes to one chat's event channel at a time,
@@ -1031,6 +1049,21 @@ fn chat_window_loop(
                 continue;
             }
 
+            // The question is now visible; the agent needs user attention.
+            if let Ok(loaded_guard) = loaded_chat_session.read()
+                && let Ok(session) = loaded_guard.read()
+                && let Ok(active) = session.active_hooks.read()
+            {
+                let chat_title = session
+                    .title_handler
+                    .title
+                    .read()
+                    .ok()
+                    .and_then(|t| t.clone())
+                    .unwrap_or_default();
+                run_needs_attention_hooks(&get_application_config().hooks, &active, &chat_title);
+            }
+
             // Wait for the user to answer, cancel, or for a sync signal.
             let outcome = tokio::select! {
                 result = completion_rx => {
@@ -1110,6 +1143,17 @@ mod tests {
         TenonLogData, TenonThoughtLog, TenonToolCall, TenonToolLog, TenonToolResult,
         TenonUserMessage,
     };
+
+    #[test]
+    fn test_no_hooks_keymap_when_no_hooks_configured() {
+        // Test binary config defaults to no hooks, so gH must be absent.
+        assert!(!input_buffer_keymaps().iter().any(|km| km.lhs == "gH"));
+        assert!(
+            !ChatWindow::output_keymaps("<cr>")
+                .iter()
+                .any(|km| km.lhs == "gH")
+        );
+    }
 
     #[test]
     fn test_format_log_detail_user_message() {

@@ -2,12 +2,13 @@ use crate::agent::engine::{AgenticAgentType, AgenticStreamEngine};
 use crate::chat::helpers::TitleHandler;
 use crate::chat::history::{SessionMetadata, save_to_history};
 use crate::get_application_config;
+use crate::hooks::run_needs_attention_hooks;
 use crate::tools::ask_question::{AskQuestionOption, QuestionResult};
 use crate::tools::resolve_tools;
 use chrono::{DateTime, Local};
 use nvim_oxi::Result as OxiResult;
 use rig::completion::Usage;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
@@ -101,11 +102,23 @@ pub struct ChatSession {
     pub session_datetime: DateTime<Local>,
     pub title_handler: TitleHandler,
     pub pending_actions_channel: Arc<EventChannel<PendingAction>>,
+    /// Names of hooks active for this session; in-memory only, never persisted.
+    pub active_hooks: Arc<RwLock<HashSet<String>>>,
     cancel_token: Arc<AtomicBool>,
     active_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl ChatSession {
+    /// Hooks marked `enabled` in config start active in a new session.
+    fn default_active_hooks() -> HashSet<String> {
+        get_application_config()
+            .hooks
+            .iter()
+            .filter(|hook| hook.enabled)
+            .map(|hook| hook.name.clone())
+            .collect()
+    }
+
     pub fn new() -> Self {
         Self::with_agent_name(get_application_config().default_agent)
             .expect("the program failed to enforce default_agent validation")
@@ -133,6 +146,7 @@ impl ChatSession {
             engine,
             session_datetime: Local::now(),
             pending_actions_channel,
+            active_hooks: Arc::new(RwLock::new(Self::default_active_hooks())),
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
             title_handler: TitleHandler::new(log_window),
@@ -183,6 +197,7 @@ impl ChatSession {
             engine,
             session_datetime: history.session_datetime,
             pending_actions_channel,
+            active_hooks: Arc::new(RwLock::new(Self::default_active_hooks())),
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
             title_handler: TitleHandler::from_history(history.title, log_window),
@@ -227,6 +242,8 @@ impl ChatSession {
         let session_datetime = self.session_datetime;
         let cancel_token = Arc::clone(&self.cancel_token);
         let log_window_clone = engine.log_handler.log_window.clone();
+        let active_hooks = Arc::clone(&self.active_hooks);
+        let title_for_hooks = Arc::clone(&self.title_handler.title);
 
         self.active_thread = Some(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
@@ -269,6 +286,16 @@ impl ChatSession {
                     prompt = "".to_string();
                 }
             });
+
+            // Loop ended (clean finish, cancel, or error): the chat needs user attention
+            let chat_title = title_for_hooks
+                .read()
+                .ok()
+                .and_then(|t| t.clone())
+                .unwrap_or_default();
+            if let Ok(active) = active_hooks.read() {
+                run_needs_attention_hooks(&get_application_config().hooks, &active, &chat_title);
+            }
         }));
     }
 

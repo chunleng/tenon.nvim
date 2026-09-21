@@ -8,6 +8,7 @@ mod rename;
 mod select_agent;
 mod select_chat;
 mod select_history;
+mod select_hooks;
 mod select_model;
 mod select_tools;
 mod send;
@@ -62,6 +63,10 @@ pub fn create_lua_action_module() -> Dictionary {
     action_dict.insert(
         "select_history",
         Object::from(select_history::select_history_fn()),
+    );
+    action_dict.insert(
+        "select_hooks",
+        Object::from(select_hooks::select_hooks_fn()),
     );
     action_dict.insert("rename", Object::from(rename::rename_fn()));
     action_dict

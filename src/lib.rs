@@ -49,6 +49,7 @@ mod chat;
 mod clients;
 mod config;
 mod directive;
+mod hooks;
 mod lua_modules;
 mod mcp;
 mod rag;

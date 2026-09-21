@@ -79,6 +79,7 @@ pub struct TenonConfig {
     pub tools: ToolsConfig,
     pub history: HistoryConfig,
     pub title: TitleConfig,
+    pub hooks: Vec<crate::hooks::Hook>,
 }
 
 impl Default for TenonConfig {
@@ -135,6 +136,7 @@ impl Default for TenonConfig {
             tools: ToolsConfig::default(),
             history: HistoryConfig::default(),
             title: TitleConfig::default(),
+            hooks: vec![],
         }
     }
 }

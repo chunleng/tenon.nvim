@@ -20,6 +20,39 @@ pub struct TenonUserConfig {
     pub tools: Option<ToolsUserConfig>,
     pub history: Option<HistoryUserConfig>,
     pub title: Option<TitleUserConfig>,
+    pub hooks: Option<Vec<HookUserConfig>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HookUserConfig {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(rename = "type", default)]
+    pub hook_type: Option<String>,
+}
+
+impl TryFrom<HookUserConfig> for crate::hooks::Hook {
+    type Error = nvim_oxi::Error;
+
+    fn try_from(config: HookUserConfig) -> Result<Self, Self::Error> {
+        let hook_type = match config.hook_type.as_deref() {
+            None | Some("needs_attention") => crate::hooks::HookType::NeedsAttention,
+            Some(other) => {
+                return Err(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                    msg: format!("unknown hook type: {}", other),
+                }));
+            }
+        };
+        Ok(crate::hooks::Hook {
+            name: config.name,
+            command: config.command,
+            enabled: config.enabled,
+            hook_type,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -328,6 +361,13 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
             }
         }
 
+        if let Some(hooks) = value.hooks {
+            conf.hooks = hooks
+                .into_iter()
+                .map(crate::hooks::Hook::try_from)
+                .collect::<Result<Vec<_>, _>>()?;
+        }
+
         Ok(conf)
     }
 }
@@ -372,6 +412,7 @@ mod tests {
             tools: None,
             history: None,
             title: None,
+            hooks: None,
         };
 
         let result = TenonConfig::try_from(config).unwrap();
@@ -410,6 +451,7 @@ mod tests {
             tools: None,
             history: None,
             title: None,
+            hooks: None,
         };
 
         let result = TenonConfig::try_from(config);
@@ -466,6 +508,7 @@ mod tests {
             tools: None,
             history: None,
             title: None,
+            hooks: None,
         };
 
         let result = TenonConfig::try_from(config).unwrap();
@@ -497,6 +540,7 @@ mod tests {
             tools: None,
             history: None,
             title: None,
+            hooks: None,
         };
 
         let result = TenonConfig::try_from(config);
@@ -548,6 +592,7 @@ mod tests {
             tools: Some(tools),
             history: None,
             title: Some(title),
+            hooks: None,
         };
 
         let result = TenonConfig::try_from(config).unwrap();
@@ -586,6 +631,7 @@ mod tests {
             tools: Some(tools),
             history: None,
             title: None,
+            hooks: None,
         };
 
         let result = TenonConfig::try_from(config);
@@ -612,6 +658,7 @@ mod tests {
             tools: Some(tools),
             history: None,
             title: None,
+            hooks: None,
         };
 
         let result = TenonConfig::try_from(config).unwrap();
@@ -675,6 +722,41 @@ mod tests {
             &directive.source,
             DirectiveSource::Preset { id, .. } if id == "YAGNI Attitude"
         ));
+    }
+
+    #[test]
+    fn hooks_deserialize_with_defaults() {
+        let config: TenonUserConfig =
+            serde_json::from_str(r#"{"hooks":[{"name":"notify","command":"echo done"}]}"#).unwrap();
+        let result = TenonConfig::try_from(config).unwrap();
+        assert_eq!(result.hooks.len(), 1);
+        assert_eq!(result.hooks[0].name, "notify");
+        assert_eq!(result.hooks[0].command, "echo done");
+        assert!(!result.hooks[0].enabled);
+        assert_eq!(
+            result.hooks[0].hook_type,
+            crate::hooks::HookType::NeedsAttention
+        );
+    }
+
+    #[test]
+    fn hooks_deserialize_explicit_fields() {
+        let config: TenonUserConfig = serde_json::from_str(
+            r#"{"hooks":[{"name":"off","command":"echo x","enabled":false,"type":"needs_attention"}]}"#,
+        )
+        .unwrap();
+        let result = TenonConfig::try_from(config).unwrap();
+        assert!(!result.hooks[0].enabled);
+    }
+
+    #[test]
+    fn hooks_error_on_unknown_type() {
+        let config: TenonUserConfig = serde_json::from_str(
+            r#"{"hooks":[{"name":"x","command":"echo","type":"after_edit"}]}"#,
+        )
+        .unwrap();
+        let result = TenonConfig::try_from(config);
+        assert!(result.is_err());
     }
 
     #[test]
