@@ -43,11 +43,6 @@ pub fn choreo() -> Choreo {
                         condition: Some("plan issues are found".to_string()),
                         output_to_choreo_memory: None,
                     },
-                    MoveGotoInstruction {
-                        to: GotoMove::EndChoreo,
-                        condition: None,
-                        output_to_choreo_memory: None,
-                    },
                 ],
             },
         ],

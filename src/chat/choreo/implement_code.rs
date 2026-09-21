@@ -69,11 +69,6 @@ pub fn choreo() -> Choreo {
                         condition: Some("goal not reached".to_string()),
                         output_to_choreo_memory: None,
                     },
-                    MoveGotoInstruction {
-                        to: GotoMove::Next,
-                        condition: None,
-                        output_to_choreo_memory: None,
-                    },
                 ],
             },
             Move {
@@ -85,11 +80,6 @@ pub fn choreo() -> Choreo {
                     MoveGotoInstruction {
                         to: GotoMove::Move(2),
                         condition: Some("tests fail".to_string()),
-                        output_to_choreo_memory: None,
-                    },
-                    MoveGotoInstruction {
-                        to: GotoMove::EndChoreo,
-                        condition: None,
                         output_to_choreo_memory: None,
                     },
                 ],

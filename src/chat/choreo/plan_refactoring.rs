@@ -21,40 +21,25 @@ pub fn choreo() -> Choreo {
                 instruction: Instruction::File {
                     file: choreo_path("plan_refactoring/2_plan.md"),
                 },
-                goto_instructions: vec![MoveGotoInstruction {
-                    to: GotoMove::Next,
-                    condition: None,
-                    output_to_choreo_memory: None,
-                }],
+                goto_instructions: vec![],
             },
             Move {
                 title: "Prune".to_string(),
                 instruction: Instruction::File {
                     file: choreo_path("plan_refactoring/3_prune.md"),
                 },
-                goto_instructions: vec![MoveGotoInstruction {
-                    to: GotoMove::Next,
-                    condition: None,
-                    output_to_choreo_memory: None,
-                }],
+                goto_instructions: vec![],
             },
             Move {
                 title: "Verify".to_string(),
                 instruction: Instruction::File {
                     file: choreo_path("plan_refactoring/4_verify.md"),
                 },
-                goto_instructions: vec![
-                    MoveGotoInstruction {
-                        to: GotoMove::Move(2),
-                        condition: Some("verification failed".to_string()),
-                        output_to_choreo_memory: None,
-                    },
-                    MoveGotoInstruction {
-                        to: GotoMove::EndChoreo,
-                        condition: None,
-                        output_to_choreo_memory: None,
-                    },
-                ],
+                goto_instructions: vec![MoveGotoInstruction {
+                    to: GotoMove::Move(2),
+                    condition: Some("verification failed".to_string()),
+                    output_to_choreo_memory: None,
+                }],
             },
         ],
         description: "Plans code refactoring, does not execute code changes".to_string(),

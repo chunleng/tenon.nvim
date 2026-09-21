@@ -32,11 +32,7 @@ pub fn choreo() -> Choreo {
                 instruction: Instruction::File {
                     file: choreo_path("create_pr_description/3_generate.md"),
                 },
-                goto_instructions: vec![MoveGotoInstruction {
-                    to: GotoMove::EndChoreo,
-                    condition: None,
-                    output_to_choreo_memory: None,
-                }],
+                goto_instructions: vec![],
             },
         ],
         description: "Generates a PR title and description from code changes".to_string(),
