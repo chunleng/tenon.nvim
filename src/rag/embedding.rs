@@ -44,7 +44,7 @@ pub fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
 
     // We initiate all the time because this is a small model and fast to start.
     // The tradeoff is that we get to save on memory usage
-    let options = InitOptions::new(EmbeddingModel::AllMiniLML6V2Q)
+    let options = InitOptions::new(EmbeddingModel::SnowflakeArcticEmbedXSQ)
         .with_cache_dir(cache_dir)
         .with_show_download_progress(false);
 
