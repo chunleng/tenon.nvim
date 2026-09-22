@@ -11,37 +11,14 @@ pub fn validate_rust_dependency(
         .map_err(|e| ToolExecutionError::other(format!("Cannot get current directory: {}", e)))?;
 
     // Detect Rust project
-    let cargo_toml_path = cwd.join("Cargo.toml");
-    if !cargo_toml_path.exists() {
+    let cargo_lock_path = cwd.join("Cargo.lock");
+    if !cargo_lock_path.exists() {
         return Err(ToolExecutionError::not_found(
-            "Not a Rust project: Cargo.toml not found in current directory".to_string(),
+            "Not a Rust project: Cargo.lock not found in current directory".to_string(),
         ));
     }
 
-    // Verify dependency exists in Cargo.toml
-    let cargo_toml_content = fs::read_to_string(&cargo_toml_path)
-        .map_err(|e| ToolExecutionError::other(format!("Failed to read Cargo.toml: {}", e)))?;
-    let cargo_toml: toml::Value = toml::from_str(&cargo_toml_content)
-        .map_err(|e| ToolExecutionError::other(format!("Failed to parse Cargo.toml: {}", e)))?;
-
-    let dep_sections = ["dependencies", "dev-dependencies", "build-dependencies"];
-    let dep_found = dep_sections.iter().any(|section| {
-        cargo_toml
-            .get(section)
-            .and_then(|v| v.as_table())
-            .is_some_and(|deps| deps.contains_key(dep_name))
-    });
-
-    if !dep_found {
-        return Err(ToolExecutionError::not_found(format!(
-            "Dependency '{}' not found in Cargo.toml \
-             (checked dependencies, dev-dependencies, build-dependencies)",
-            dep_name
-        )));
-    }
-
-    // Resolve exact version from Cargo.lock
-    let cargo_lock_path = cwd.join("Cargo.lock");
+    // Resolve exact version from Cargo.lock (any package, incl. transitive deps)
     let cargo_lock_content = fs::read_to_string(&cargo_lock_path)
         .map_err(|e| ToolExecutionError::other(format!("Failed to read Cargo.lock: {}", e)))?;
     let cargo_lock: toml::Value = toml::from_str(&cargo_lock_content)
@@ -213,7 +190,7 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("not found in Cargo.toml"),
+            err.contains("not found in Cargo.lock"),
             "Should report dependency not found, got: {}",
             err
         );
