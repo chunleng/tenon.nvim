@@ -1,7 +1,7 @@
 use crate::utils::path_from_str;
 use anyhow::Result;
+use fastembed::similarity::top_k;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use lance_linalg::distance::cosine::cosine_distance_batch;
 
 #[cfg(test)]
 const MAX_TEXT_CHARS: usize = 50;
@@ -79,7 +79,7 @@ pub fn generate_embedding(text: &str) -> Result<Vec<f32>> {
         .expect("Single text should produce exactly one embedding"))
 }
 
-/// Finds the top-k most similar embeddings to the query using SIMD-optimized cosine distance.
+/// Finds the top-k most similar embeddings to the query using cosine similarity.
 /// Returns indices into the embeddings array sorted by similarity (most similar first).
 pub fn find_top_k_similar(
     query_embedding: &[f32],
@@ -90,36 +90,23 @@ pub fn find_top_k_similar(
         return Vec::new();
     }
 
-    let dimension = query_embedding.len();
-
-    // Empty embeddings carry no signal and would shift the flat-array rows,
-    // misaligning every subsequent distance. Skip them and map distances
-    // back to original indices.
+    // Empty embeddings carry no signal; fastembed scores them 0.0, which
+    // would rank into top-k whenever real similarities go negative. Skip
+    // them and map scores back to original indices.
     let candidates: Vec<(usize, &Vec<f32>)> = embeddings
         .iter()
         .enumerate()
         .filter(|(_, emb)| !emb.is_empty())
         .collect();
 
-    // Flatten embeddings into contiguous array for batch processing
-    let flat_embeddings: Vec<f32> = candidates
-        .iter()
-        .flat_map(|(_, emb)| emb.iter().copied())
-        .collect();
+    let corpus: Vec<&Vec<f32>> = candidates.iter().map(|(_, emb)| *emb).collect();
 
-    // Compute cosine distances (distance = 1 - similarity, range [0, 2])
-    let distances: Vec<f32> =
-        cosine_distance_batch(query_embedding, &flat_embeddings, dimension).collect();
-
-    // Sort by distance (ascending), return original indices
-    let mut indexed: Vec<(usize, f32)> = candidates
-        .iter()
-        .zip(distances)
-        .map(|((i, _), dist)| (*i, dist))
-        .collect();
-    indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-    indexed.into_iter().take(k).map(|(i, _)| i).collect()
+    // top_k returns (corpus position, score), best first. Map positions back
+    // to original embedding indices.
+    top_k(query_embedding, &corpus, k)
+        .into_iter()
+        .map(|(pos, _)| candidates[pos].0)
+        .collect()
 }
 
 #[cfg(test)]
