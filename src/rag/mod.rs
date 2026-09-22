@@ -79,29 +79,27 @@ impl RagContext {
         Some(embeddings)
     }
 
-    /// Build RAG context string for a query message.
-    /// Returns None if no relevant context is found.
-    pub fn build_context(&self, logs: &[Arc<TenonLog>], message: &str) -> Option<String> {
+    /// Find the top-k relevant logs for a query message.
+    /// Returns empty Vec if no relevant context is found.
+    pub fn build_context(&self, logs: &[Arc<TenonLog>], message: &str) -> Vec<Arc<TenonLog>> {
         if logs.is_empty() {
-            return None;
+            return Vec::new();
         }
 
-        let embeddings = self.get_or_generate_embeddings(logs)?;
+        let embeddings = match self.get_or_generate_embeddings(logs) {
+            Some(emb) => emb,
+            None => return Vec::new(),
+        };
         let msg_embedding = match generate_embedding(message) {
             Ok(emb) => emb,
-            Err(_) => {
-                return None;
-            }
+            Err(_) => return Vec::new(),
         };
 
         let top_indices = find_top_k_similar(&msg_embedding, &embeddings, 3);
-        let context_parts: Vec<_> = top_indices
+        top_indices
             .into_iter()
-            .filter_map(|i| logs.get(i))
-            .filter_map(|log| log.to_embeddable_text())
-            .collect();
-
-        (!context_parts.is_empty()).then(|| format!("{}\n\n", context_parts.join("\n---\n")))
+            .filter_map(|i| logs.get(i).cloned())
+            .collect()
     }
 }
 

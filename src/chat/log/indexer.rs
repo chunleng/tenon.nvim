@@ -54,7 +54,7 @@ impl ChatLogIndexer {
             .collect::<Vec<_>>();
         let history_messages = self.get_relevant_context(&log_window, user_message);
         for msg in history_messages.into_iter().rev() {
-            chat_history.insert(0, msg);
+            chat_history.push(msg);
         }
         chat_history
     }
@@ -240,14 +240,18 @@ impl ChatLogIndexer {
         if user_message.is_empty() {
             return Vec::new();
         }
-        // TODO we might want to produce 3 history log instead of one in the future
         let inactive_logs = log_window.inactive_log();
-        self.rag_context
-            .build_context(&inactive_logs, user_message)
-            .map(|ctx| Message::System {
-                content: format!("<chat-history>{}</chat-history>", ctx.trim()),
-            })
+        let relevant_logs = self.rag_context.build_context(&inactive_logs, user_message);
+        let context_parts: Vec<_> = relevant_logs
+            .iter()
+            .filter_map(|log| log.to_embeddable_text())
+            .collect();
+
+        context_parts
             .into_iter()
+            .map(|part| Message::System {
+                content: format!("<chat-history>{}</chat-history>", part.trim()),
+            })
             .collect()
     }
 }
