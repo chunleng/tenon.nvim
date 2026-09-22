@@ -8,7 +8,7 @@
   - Just-in-time: every setup step is placed immediately before the first feature step that needs it, not batched upfront
   - If any setup issues found → navigate to plan move
 3. Flow check: verify steps are ordered so each builds on the previous. If issues found → navigate to plan move
-4. If all checks pass, present scope and plan to the user for confirmation
+4. If all checks pass, output to chat the scope and plan and ask user for confirmation
   - On confirmation → create one development task per plan step (see "Task Creation"), then end choreo
   - On scope changed/issue → navigate to scope move
   - On plan changed/issue → navigate to plan move

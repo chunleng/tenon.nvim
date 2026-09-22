@@ -14,7 +14,7 @@ Information-gathering only, no code implementation.
 3. Repeat process step 2 until the goal is clear
 4. Show goal and confirm with user: "Please confirm the goal"
   a. User confirmed → next move
-  b. User rejects → loop to process step 2
+  b. Anything other than confirmation → loop to process step 2
 
 ## Choreo Move Artifact
 ```yaml
