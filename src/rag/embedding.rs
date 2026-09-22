@@ -1,7 +1,10 @@
+use crate::chat::log::{TenonLog, TenonLogData};
+use crate::tools::{ToolClassification, get_tool_classification};
 use crate::utils::path_from_str;
 use anyhow::Result;
 use fastembed::similarity::top_k;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use std::sync::Arc;
 
 #[cfg(test)]
 const MAX_TEXT_CHARS: usize = 50;
@@ -12,22 +15,57 @@ const MAX_TEXT_CHARS: usize = 50_000;
 /// tokenizer padding waste low when text lengths vary widely.
 const EMBED_CHUNK_SIZE: usize = 16;
 
-/// Generates embeddings for multiple texts.
-/// Returns one embedding per input text, in the same order.
+/// Generates embeddings for multiple logs.
+/// Returns one embedding per input log, in the same order.
+/// Idempotent tool logs are skipped (embedded as empty strings) since their
+/// results are reproducible and add no retrieval signal.
 /// Texts exceeding MAX_TEXT_CHARS are embedded as empty strings.
-pub fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    // TODO: Replace this character-count guard with a proper token count once
-    // a tokenizer is available.
-    if texts.is_empty() {
+pub fn generate_embeddings(logs: &[Arc<TenonLog>]) -> Result<Vec<Vec<f32>>> {
+    if logs.is_empty() {
         return Ok(vec![]);
     }
 
+    let texts: Vec<String> = logs.iter().map(|log| log.to_embeddable_text()).collect();
+
+    // Substitute an empty string for skipped logs so output positions stay
+    // aligned with input positions.
+    let embeddable: Vec<&str> = logs
+        .iter()
+        .zip(&texts)
+        .map(|(log, text)| match log.data() {
+            TenonLogData::Tool(tool_log)
+                if get_tool_classification(&tool_log.tool_call.name)
+                    == ToolClassification::Idempotent =>
+            {
+                ""
+            }
+            _ => text.as_str(),
+        })
+        .collect();
+
+    embed_texts(&embeddable)
+}
+
+/// Generates an embedding for a single text using FastEmbed.
+/// Returns the embedding vector.
+pub fn generate_embedding(text: &str) -> Result<Vec<f32>> {
+    let mut embeddings = embed_texts(&[text])?;
+
+    Ok(embeddings
+        .pop()
+        .expect("Single text should produce exactly one embedding"))
+}
+
+/// Embeds raw texts. Returns one embedding per input text, in the same order.
+/// Texts exceeding MAX_TEXT_CHARS are embedded as empty strings.
+/// TODO: Replace the character-count guard with a proper token count once
+/// a tokenizer is available.
+fn embed_texts(texts: &[&str]) -> Result<Vec<Vec<f32>>> {
     // Substitute an empty string for oversized texts so output positions stay
     // aligned with input positions.
-    let empty = String::new();
-    let embeddable: Vec<&String> = texts
+    let embeddable: Vec<&str> = texts
         .iter()
-        .map(|t| if t.len() > MAX_TEXT_CHARS { &empty } else { t })
+        .map(|t| if t.len() > MAX_TEXT_CHARS { "" } else { t })
         .collect();
 
     // Batched inference pads every text to the longest in its batch, so one
@@ -52,7 +90,7 @@ pub fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
 
     let mut result = vec![Vec::new(); embeddable.len()];
     for chunk in order.chunks(EMBED_CHUNK_SIZE) {
-        let chunk_texts: Vec<&String> = chunk.iter().map(|&i| embeddable[i]).collect();
+        let chunk_texts: Vec<&str> = chunk.iter().map(|&i| embeddable[i]).collect();
         // batch_size = None for default
         let embeddings = model.embed(chunk_texts, None)?;
         for (slot, emb) in chunk.iter().zip(embeddings) {
@@ -61,22 +99,6 @@ pub fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     }
 
     Ok(result)
-}
-
-/// Generates an embedding for a single text using FastEmbed.
-/// Returns the embedding vector.
-pub fn generate_embedding(text: &str) -> Result<Vec<f32>> {
-    // TODO: Replace this character-count guard with a proper token count once
-    // a tokenizer is available.
-    if text.len() > MAX_TEXT_CHARS {
-        return Ok(vec![]);
-    }
-
-    let mut embeddings = generate_embeddings(&[text.to_string()])?;
-
-    Ok(embeddings
-        .pop()
-        .expect("Single text should produce exactly one embedding"))
 }
 
 /// Finds the top-k most similar embeddings to the query using cosine similarity.
@@ -112,6 +134,26 @@ pub fn find_top_k_similar(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::log::{TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonUserMessage};
+    use std::sync::Arc;
+
+    fn user_log(text: &str) -> Arc<TenonLog> {
+        Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+            text.to_string(),
+        ))))
+    }
+
+    fn tool_log(name: &str) -> Arc<TenonLog> {
+        Arc::new(TenonLog::new(TenonLogData::Tool(TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                name: name.into(),
+                args: serde_json::json!({}),
+            },
+            tool_result: None,
+        })))
+    }
 
     #[test]
     fn test_generate_embedding_basic() {
@@ -171,9 +213,9 @@ mod tests {
 
     #[test]
     fn test_generate_embeddings_batch() {
-        let texts = vec!["Hello world".to_string(), "Goodbye world".to_string()];
+        let logs = vec![user_log("Hello world"), user_log("Goodbye world")];
 
-        let result = generate_embeddings(&texts);
+        let result = generate_embeddings(&logs);
 
         assert!(
             result.is_ok(),
@@ -190,14 +232,14 @@ mod tests {
 
     #[test]
     fn test_generate_embeddings_oversized_text_keeps_position() {
-        let texts = vec![
-            "Hello world".to_string(),
-            "a".repeat(MAX_TEXT_CHARS + 1),
-            String::new(),
-            "Goodbye world".to_string(),
+        let logs = vec![
+            user_log("Hello world"),
+            user_log(&"a".repeat(MAX_TEXT_CHARS + 1)),
+            user_log(""),
+            user_log("Goodbye world"),
         ];
 
-        let result = generate_embeddings(&texts);
+        let result = generate_embeddings(&logs);
 
         assert!(
             result.is_ok(),
@@ -227,6 +269,35 @@ mod tests {
         let result = generate_embeddings(&[]);
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_generate_embeddings_skips_idempotent_tool() {
+        let logs = vec![
+            user_log("Hello world"),
+            tool_log("read_file"),   // Idempotent: skipped
+            tool_log("run_command"), // Mutating: embedded
+        ];
+
+        let result = generate_embeddings(&logs);
+
+        assert!(
+            result.is_ok(),
+            "generate_embeddings failed: {:?}",
+            result.err()
+        );
+        let embeddings = result.unwrap();
+        assert_eq!(
+            embeddings.len(),
+            3,
+            "Skipped tool should still yield one embedding per input log"
+        );
+        assert!(
+            embeddings[1].is_empty(),
+            "Idempotent tool log should produce an empty embedding"
+        );
+        assert_eq!(embeddings[0].len(), 384);
+        assert_eq!(embeddings[2].len(), 384);
     }
 
     #[test]

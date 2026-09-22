@@ -38,14 +38,10 @@ impl RagContext {
         // Cache is missing some embeddings - generate only for new logs
         if cached_len < logs.len() {
             // Generate embeddings for logs that don't have them yet
-            let new_texts: Vec<_> = logs[cached_len..]
-                .iter()
-                .map(|log| log.to_embeddable_text())
-                .collect();
+            let new_embeddings: Vec<Vec<f32>> =
+                generate_embeddings(&logs[cached_len..]).unwrap_or_default();
 
-            let new_embeddings: Vec<Vec<f32>> = generate_embeddings(&new_texts).unwrap_or_default();
-
-            if new_embeddings.is_empty() && !new_texts.is_empty() {
+            if new_embeddings.is_empty() {
                 return None;
             }
 
@@ -61,11 +57,9 @@ impl RagContext {
         }
 
         // Cache has more embeddings than logs (shouldn't happen, but regenerate to be safe)
-        let texts: Vec<_> = logs.iter().map(|log| log.to_embeddable_text()).collect();
+        let embeddings: Vec<Vec<f32>> = generate_embeddings(logs).unwrap_or_default();
 
-        let embeddings: Vec<Vec<f32>> = generate_embeddings(&texts).unwrap_or_default();
-
-        if embeddings.is_empty() && !texts.is_empty() {
+        if embeddings.is_empty() {
             return None;
         }
 

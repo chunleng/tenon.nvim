@@ -368,7 +368,7 @@ mod tests {
         let cases = vec![
             (create_user_log(1), "user"),
             (create_assistant_log(1), "assistant"),
-            (create_tool_log("read_file", 1), "tool"),
+            (create_tool_log("run_command", 1), "tool"),
             (make_thought_log(), "thought"),
             (make_choreo_log(), "choreo"),
         ];
