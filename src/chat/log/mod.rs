@@ -490,6 +490,17 @@ impl TenonLog {
 }
 
 impl TenonLogData {
+    /// Returns the role string for this log, used in the `<chat-history role="...">` tag.
+    pub fn role(&self) -> &'static str {
+        match self {
+            TenonLogData::User(_) => "user",
+            TenonLogData::Assistant(_) => "assistant",
+            TenonLogData::Tool(_) => "tool",
+            TenonLogData::Thought(_) => "thought",
+            TenonLogData::Choreo(_) => "choreo",
+        }
+    }
+
     /// Returns true if this log is a system tool that should be hidden from the chat display.
     /// System tools with error results are shown so the user can see what went wrong.
     pub fn is_hidden_system_tool(&self) -> bool {

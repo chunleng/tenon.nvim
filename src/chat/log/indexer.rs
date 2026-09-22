@@ -236,15 +236,14 @@ impl ChatLogIndexer {
         }
         let inactive_logs = log_window.inactive_log();
         let relevant_logs = self.rag_context.build_context(&inactive_logs, user_message);
-        let context_parts: Vec<_> = relevant_logs
+        relevant_logs
             .iter()
-            .map(|log| log.to_embeddable_text())
-            .collect();
-
-        context_parts
-            .into_iter()
-            .map(|part| Message::System {
-                content: format!("<chat-history>{}</chat-history>", part.trim()),
+            .map(|log| Message::System {
+                content: format!(
+                    "<chat-history role=\"{}\">{}</chat-history>",
+                    log.data().role(),
+                    log.to_embeddable_text().trim()
+                ),
             })
             .collect()
     }
@@ -344,6 +343,59 @@ mod tests {
         let log_window = handler.log_window.read().unwrap();
         let result = indexer.get_relevant_context(&log_window, "test message");
         let _ = result;
+    }
+
+    #[test]
+    fn test_get_relevant_context_adds_role_attribute() {
+        use crate::chat::log::{TenonChoreoLog, TenonThoughtLog, TenonToolLog};
+
+        let make_choreo_log = || {
+            TenonLog::new(TenonLogData::Choreo(TenonChoreoLog::new(
+                "c-1",
+                "Test Choreo",
+                Some(2),
+                TenonToolLog::default(),
+            )))
+        };
+        let make_thought_log = || {
+            TenonLog::new(TenonLogData::Thought(TenonThoughtLog {
+                thought: "thinking".to_string(),
+                summary: None,
+            }))
+        };
+
+        // (inactive log, expected role)
+        let cases = vec![
+            (create_user_log(1), "user"),
+            (create_assistant_log(1), "assistant"),
+            (create_tool_log("read_file", 1), "tool"),
+            (make_thought_log(), "thought"),
+            (make_choreo_log(), "choreo"),
+        ];
+
+        for (inactive_log, expected_role) in cases {
+            let logs = vec![create_user_log(1), inactive_log];
+            let mut handler = ChatLogHandler::new();
+            handler.load(logs);
+            handler.log_window.write().unwrap().logs[1].active = false;
+
+            let indexer = handler.indexer.read().unwrap();
+            let log_window = handler.log_window.read().unwrap();
+            let result = indexer.get_relevant_context(&log_window, "test message");
+
+            assert_eq!(result.len(), 1, "role: {}", expected_role);
+            let content = match &result[0] {
+                rig::message::Message::System { content } => content.clone(),
+                other => panic!("expected System message, got {:?}", other),
+            };
+            assert!(
+                content.starts_with(&format!("<chat-history role=\"{}\">", expected_role)),
+                "role: {}, content: {}",
+                expected_role,
+                content
+            );
+            assert!(content.ends_with("</chat-history>"));
+        }
     }
 
     // --- Tool classification-aware truncation tests (new behavior) ---

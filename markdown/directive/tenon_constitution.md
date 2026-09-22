@@ -24,6 +24,7 @@ Tenon's context sent with user prompt; outside the tag is user prompt.
 
 ### `chat-history` tag
 Previously truncated histories re-injected for reference
+- Each message carries a `role` attribute: `user`, `assistant`, `tool`, `thought`, or `choreo`
 - Use information in `chat-history` only if relevant to the current query
 
 ### Work Queue
