@@ -33,6 +33,12 @@ impl ChatLogIndexer {
     #[cfg(test)]
     const HARD_LIMIT_ACTIVE_CONTEXT_TOKENS: usize = 20;
 
+    /// Soft-limit phases cut until the total is below this target.
+    const SOFT_CUT_TARGET: usize = Self::MAX_ACTIVE_CONTEXT_TOKENS / 2;
+
+    /// Hard-limit phases cut until the total is below this target.
+    const HARD_CUT_TARGET: usize = Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS / 2;
+
     /// Creates a new empty ChatLogIndexer.
     pub fn new() -> Self {
         Self {
@@ -67,7 +73,7 @@ impl ChatLogIndexer {
     /// - Region 2: Between 1x and 2x checkpoint (middle logs)
     /// - Region 3: After 1x checkpoint (newer logs)
     ///
-    /// Removal phases:
+    /// Removal phases (each cuts until the total is below half of its limit):
     /// - Soft limit: Phase 1 (idempotent tools regions 1&2), Phase 2 (non-idempotent tools region 1)
     /// - Hard limit:
     ///   - Phase 3 (chat/system region 1), Phase 4 (non-idempotent tools region 2),
@@ -76,8 +82,8 @@ impl ChatLogIndexer {
     /// - First user message is always preserved
     pub fn apply_context_truncation(&self, log_window: &mut LogWindow) {
         // Early return if under threshold
-        let total = log_window.active_context_token_count();
-        if total <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
+        let mut total_tokens = log_window.active_context_token_count();
+        if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
             return;
         }
 
@@ -120,12 +126,10 @@ impl ChatLogIndexer {
         let region1_end = second_checkpoint.unwrap_or(0);
         let region2_end = first_checkpoint.unwrap_or(0);
 
-        let mut total_tokens = total;
-
         // === SOFT LIMIT: Phase 1 - Remove idempotent tools from regions 1 & 2 ===
         // Region 1 idempotent tools
         for idx in 0..region1_end {
-            if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
+            if total_tokens < Self::SOFT_CUT_TARGET {
                 break;
             }
             let indexed = &log_window.logs[idx];
@@ -137,7 +141,7 @@ impl ChatLogIndexer {
 
         // Region 2 idempotent tools
         for idx in region1_end..region2_end {
-            if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
+            if total_tokens < Self::SOFT_CUT_TARGET {
                 break;
             }
             let indexed = &log_window.logs[idx];
@@ -149,7 +153,7 @@ impl ChatLogIndexer {
 
         // === SOFT LIMIT: Phase 2 - Remove non-idempotent tools from region 1 ===
         for idx in 0..region1_end {
-            if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
+            if total_tokens < Self::SOFT_CUT_TARGET {
                 break;
             }
             let indexed = &log_window.logs[idx];
@@ -161,11 +165,9 @@ impl ChatLogIndexer {
 
         // === HARD LIMIT: Phase 3 - Remove chat/system logs from region 1 ===
         if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
-            let mut remaining_to_remove = total_tokens - Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS;
-
             // Remove chat logs (excluding first user) from region 1
             for idx in 0..region1_end {
-                if remaining_to_remove == 0 {
+                if total_tokens < Self::HARD_CUT_TARGET {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
@@ -178,21 +180,19 @@ impl ChatLogIndexer {
                     )
                     && !is_first_user(idx)
                 {
-                    remaining_to_remove =
-                        remaining_to_remove.saturating_sub(indexed.log.token_count());
+                    total_tokens = total_tokens.saturating_sub(indexed.log.token_count());
                     log_window.logs[idx].active = false;
                 }
             }
 
             // Remove system logs from region 1
             for idx in 0..region1_end {
-                if remaining_to_remove == 0 {
+                if total_tokens < Self::HARD_CUT_TARGET {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
                 if indexed.active && is_system_tool(&indexed.log) {
-                    remaining_to_remove =
-                        remaining_to_remove.saturating_sub(indexed.log.token_count());
+                    total_tokens = total_tokens.saturating_sub(indexed.log.token_count());
                     log_window.logs[idx].active = false;
                 }
             }
@@ -200,16 +200,13 @@ impl ChatLogIndexer {
 
         // === HARD LIMIT: Phase 4 - Remove non-idempotent tools from region 2 ===
         if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
-            let mut remaining_to_remove = total_tokens - Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS;
-
             for idx in region1_end..region2_end {
-                if remaining_to_remove == 0 {
+                if total_tokens < Self::HARD_CUT_TARGET {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
                 if indexed.active && is_non_idempotent_tool(&indexed.log) {
-                    remaining_to_remove =
-                        remaining_to_remove.saturating_sub(indexed.log.token_count());
+                    total_tokens = total_tokens.saturating_sub(indexed.log.token_count());
                     log_window.logs[idx].active = false;
                 }
             }
@@ -217,16 +214,13 @@ impl ChatLogIndexer {
 
         // === HARD LIMIT: Phase 5 - Remove idempotent tools from region 3 ===
         if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
-            let mut remaining_to_remove = total_tokens - Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS;
-
             for idx in region2_end..log_window.logs.len() {
-                if remaining_to_remove == 0 {
+                if total_tokens < Self::HARD_CUT_TARGET {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
                 if indexed.active && is_idempotent_tool(&indexed.log) {
-                    remaining_to_remove =
-                        remaining_to_remove.saturating_sub(indexed.log.token_count());
+                    total_tokens = total_tokens.saturating_sub(indexed.log.token_count());
                     log_window.logs[idx].active = false;
                 }
             }
@@ -401,9 +395,10 @@ mod tests {
         handler.load(logs);
         let log_window = handler.log_window.read().unwrap();
 
-        // Phase 1 removes idempotent tools from regions 1 & 2
+        // Phase 1 removes idempotent tools from regions 1 & 2; Phase 2 then
+        // removes non-idempotent tools from region 1 (target: below half of 10)
         // read_file at index 1 (Region 1) should be removed
-        // web_search at index 2 (Region 1) should be preserved (non-idempotent)
+        // web_search at index 2 (Region 1) should be removed (Phase 2)
         // read_file at index 4 (Region 2) should be removed
         assert!(log_window.logs[0].active, "first user preserved");
         assert!(
@@ -411,8 +406,8 @@ mod tests {
             "idempotent tool removed (Region 1)"
         );
         assert!(
-            log_window.logs[2].active,
-            "non-idempotent tool preserved (Region 1)"
+            !log_window.logs[2].active,
+            "non-idempotent tool removed (Phase 2)"
         );
         assert!(log_window.logs[3].active, "user preserved (checkpoint 2x)");
         assert!(
@@ -523,6 +518,66 @@ mod tests {
         assert!(
             !log_window.logs[3].active,
             "idempotent tool removed (Region 3)"
+        );
+    }
+
+    #[test]
+    fn test_truncation_soft_limit_cuts_below_half() {
+        // Soft phases keep cutting until the total is below half of the soft limit (5)
+        let logs = vec![
+            create_user_log(1),
+            create_tool_log("read_file", 5),
+            create_user_log(1),
+            create_tool_log("read_file", 5),
+            create_user_log(1),
+            create_assistant_log(0),
+        ];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let log_window = handler.log_window.read().unwrap();
+
+        assert!(log_window.logs[0].active, "first user preserved");
+        assert!(
+            !log_window.logs[1].active,
+            "idempotent tool removed (Region 1)"
+        );
+        assert!(log_window.logs[2].active, "user preserved (checkpoint 2x)");
+        assert!(
+            !log_window.logs[3].active,
+            "idempotent tool removed (Region 2)"
+        );
+        assert!(log_window.logs[4].active, "user preserved (checkpoint 1x)");
+        assert!(
+            log_window.active_context_token_count() < 5,
+            "total cut below half of soft limit"
+        );
+    }
+
+    #[test]
+    fn test_truncation_hard_limit_cuts_below_half() {
+        // Hard phases keep cutting until the total is below half of the hard limit (10)
+        let logs = vec![
+            create_user_log(1),      // 0 - first user (never removed)
+            create_assistant_log(8), // 1 - chat log (Region 1)
+            create_assistant_log(8), // 2 - chat log (Region 1)
+            create_assistant_log(8), // 3 - chat log (Region 1)
+            create_user_log(1),      // 4 - user (checkpoint 2x)
+            create_user_log(1),      // 5 - user (checkpoint 1x)
+            create_assistant_log(0), // 6
+        ];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let log_window = handler.log_window.read().unwrap();
+
+        assert!(log_window.logs[0].active, "first user preserved");
+        assert!(!log_window.logs[1].active, "chat log removed (Phase 3)");
+        assert!(!log_window.logs[2].active, "chat log removed (Phase 3)");
+        assert!(!log_window.logs[3].active, "chat log removed (Phase 3)");
+        assert!(log_window.logs[4].active, "user preserved (checkpoint 2x)");
+        assert!(log_window.logs[5].active, "user preserved (checkpoint 1x)");
+        assert!(
+            log_window.active_context_token_count() < 10,
+            "total cut below half of hard limit"
         );
     }
 
