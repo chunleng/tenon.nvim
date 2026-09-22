@@ -78,6 +78,7 @@ impl ChatLogHandler {
             };
             indexer.apply_context_truncation(&mut log_window);
             let log_window_clone = log_window.clone();
+            // Prevent long running rag to hold on to the lock for too long
             drop(log_window);
             indexer.retrieve_chatlog_with_context(log_window_clone, user_message)
         } else {

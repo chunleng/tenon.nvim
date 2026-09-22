@@ -52,8 +52,8 @@ impl ChatLogIndexer {
             .iter()
             .flat_map(|indexed| Vec::<Message>::from(indexed.as_ref()))
             .collect::<Vec<_>>();
-        let history_messages = self.get_relevant_context(&log_window, user_message);
-        for msg in history_messages.into_iter().rev() {
+        let rag_history_messages = self.get_relevant_context(&log_window, user_message);
+        for msg in rag_history_messages.into_iter().rev() {
             chat_history.push(msg);
         }
         chat_history
