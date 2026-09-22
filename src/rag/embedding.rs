@@ -23,7 +23,7 @@ pub fn generate_embedding(text: &str) -> Result<Vec<f32>> {
         .with_cache_dir(cache_dir)
         .with_show_download_progress(false);
 
-    let model = TextEmbedding::try_new(options)?;
+    let mut model = TextEmbedding::try_new(options)?;
 
     // Generate embedding (batch_size = None for default)
     let embeddings = model.embed(vec![text], None)?;
