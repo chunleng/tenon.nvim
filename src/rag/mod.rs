@@ -1,6 +1,6 @@
 mod embedding;
 
-pub use embedding::{find_top_k_similar, generate_embedding};
+pub use embedding::{find_top_k_similar, generate_embedding, generate_embeddings};
 
 use std::sync::{Arc, RwLock};
 
@@ -43,10 +43,7 @@ impl RagContext {
                 .filter_map(|log| log.to_embeddable_text())
                 .collect();
 
-            let new_embeddings: Vec<Vec<f32>> = new_texts
-                .iter()
-                .filter_map(|text| generate_embedding(text).ok())
-                .collect();
+            let new_embeddings: Vec<Vec<f32>> = generate_embeddings(&new_texts).unwrap_or_default();
 
             if new_embeddings.is_empty() && !new_texts.is_empty() {
                 return None;
@@ -69,10 +66,7 @@ impl RagContext {
             .filter_map(|log| log.to_embeddable_text())
             .collect();
 
-        let embeddings: Vec<Vec<f32>> = texts
-            .iter()
-            .filter_map(|text| generate_embedding(text).ok())
-            .collect();
+        let embeddings: Vec<Vec<f32>> = generate_embeddings(&texts).unwrap_or_default();
 
         if embeddings.is_empty() && !texts.is_empty() {
             return None;

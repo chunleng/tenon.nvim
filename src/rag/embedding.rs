@@ -8,6 +8,50 @@ const MAX_TEXT_CHARS: usize = 50;
 #[cfg(not(test))]
 const MAX_TEXT_CHARS: usize = 50_000;
 
+/// Max texts per embed call. Embedding sorted-by-length chunks keeps
+/// tokenizer padding waste low when text lengths vary widely.
+const EMBED_CHUNK_SIZE: usize = 16;
+
+/// Generates embeddings for multiple texts.
+/// Returns one embedding per input text, in the same order.
+pub fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    // TODO: Replace this character-count guard with a proper token count once
+    // a tokenizer is available.
+    let valid: Vec<&String> = texts.iter().filter(|t| t.len() <= MAX_TEXT_CHARS).collect();
+
+    if valid.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Batched inference pads every text to the longest in its batch, so one
+    // long text would inflate the cost of all short ones. Sorting by length
+    // and chunking keeps each batch length-homogeneous.
+    let mut order: Vec<usize> = (0..valid.len()).collect();
+    order.sort_by_key(|&i| valid[i].len());
+
+    let cache_dir = path_from_str("~/.fastembed_cache");
+
+    // We initiate all the time because this is a small model and fast to start.
+    // The tradeoff is that we get to save on memory usage
+    let options = InitOptions::new(EmbeddingModel::AllMiniLML6V2Q)
+        .with_cache_dir(cache_dir)
+        .with_show_download_progress(false);
+
+    let mut model = TextEmbedding::try_new(options)?;
+
+    let mut result = vec![Vec::new(); valid.len()];
+    for chunk in order.chunks(EMBED_CHUNK_SIZE) {
+        let chunk_texts: Vec<&String> = chunk.iter().map(|&i| valid[i]).collect();
+        // batch_size = None for default
+        let embeddings = model.embed(chunk_texts, None)?;
+        for (slot, emb) in chunk.iter().zip(embeddings) {
+            result[*slot] = emb;
+        }
+    }
+
+    Ok(result)
+}
+
 /// Generates an embedding for a single text using FastEmbed.
 /// Returns the embedding vector.
 pub fn generate_embedding(text: &str) -> Result<Vec<f32>> {
@@ -17,20 +61,10 @@ pub fn generate_embedding(text: &str) -> Result<Vec<f32>> {
         return Ok(vec![]);
     }
 
-    let cache_dir = path_from_str("~/.fastembed_cache");
-
-    let options = InitOptions::new(EmbeddingModel::AllMiniLML6V2Q)
-        .with_cache_dir(cache_dir)
-        .with_show_download_progress(false);
-
-    let mut model = TextEmbedding::try_new(options)?;
-
-    // Generate embedding (batch_size = None for default)
-    let embeddings = model.embed(vec![text], None)?;
+    let mut embeddings = generate_embeddings(&[text.to_string()])?;
 
     Ok(embeddings
-        .into_iter()
-        .next()
+        .pop()
         .expect("Single text should produce exactly one embedding"))
 }
 
@@ -97,6 +131,32 @@ mod tests {
         assert_eq!(top_indices.len(), 2);
         assert_eq!(top_indices[0], 0); // Most similar
         assert_eq!(top_indices[1], 2); // Second most similar
+    }
+
+    #[test]
+    fn test_generate_embeddings_batch() {
+        let texts = vec!["Hello world".to_string(), "Goodbye world".to_string()];
+
+        let result = generate_embeddings(&texts);
+
+        assert!(
+            result.is_ok(),
+            "generate_embeddings failed: {:?}",
+            result.err()
+        );
+        let embeddings = result.unwrap();
+        assert_eq!(embeddings.len(), 2, "Should return one embedding per text");
+        assert!(
+            embeddings.iter().all(|e| e.len() == 384),
+            "Each embedding should have 384 dimensions"
+        );
+    }
+
+    #[test]
+    fn test_generate_embeddings_empty() {
+        let result = generate_embeddings(&[]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
     }
 
     #[test]
