@@ -335,6 +335,38 @@ mod tests {
         let log: TenonLog = serde_json::from_str(json).unwrap();
         assert!(matches!(log.data(), TenonLogData::Choreo(c) if c.r#move == Some(2)));
     }
+
+    #[test]
+    fn test_to_embeddable_text() {
+        // User text
+        let log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+            "hello".to_string(),
+        )));
+        assert_eq!(log.to_embeddable_text(), "hello");
+
+        // Assistant text
+        let log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
+            reasoning: None,
+            content: vec![TenonAssistantMessageContent::Text("reply".to_string())],
+        }));
+        assert_eq!(log.to_embeddable_text(), "reply");
+
+        // Thought
+        let log = TenonLog::new(TenonLogData::Thought(TenonThoughtLog {
+            thought: "thinking".to_string(),
+            summary: None,
+        }));
+        assert_eq!(log.to_embeddable_text(), "thinking");
+
+        // Choreo returns its id
+        let log = TenonLog::new(TenonLogData::Choreo(TenonChoreoLog::new(
+            "c-1",
+            "Test Choreo",
+            Some(2),
+            TenonToolLog::default(),
+        )));
+        assert_eq!(log.to_embeddable_text(), "c-1");
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,21 +394,19 @@ impl TenonLog {
     }
 
     /// Converts the log to a string for embedding.
-    /// Returns None if the log type should not be indexed for RAG.
-    pub fn to_embeddable_text(&self) -> Option<String> {
+    pub fn to_embeddable_text(&self) -> String {
         match &self.data {
             TenonLogData::User(msg) => match msg {
-                TenonUserMessage::Text(text) => Some(text.clone()),
+                TenonUserMessage::Text(text) => text.clone(),
             },
-            TenonLogData::Assistant(msg) => Some(
-                msg.content
-                    .iter()
-                    .map(|c| match c {
-                        TenonAssistantMessageContent::Text(t) => t.clone(),
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            ),
+            TenonLogData::Assistant(msg) => msg
+                .content
+                .iter()
+                .map(|c| match c {
+                    TenonAssistantMessageContent::Text(t) => t.clone(),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
             TenonLogData::Tool(tool_log) => {
                 let mut text = format!(
                     "Tool: {}\nArgs: {}",
@@ -395,10 +425,10 @@ impl TenonLog {
                         }
                     }
                 }
-                Some(text)
+                text
             }
-            TenonLogData::Thought(thought_log) => Some(thought_log.thought.clone()),
-            TenonLogData::Choreo(_) => None,
+            TenonLogData::Thought(thought_log) => thought_log.thought.clone(),
+            TenonLogData::Choreo(choreo_log) => choreo_log.id.clone(),
         }
     }
 

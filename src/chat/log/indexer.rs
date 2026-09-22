@@ -238,7 +238,7 @@ impl ChatLogIndexer {
         let relevant_logs = self.rag_context.build_context(&inactive_logs, user_message);
         let context_parts: Vec<_> = relevant_logs
             .iter()
-            .filter_map(|log| log.to_embeddable_text())
+            .map(|log| log.to_embeddable_text())
             .collect();
 
         context_parts

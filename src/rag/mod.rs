@@ -40,7 +40,7 @@ impl RagContext {
             // Generate embeddings for logs that don't have them yet
             let new_texts: Vec<_> = logs[cached_len..]
                 .iter()
-                .filter_map(|log| log.to_embeddable_text())
+                .map(|log| log.to_embeddable_text())
                 .collect();
 
             let new_embeddings: Vec<Vec<f32>> = generate_embeddings(&new_texts).unwrap_or_default();
@@ -61,10 +61,7 @@ impl RagContext {
         }
 
         // Cache has more embeddings than logs (shouldn't happen, but regenerate to be safe)
-        let texts: Vec<_> = logs
-            .iter()
-            .filter_map(|log| log.to_embeddable_text())
-            .collect();
+        let texts: Vec<_> = logs.iter().map(|log| log.to_embeddable_text()).collect();
 
         let embeddings: Vec<Vec<f32>> = generate_embeddings(&texts).unwrap_or_default();
 
