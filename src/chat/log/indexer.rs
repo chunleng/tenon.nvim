@@ -74,7 +74,8 @@ impl ChatLogIndexer {
     /// - Region 3: After 1x checkpoint (newer logs)
     ///
     /// Removal phases (each cuts until the total is below half of its limit):
-    /// - Soft limit: Phase 1 (idempotent tools regions 1&2), Phase 2 (non-idempotent tools region 1)
+    /// - Soft limit: Phase 0 (failed tools regions 1&2, all cleared regardless of tokens saved),
+    ///   Phase 1 (idempotent tools regions 1&2), Phase 2 (non-idempotent tools region 1)
     /// - Hard limit:
     ///   - Phase 3 (chat/system region 1), Phase 4 (non-idempotent tools region 2),
     ///   - Phase 5 (idempotent tools region 3)
@@ -118,6 +119,10 @@ impl ChatLogIndexer {
             )
         };
         let is_system_tool = |log: &TenonLog| tool_class(log) == Some(ToolClassification::System);
+        let is_failed_tool = |log: &TenonLog| match log.data() {
+            TenonLogData::Tool(tool_log) => matches!(tool_log.tool_result, Some(Err(_))),
+            _ => false,
+        };
 
         // Define region boundaries
         // Region 1: indices 0..region1_end (before checkpoint 2x)
@@ -125,6 +130,19 @@ impl ChatLogIndexer {
         // Region 3: indices region2_end..len (includes checkpoint 1x)
         let region1_end = second_checkpoint.unwrap_or(0);
         let region2_end = first_checkpoint.unwrap_or(0);
+
+        // === SOFT LIMIT: Phase 0 - Remove failed tools from regions 1 & 2 ===
+        // Failed tool results are noise, so every one is cleared regardless of
+        // how many tokens are saved (no cut-target check inside the phase).
+        if total_tokens > Self::SOFT_CUT_TARGET {
+            for idx in 0..region2_end {
+                let indexed = &log_window.logs[idx];
+                if indexed.active && is_failed_tool(&indexed.log) {
+                    total_tokens = total_tokens.saturating_sub(indexed.log.token_count());
+                    log_window.logs[idx].active = false;
+                }
+            }
+        }
 
         // === SOFT LIMIT: Phase 1 - Remove idempotent tools from regions 1 & 2 ===
         // Region 1 idempotent tools
@@ -275,6 +293,21 @@ mod tests {
         log
     }
 
+    fn create_failed_tool_log(name: &str, token_count: usize) -> TenonLog {
+        use crate::chat::TenonToolCall;
+        let mut log = TenonLog::new(TenonLogData::Tool(crate::chat::log::TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                name: name.into(),
+                args: serde_json::json!({}),
+            },
+            tool_result: Some(Err(crate::chat::log::TenonToolError("boom".into()))),
+        }));
+        log.token_count = token_count;
+        log
+    }
+
     fn create_tool_log(name: &str, token_count: usize) -> TenonLog {
         use crate::chat::TenonToolCall;
         let mut log = TenonLog::new(TenonLogData::Tool(crate::chat::log::TenonToolLog {
@@ -406,7 +439,8 @@ mod tests {
     // - Region 3: After 1x checkpoint (newer logs)
     //
     // Removal phases:
-    // - Soft limit: Phase 1 (idempotent tools regions 1&2), Phase 2 (non-idempotent tools region 1)
+    // - Soft limit: Phase 0 (failed tools regions 1&2, all cleared regardless of tokens saved),
+    //   Phase 1 (idempotent tools regions 1&2), Phase 2 (non-idempotent tools region 1)
     // - Hard limit: Phase 3 (chat/system region 1), Phase 4 (non-idempotent tools region 2),
     //               Phase 5 (idempotent tools region 3)
     // - Choreo logs are never removed
@@ -425,6 +459,60 @@ mod tests {
 
         // All logs should remain active
         assert!(log_window.logs.iter().all(|l| l.active));
+    }
+
+    #[test]
+    fn test_truncation_phase0_failed_tools_regions_1_and_2() {
+        // Phase 0: Failed tools in regions 1&2 are cleared unconditionally.
+        // Even though clearing one failed tool would already bring the total
+        // below the soft target, ALL failed tools in regions 1&2 are cleared.
+        // Structure:
+        // - Region 1: failed tools (indices 1, 2), user (checkpoint 2x) - index 3
+        // - Region 2: failed tool (index 4), user (checkpoint 1x) - index 5
+        // - Region 3: last assistant - index 6
+        let logs = vec![
+            create_user_log(1),                     // 0 - first user (never removed)
+            create_failed_tool_log("read_file", 1), // 1 - failed tool (Region 1)
+            create_failed_tool_log("read_file", 1), // 2 - failed tool (Region 1)
+            create_user_log(12),                    // 3 - user (checkpoint 2x)
+            create_failed_tool_log("read_file", 1), // 4 - failed tool (Region 2)
+            create_user_log(1),                     // 5 - user (checkpoint 1x)
+            create_assistant_log(0),                // 6
+        ];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let log_window = handler.log_window.read().unwrap();
+
+        assert!(log_window.logs[0].active, "first user preserved");
+        assert!(!log_window.logs[1].active, "failed tool cleared (Region 1)");
+        assert!(!log_window.logs[2].active, "failed tool cleared (Region 1)");
+        assert!(log_window.logs[3].active, "user preserved (checkpoint 2x)");
+        assert!(!log_window.logs[4].active, "failed tool cleared (Region 2)");
+        assert!(log_window.logs[5].active, "user preserved (checkpoint 1x)");
+    }
+
+    #[test]
+    fn test_truncation_phase0_failed_tools_region_3_untouched() {
+        // Phase 0 only touches regions 1&2. A failed tool in region 3 stays
+        // active when the total is over the soft limit but under the hard
+        // limit (so no later phase removes it either).
+        let logs = vec![
+            create_user_log(1),                     // 0 - first user (never removed)
+            create_user_log(12),                    // 1 - user (checkpoint 2x)
+            create_user_log(1),                     // 2 - user (checkpoint 1x)
+            create_failed_tool_log("read_file", 1), // 3 - failed tool (Region 3)
+        ];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let log_window = handler.log_window.read().unwrap();
+
+        assert!(log_window.logs[0].active, "first user preserved");
+        assert!(log_window.logs[1].active, "user preserved (checkpoint 2x)");
+        assert!(log_window.logs[2].active, "user preserved (checkpoint 1x)");
+        assert!(
+            log_window.logs[3].active,
+            "failed tool in region 3 untouched by Phase 0"
+        );
     }
 
     #[test]
