@@ -46,6 +46,17 @@ toml = "0.8"
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 fastembed = { version = "5.17.4", features = ["metal"] }
 
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# below: quick overwrite for testing
+# opt-level = 0
+# debug = true
+# debug-assertions = true
+# overflow-checks = true
+# lto = false
+# codegen-units = 256
+
 [dev-dependencies]
 rig = { version = "0.42.0", default-features = false, features = [
     "agent",
