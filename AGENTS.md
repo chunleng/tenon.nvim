@@ -1,6 +1,6 @@
 # Tenon
 
-Neovim plugin. Pure Rust. `nvim-oxi` bindings. Agentic chat tool.
+Agentic chat tool, written with `nvim-oxi` bindings.
 
 ## Build & Format
 1. `cargo build`
@@ -10,23 +10,24 @@ Neovim plugin. Pure Rust. `nvim-oxi` bindings. Agentic chat tool.
 
 ## Main Thread Guide
 
-Neovim = single-threaded. All Lua/API calls **must** run on main thread.
+Neovim is single-threaded. All Lua/API calls **must** run on main thread.
 
-Off-thread code → **never** call Neovim APIs directly.
+Off-thread code should **never** call Neovim APIs directly.
 
 ### GLOBAL_EXECUTION_HANDLER
 
-Bridge: off-thread → main-thread. Lives in `src/utils.rs`.
+Bridges off-thread to main-thread.
 
 1. `execute_rust_on_main_thread(closure)` → Rust closure (sync)
 2. `execute_rust_on_main_thread_async(closure)` → Rust closure with `Resolver<T>` (async)
 
-The async variant passes a `Resolver<T>` to the closure. `Resolver<T>` is `Clone`
-and resolves only once - subsequent calls to `resolve()` are no-ops.
+The async variant passes a `Resolver<T>` to the closure. `Resolver<T>` is `Clone`and resolves only once - subsequent calls to `resolve()` are no-ops.
 
 **Usage:**
 
 ```rust
+use crate::utils::GLOBAL_EXECUTION_HANDLER;
+
 // Sync: returns result directly
 let line: String = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(|| {
     api::get_current_line()
@@ -54,14 +55,17 @@ let result: OxiResult<String> = GLOBAL_EXECUTION_HANDLER
 
 ### Buffer line edit: strings must not contain newlines
 
-`set_lines()` treats each `String` element as a single buffer line. A `\n`
-inside an element causes the edit to fail. Always split text first:
+`set_lines()` treats each `String` element as a single buffer line. A `\n` inside an element causes the edit to fail. Always split text first:
 
 ```rust
 // Good: split into individual lines first
 let lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
 buffer.set_lines(start..end, false, lines);
 ```
+
+### `rig-core` was Renamed
+
+`rig-core` was renamed to `rig`. While most code was moved to `rig`, some core logic might retain in `rig-core`
 
 ## Deep-Dive Docs
 
