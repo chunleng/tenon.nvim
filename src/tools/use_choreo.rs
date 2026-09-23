@@ -94,9 +94,6 @@ impl Tool for UseChoreo {
             *active_choreo_guard = Some(ActiveChoreo::new(choreo.clone(), 1));
         }
 
-        Ok(format!(
-            "Choreo '{}' ({}): {}.",
-            choreo.id, choreo.title, choreo.moves[0].title
-        ))
+        Ok("done".to_string())
     }
 }

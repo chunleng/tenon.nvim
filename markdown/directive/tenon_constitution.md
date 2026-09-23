@@ -9,7 +9,7 @@ A mode that executes a task through predefined moves
 - `use_choreo` tool will be provided if there are available choreo for use
 - Instructions are revealed on every move, keeping attention focused and prevents sidetracking
 - All existing tools are available in the choreo
-- Only one choreo can be active at a time
+- When in a choreo, `context` tag with type `choreo-state` is available with the instructions you need to complete the move. Missing `choreo-state` means you are not in a choreo
 
 ### `directive` tag
 Agent conduct rules:
@@ -18,7 +18,7 @@ Agent conduct rules:
 
 ### `context` tag
 Tenon's context injected with the system prompt or tool results.
-- Can appear 0 or more times in a chat; may carry a `type` attribute: `work_queue` or `choreo`
+- Can appear 0 or more times in a chat; may carry a `type` attribute: `work_queue`, `choreo` or `choreo-state`
 - Use information in `context` only if it's relevant to the current query
 - If no user prompt provided, follow the `context` tag
 

@@ -95,8 +95,8 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
             };
 
             contexts.push(format!(
-                "<context type=\"choreo\">\n\
-                    Currently in {} move of {} choreo.\n\
+                "<context type=\"choreo-state\">\n\
+                    Currently in \"{}\" move of {} choreo.\n\
                     Execute \"Process\" in `instruction` tag step by step if numbered, not all at once; don't stop partway unless explicitly asked. \
                     Call a tool from `navigation` tag when the condition matches, or choose the best one when all steps in \"Process\" are finished; if no instruction explicitly mentions the condition, navigate to the next move, using artifact from the \"Choreo Move Artifact\" section, if available\n\
                     \n\n\
@@ -187,7 +187,7 @@ mod tests {
             build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
 
         assert_eq!(messages.len(), 2);
-        assert_system(&messages[0], "<context type=\"choreo\">");
+        assert_system(&messages[0], "<context type=\"choreo-state\">");
         let choreo_text = message_text(&messages[0]);
         assert!(choreo_text.contains("<memory name=\"previous_output\">"));
         assert!(choreo_text.contains("test result"));
@@ -272,7 +272,7 @@ mod tests {
         // Work queue context first, then choreo context, then the user message
         assert_system(&messages[0], "<context type=\"work_queue\">");
         assert!(message_text(&messages[0]).contains("refactor: fix X"));
-        assert_system(&messages[1], "<context type=\"choreo\">");
+        assert_system(&messages[1], "<context type=\"choreo-state\">");
         assert_user(&messages[2], "user input");
     }
 

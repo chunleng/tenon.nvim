@@ -168,6 +168,55 @@ impl TenonChoreoLog {
             tool_log,
         }
     }
+
+    /// Extracts the artifact passed from the previous step, if any.
+    /// `navigate_choreo` carries it in the result YAML; `end_choreo` in the call args.
+    fn previous_step_artifact(&self) -> Option<String> {
+        match self.tool_log.tool_call.name.as_str() {
+            "navigate_choreo" => {
+                if let Some(Ok(TenonToolResult::Text(text))) = &self.tool_log.tool_result {
+                    serde_yaml::from_str::<serde_yaml::Value>(&text.text)
+                        .ok()
+                        .and_then(|parsed| {
+                            parsed
+                                .get("artifact")
+                                .and_then(|v| v.as_str())
+                                .map(String::from)
+                        })
+                } else {
+                    None
+                }
+            }
+            "end_choreo" => self
+                .tool_log
+                .tool_call
+                .args
+                .get("move_artifact")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            _ => None,
+        }
+    }
+
+    /// Builds the `<context type="choreo">` system content replayed into LLM history.
+    pub fn system_content(&self) -> String {
+        let header = if self.r#move.is_some() {
+            format!("We are currently in a choreo: \"{}\"", self.content)
+        } else {
+            "The choreo has ended".to_string()
+        };
+        let mut content = format!("<context type=\"choreo\">\n{header}\n");
+        if let Some(artifact) = self.previous_step_artifact() {
+            content.push_str(&format!(
+                "The following information has been passed from the previous step:\n\
+                 ```yaml\n\
+                 {artifact}\n\
+                 ```\n"
+            ));
+        }
+        content.push_str("</context>\n");
+        content
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -317,6 +366,78 @@ mod tests {
             joined.contains("final summary of work"),
             "should extract move_artifact value from args, got: {joined}"
         );
+    }
+
+    fn choreo_tool_log(name: &str, args: serde_json::Value, result_text: &str) -> TenonToolLog {
+        TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "call-1".to_string(),
+                internal_call_id: "call-1".to_string(),
+                name: name.to_string(),
+                args,
+            },
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                text: result_text.to_string(),
+                ..Default::default()
+            }))),
+        }
+    }
+
+    #[test]
+    fn test_choreo_tools_and_record_thought_return_no_messages() {
+        for name in [
+            "record_thought",
+            "use_choreo",
+            "navigate_choreo",
+            "end_choreo",
+        ] {
+            let log = TenonLog::new(TenonLogData::Tool(choreo_tool_log(
+                name,
+                serde_json::json!({}),
+                "some result",
+            )));
+            let messages = Vec::<Message>::from(&log);
+            assert!(
+                messages.is_empty(),
+                "{name} should not emit history messages, got: {messages:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_other_tools_still_return_messages() {
+        let log = TenonLog::new(TenonLogData::Tool(choreo_tool_log(
+            "read_file",
+            serde_json::json!({"filepath": "./src/lib.rs"}),
+            "file contents",
+        )));
+        let messages = Vec::<Message>::from(&log);
+        assert!(
+            !messages.is_empty(),
+            "read_file should emit history messages"
+        );
+    }
+
+    #[test]
+    fn test_choreo_log_converts_to_system_context() {
+        let choreo_log = TenonChoreoLog {
+            id: "c-1".to_string(),
+            content: "Test Choreo".to_string(),
+            r#move: Some(2),
+            tool_log: choreo_tool_log(
+                "navigate_choreo",
+                serde_json::json!({"move": 2}),
+                "artifact: scope analysis done",
+            ),
+        };
+        let log = TenonLog::new(TenonLogData::Choreo(choreo_log));
+        let messages = Vec::<Message>::from(&log);
+
+        assert_eq!(messages.len(), 1, "expected single system message");
+        let _ = match &messages[0] {
+            Message::System { content } => content,
+            other => panic!("expected System message, got {other:?}"),
+        };
     }
 
     #[test]
@@ -655,6 +776,15 @@ impl TenonLogData {
                     })
                     .sum::<usize>()
             }
+            // Excluded tools emit no history messages, so they cost no tokens
+            TenonLogData::Tool(log)
+                if matches!(
+                    log.tool_call.name.as_str(),
+                    "record_thought" | "use_choreo" | "navigate_choreo" | "end_choreo"
+                ) =>
+            {
+                0
+            }
             TenonLogData::Tool(log) => {
                 let call_tokens = estimate_tokens(&log.tool_call.name)
                     + estimate_tokens(&log.tool_call.args.to_string());
@@ -669,7 +799,7 @@ impl TenonLogData {
                 call_tokens + result_tokens
             }
             TenonLogData::Thought(log) => estimate_tokens(&log.thought),
-            TenonLogData::Choreo(_) => 0,
+            TenonLogData::Choreo(log) => estimate_tokens(&log.system_content()),
         }
     }
 }
@@ -684,6 +814,17 @@ impl From<&TenonLog> for Vec<Message> {
                     None => vec![],
                 }
             }
+            // Choreo tools and record_thought are replayed via Thought/Choreo logs
+            // or the choreo context prompt; keeping their raw results in history
+            // only confuses the agent.
+            TenonLogData::Tool(tool_log)
+                if matches!(
+                    tool_log.tool_call.name.as_str(),
+                    "record_thought" | "use_choreo" | "navigate_choreo" | "end_choreo"
+                ) =>
+            {
+                vec![]
+            }
             TenonLogData::Tool(tool_log) => tool_log.into(),
             TenonLogData::Thought(thought_log) => {
                 vec![Message::Assistant {
@@ -694,7 +835,11 @@ impl From<&TenonLog> for Vec<Message> {
                     ))],
                 }]
             }
-            TenonLogData::Choreo(_) => vec![],
+            TenonLogData::Choreo(choreo_log) => {
+                vec![Message::System {
+                    content: choreo_log.system_content(),
+                }]
+            }
         }
     }
 }
