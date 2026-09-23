@@ -4,7 +4,7 @@ use crate::chat::chat_session_count;
 use crate::get_application_config;
 use crate::tools::resolve_tool_names;
 use crate::ui::widget::chat_display::ChatDisplayData;
-use crate::utils::format_token_with_delta;
+use crate::utils::{format_token_count, format_token_with_delta};
 
 #[derive(Clone)]
 pub struct FooterValues {
@@ -257,15 +257,21 @@ impl FooterState {
             meta_suffix
         );
 
-        // Format token counts with K/M/B suffixes
-        let input = format_token_with_delta(values.input_tokens, values.input_tokens_delta);
-        let output = format_token_with_delta(values.output_tokens, values.output_tokens_delta);
-        let cached = format_token_with_delta(values.cached_tokens, values.cached_tokens_delta);
+        // Only total shows delta; input/output are plain counts
+        let input = format_token_count(values.input_tokens);
+        let output = format_token_count(values.output_tokens);
         let total = format_token_with_delta(values.total_tokens, values.total_tokens_delta);
 
+        // Cache hit rate as whole number percentage of input tokens
+        let cache_pct = values
+            .cached_tokens
+            .checked_mul(100)
+            .and_then(|v| v.checked_div(values.input_tokens))
+            .unwrap_or(0);
+
         let token_line = format!(
-            "tokens: {}~ | usage: {} 󰕒 + {} 󰇚 + {}  = {} total",
-            values.context_tokens, input, output, cached, total
+            "tokens: {}~ | {} 󰕒 (󰃨 {}%), {} 󰇚, {} total",
+            values.context_tokens, input, cache_pct, output, total
         );
 
         (title_line, token_line)
@@ -396,7 +402,7 @@ mod tests {
         );
         assert_eq!(
             token_line,
-            "tokens: 200~ | usage: 100 (+100) 󰕒 + 50 (+50) 󰇚 + 25 (+25)  = 175 (+175) total"
+            "tokens: 200~ | 100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total"
         );
     }
 
@@ -421,7 +427,7 @@ mod tests {
 
         // Show tool diff (model matches, 8 tools removed)
         assert_eq!(title_line, "󰭹  1 of 1, agent: default (󰣖 -8)");
-        assert_eq!(token_line, "tokens: 0~ | usage: 0 󰕒 + 0 󰇚 + 0  = 0 total");
+        assert_eq!(token_line, "tokens: 0~ | 0 󰕒 (󰃨 0%), 0 󰇚, 0 total");
     }
 
     #[test]
@@ -455,7 +461,7 @@ mod tests {
 
         // No diff shown - delta omitted when 0
         assert_eq!(title_line, "󰭹 Test Chat 1 of 1, agent: default");
-        assert_eq!(token_line, "tokens: 0~ | usage: 0 󰕒 + 0 󰇚 + 0  = 0 total");
+        assert_eq!(token_line, "tokens: 0~ | 0 󰕒 (󰃨 0%), 0 󰇚, 0 total");
     }
 
     #[test]
