@@ -4,10 +4,11 @@ use std::sync::{Arc, RwLock, Weak};
 use nvim_oxi::api::types::LogLevel;
 use rig::completion::Usage;
 use rig::message::ToolResultContent;
+use rig::prelude::Message;
 use rig::tool::DynamicTool;
 
 use crate::agent::provider::{ChatStream, StreamItem, get_agent};
-use crate::chat::prompt::build_choreo_prompt;
+use crate::chat::prompt::build_choreo_messages;
 use crate::chat::{
     ActiveChoreo, ChatLogHandler, EventChannel, PendingAction, TenonAssistantMessage,
     TenonAssistantMessageContent, TenonChoreoLog, TenonLog, TenonLogData, TenonThoughtLog,
@@ -168,14 +169,17 @@ impl AgenticStreamEngine {
         max_turns: usize,
     ) -> bool {
         let agent = self.build_chat_adapter();
-        let chat_history = self.log_handler.get_chat_history(&prompt);
-        let prompt = build_choreo_prompt(&self.active_choreo, &self.work_queue, prompt).await;
-        let prompt = if prompt.is_empty() {
-            "<context></context>".to_string()
+        let mut chat_history = self.log_handler.get_chat_history(&prompt);
+        let mut messages =
+            build_choreo_messages(&self.active_choreo, &self.work_queue, prompt).await;
+        let message = if messages.is_empty() {
+            Message::system("<context></context>")
         } else {
-            prompt
+            let message = messages.pop().unwrap();
+            chat_history.extend(messages);
+            message
         };
-        let mut stream = ChatStream::new(&agent, prompt, chat_history, max_turns).await;
+        let mut stream = ChatStream::new(&agent, message, chat_history, max_turns).await;
 
         let mut should_continue = false;
 

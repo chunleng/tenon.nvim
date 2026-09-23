@@ -1,18 +1,41 @@
 use crate::chat::{ActiveChoreo, WorkQueue};
+use rig::prelude::Message;
 use std::sync::{Arc, RwLock};
 
-/// Builds a choreo-wrapped prompt if there's an active choreo.
-/// Queued work queue tasks are injected into their own context tag in both cases.
-pub async fn build_choreo_prompt(
+/// Builds messages for a turn: work queue and choreo contexts as their own
+/// system messages, followed by the base prompt as a user message (if non-empty).
+pub async fn build_choreo_messages(
     active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>,
     work_queue: &Arc<RwLock<WorkQueue>>,
     base_prompt: String,
-) -> String {
+) -> Vec<Message> {
     let queue_section = work_queue
         .read()
         .ok()
         .and_then(|queue| queue.render_context());
 
+    let mut messages: Vec<Message> = Vec::new();
+
+    if let Some(section) = queue_section {
+        messages.push(Message::system(format!(
+            "<context type=\"work_queue\">\n{}\n</context>\n",
+            section
+        )));
+    }
+
+    if let Some(choreo_context) = build_choreo_context(active_choreo).await {
+        messages.push(Message::system(choreo_context));
+    }
+
+    if !base_prompt.is_empty() {
+        messages.push(Message::user(base_prompt));
+    }
+
+    messages
+}
+
+/// Renders the active choreo's context tag, if any.
+async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>) -> Option<String> {
     let mut contexts: Vec<String> = Vec::new();
 
     if let Ok(active_lock) = active_choreo.read()
@@ -94,27 +117,55 @@ pub async fn build_choreo_prompt(
         }
     }
 
-    if let Some(section) = queue_section {
-        contexts.push(format!(
-            "<context type=\"work_queue\">\n{}\n</context>\n",
-            section
-        ));
+    if contexts.is_empty() {
+        return None;
     }
-
-    format!("{}{}", contexts.join(""), base_prompt)
+    Some(contexts.join(""))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rig::message::UserContent;
     use std::collections::HashMap;
 
     fn empty_queue() -> Arc<RwLock<WorkQueue>> {
         Arc::new(RwLock::new(WorkQueue::default()))
     }
 
+    fn message_text(message: &Message) -> String {
+        match message {
+            Message::System { content } => content.clone(),
+            Message::User { content } => content
+                .iter()
+                .filter_map(|c| match c {
+                    UserContent::Text(text) => Some(text.text.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => String::new(),
+        }
+    }
+
+    fn assert_system(message: &Message, expected: &str) {
+        assert!(
+            matches!(message, Message::System { .. }),
+            "expected system message, got: {message:?}"
+        );
+        let text = message_text(message);
+        assert!(text.contains(expected), "missing `{expected}` in: {text}");
+    }
+
+    fn assert_user(message: &Message, expected: &str) {
+        assert!(
+            matches!(message, Message::User { .. }),
+            "expected user message, got: {message:?}"
+        );
+        assert_eq!(message_text(message), expected);
+    }
+
     #[tokio::test]
-    async fn test_build_choreo_prompt_displays_memory() {
+    async fn test_build_choreo_messages_displays_memory() {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
@@ -132,27 +183,44 @@ mod tests {
             },
         })));
 
-        let prompt = build_choreo_prompt(&active, &empty_queue(), "user input".to_string()).await;
+        let messages =
+            build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
 
-        assert!(prompt.contains("<memory name=\"previous_output\">"));
-        assert!(prompt.contains("test result"));
-        assert!(prompt.contains("</memory>"));
+        assert_eq!(messages.len(), 2);
+        assert_system(&messages[0], "<context type=\"choreo\">");
+        let choreo_text = message_text(&messages[0]);
+        assert!(choreo_text.contains("<memory name=\"previous_output\">"));
+        assert!(choreo_text.contains("test result"));
+        assert!(choreo_text.contains("</memory>"));
+        assert_user(&messages[1], "user input");
     }
 
     #[tokio::test]
-    async fn test_build_choreo_prompt_no_choreos() {
+    async fn test_build_choreo_messages_no_choreos() {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
 
         let active = Arc::new(RwLock::new(None));
-        let prompt = build_choreo_prompt(&active, &empty_queue(), "user input".to_string()).await;
-        assert_eq!(prompt, "user input");
-        assert!(!prompt.contains("<context>"));
+        let messages =
+            build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
+        assert_eq!(messages.len(), 1);
+        assert_user(&messages[0], "user input");
     }
 
     #[tokio::test]
-    async fn test_build_choreo_prompt_injects_work_queue_without_choreo() {
+    async fn test_build_choreo_messages_empty_base_prompt_no_choreos() {
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().unwrap())
+            .ok();
+
+        let active = Arc::new(RwLock::new(None));
+        let messages = build_choreo_messages(&active, &empty_queue(), String::new()).await;
+        assert!(messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_build_choreo_messages_injects_work_queue_without_choreo() {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
@@ -165,17 +233,19 @@ mod tests {
             "long X".to_string(),
         );
 
-        let prompt = build_choreo_prompt(&active, &queue, "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, &queue, "user input".to_string()).await;
 
-        assert!(prompt.contains("<work_queue>"));
-        assert!(prompt.contains("refactor: fix X"));
-        assert!(prompt.contains("</work_queue>"));
-        assert!(prompt.starts_with("<context type=\"work_queue\">"));
-        assert!(prompt.ends_with("user input"));
+        assert_eq!(messages.len(), 2);
+        assert_system(&messages[0], "<context type=\"work_queue\">");
+        let queue_text = message_text(&messages[0]);
+        assert!(queue_text.contains("<work_queue>"));
+        assert!(queue_text.contains("refactor: fix X"));
+        assert!(queue_text.contains("</work_queue>"));
+        assert_user(&messages[1], "user input");
     }
 
     #[tokio::test]
-    async fn test_build_choreo_prompt_injects_work_queue_with_choreo() {
+    async fn test_build_choreo_messages_injects_work_queue_with_choreo() {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
@@ -196,21 +266,18 @@ mod tests {
             "long X".to_string(),
         );
 
-        let prompt = build_choreo_prompt(&active, &queue, "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, &queue, "user input".to_string()).await;
 
-        assert!(prompt.contains("<work_queue>"));
-        assert!(prompt.contains("refactor: fix X"));
-        // Queue gets its own context tag, placed after the choreo context tag
-        assert!(prompt.contains("<context type=\"choreo\">"));
-        let choreo_context_start = prompt.find("<context type=\"choreo\">").unwrap();
-        let choreo_context_end = prompt.find("</context>").unwrap();
-        let queue_context_start = prompt.find("<context type=\"work_queue\">").unwrap();
-        assert!(choreo_context_start < choreo_context_end);
-        assert!(choreo_context_end < queue_context_start);
+        assert_eq!(messages.len(), 3);
+        // Work queue context first, then choreo context, then the user message
+        assert_system(&messages[0], "<context type=\"work_queue\">");
+        assert!(message_text(&messages[0]).contains("refactor: fix X"));
+        assert_system(&messages[1], "<context type=\"choreo\">");
+        assert_user(&messages[2], "user input");
     }
 
     #[tokio::test]
-    async fn test_build_choreo_prompt_navigates_to_next_move() {
+    async fn test_build_choreo_messages_navigates_to_next_move() {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
@@ -224,16 +291,14 @@ mod tests {
             memory: HashMap::new(),
         })));
 
-        let prompt = build_choreo_prompt(&active, &empty_queue(), "user input".to_string()).await;
+        let messages =
+            build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
 
-        assert!(
-            prompt.contains("navigate_choreo move:2"),
-            "goto to next move should generate navigate_choreo line, got: {prompt}"
-        );
+        assert_system(&messages[0], "navigate_choreo move:2");
     }
 
     #[tokio::test]
-    async fn test_build_choreo_prompt_ends_at_final_move() {
+    async fn test_build_choreo_messages_ends_at_final_move() {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
@@ -247,11 +312,9 @@ mod tests {
             memory: HashMap::new(),
         })));
 
-        let prompt = build_choreo_prompt(&active, &empty_queue(), "user input".to_string()).await;
+        let messages =
+            build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
 
-        assert!(
-            prompt.contains("end_choreo"),
-            "EndChoreo goto should generate end_choreo line, got: {prompt}"
-        );
+        assert_system(&messages[0], "end_choreo");
     }
 }
