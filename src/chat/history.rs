@@ -150,7 +150,7 @@ mod tests {
 
         assert_eq!(restored.work_queue.entries.len(), 2);
         assert_eq!(restored.work_queue.entries[0].group, "refactor");
-        assert_eq!(restored.work_queue.entries[0].title, "fix X");
+        assert_eq!(restored.work_queue.entries[0].id, "fix X");
         assert_eq!(restored.work_queue.entries[0].details, "long X");
         assert_eq!(restored.work_queue.entries[1].group, "docs");
     }

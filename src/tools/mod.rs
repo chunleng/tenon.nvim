@@ -126,7 +126,7 @@ pub fn tool_display_summary(
         return Some(format!("{}: {}", core_arg, text));
     }
 
-    // Special case for "pop_task": the meaningful info (task title) is in the
+    // Special case for "pop_task": the meaningful info (task id) is in the
     // output YAML, not in the args (which only contain the group).
     if name == "pop_task" {
         let text = match result? {
@@ -134,8 +134,8 @@ pub fn tool_display_summary(
             _ => return None,
         };
         let yaml: serde_yaml::Value = serde_yaml::from_str(text).ok()?;
-        let title = yaml.get("title")?.as_str()?;
-        return Some(format!("title: {}", title));
+        let id = yaml.get("id")?.as_str()?;
+        return Some(format!("id: {}", id));
     }
 
     let core_arg: &str = match name {
@@ -374,10 +374,10 @@ mod tests {
     }
 
     #[test]
-    fn pop_task_summary_extracts_title_from_output() {
+    fn pop_task_summary_extracts_id_from_output() {
         use crate::chat::TenonToolResult;
         let result = Ok(TenonToolResult::Text(rig::agent::Text {
-            text: "group: bugs\ntitle: fix crash\ndetails: crash details\n".to_string(),
+            text: "group: bugs\nid: fix crash\ndetails: crash details\n".to_string(),
             ..Default::default()
         }));
         let summary = tool_display_summary(
@@ -385,7 +385,7 @@ mod tests {
             &serde_json::json!({"group": "bugs"}),
             Some(&result),
         );
-        assert_eq!(summary, Some("title: fix crash".to_string()));
+        assert_eq!(summary, Some("id: fix crash".to_string()));
     }
 
     #[test]

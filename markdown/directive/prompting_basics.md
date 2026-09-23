@@ -35,8 +35,8 @@ How it works:
 Deferred task storage. Side work discovered mid-task is queued instead of interrupting the current task.
 
 How it works:
-- push_tasks to queue work: group (category), tasks list with title and details per task
-- pop_task to dequeue and work on the next task (returns title and details as YAML)
+- push_tasks to queue work: group (category), tasks list with id and details per task
+- pop_task to dequeue and work on the next task (returns id and details as YAML)
 - Queued tasks surface in the context tag while pending
 
 Use when:

@@ -23,7 +23,7 @@ Create the development tasks using `push_tasks`:
 Plan step (feature): "Display order status change notification with dummy data"
 Relevant scope requirement: "User receives a notification within 5 seconds of a status change"
 Task:
-- title: "Display order status change notification with dummy data"
+- id: "order-status-notification"
 - details: "Display an order status change notification with dummy data. Deliverable: user triggers a status change and sees a placeholder notification. Requirement: user receives a notification within 5 seconds of a status change."
 
 ## Choreo Move Artifact

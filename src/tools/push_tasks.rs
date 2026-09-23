@@ -8,7 +8,7 @@ use std::sync::{Arc, RwLock};
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskItem {
-    pub title: String,
+    pub id: String,
     pub details: String,
 }
 
@@ -48,16 +48,16 @@ impl Tool for PushTasks {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "title": {
+                            "id": {
                                 "type": "string",
-                                "description": "One-line summary shown in the context tag while queued"
+                                "description": "Task identifier that conveys what the task is (e.g. 'fix-auth-bug'). Match it in the context tag to confirm it is queued"
                             },
                             "details": {
                                 "type": "string",
                                 "description": "Full details: what the work is, where (files/locations), and why"
                             }
                         },
-                        "required": ["title", "details"]
+                        "required": ["id", "details"]
                     }
                 }
             },
@@ -75,7 +75,7 @@ impl Tool for PushTasks {
             .write()
             .map_err(|e| ToolExecutionError::other(format!("Failed to write work_queue: {}", e)))?;
         for task in &args.tasks {
-            queue.push(args.group.clone(), task.title.clone(), task.details.clone());
+            queue.push(args.group.clone(), task.id.clone(), task.details.clone());
         }
         Ok(format!(
             "{} task(s) queued under group '{}'. They will be worked when the current task is done or the user asks.",
@@ -103,7 +103,7 @@ mod tests {
                 PushTasksArgs {
                     group: "refactor".to_string(),
                     tasks: vec![TaskItem {
-                        title: "fix X".to_string(),
+                        id: "fix X".to_string(),
                         details: "long X".to_string(),
                     }],
                 },
@@ -115,7 +115,7 @@ mod tests {
         let guard = queue.read().unwrap();
         assert_eq!(guard.entries.len(), 1);
         assert_eq!(guard.entries[0].group, "refactor");
-        assert_eq!(guard.entries[0].title, "fix X");
+        assert_eq!(guard.entries[0].id, "fix X");
         assert_eq!(guard.entries[0].details, "long X");
     }
 
@@ -133,11 +133,11 @@ mod tests {
                     group: "docs".to_string(),
                     tasks: vec![
                         TaskItem {
-                            title: "a".to_string(),
+                            id: "a".to_string(),
                             details: "long a".to_string(),
                         },
                         TaskItem {
-                            title: "b".to_string(),
+                            id: "b".to_string(),
                             details: "long b".to_string(),
                         },
                     ],
@@ -150,8 +150,8 @@ mod tests {
         let guard = queue.read().unwrap();
         assert_eq!(guard.entries.len(), 2);
         assert_eq!(guard.entries[0].group, "docs");
-        assert_eq!(guard.entries[0].title, "a");
+        assert_eq!(guard.entries[0].id, "a");
         assert_eq!(guard.entries[1].group, "docs");
-        assert_eq!(guard.entries[1].title, "b");
+        assert_eq!(guard.entries[1].id, "b");
     }
 }

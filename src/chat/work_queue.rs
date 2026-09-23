@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkQueueEntry {
     pub group: String,
-    pub title: String,
+    pub id: String,
     pub details: String,
 }
 
@@ -16,12 +16,8 @@ pub struct WorkQueue {
 }
 
 impl WorkQueue {
-    pub fn push(&mut self, group: String, title: String, details: String) {
-        self.entries.push(WorkQueueEntry {
-            group,
-            title,
-            details,
-        });
+    pub fn push(&mut self, group: String, id: String, details: String) {
+        self.entries.push(WorkQueueEntry { group, id, details });
     }
 
     /// Removes and returns the first entry matching `group`.
@@ -34,7 +30,7 @@ impl WorkQueue {
         self.entries.is_empty()
     }
 
-    /// Renders queued titles for context injection.
+    /// Renders queued task ids for context injection.
     /// Returns `None` when the queue is empty (no section in the prompt).
     pub fn render_context(&self) -> Option<String> {
         if self.entries.is_empty() {
@@ -43,7 +39,7 @@ impl WorkQueue {
         let lines: Vec<String> = self
             .entries
             .iter()
-            .map(|e| format!("{}: {}", e.group, e.title))
+            .map(|e| format!("{}: {}", e.group, e.id))
             .collect();
         Some(format!("<work_queue>\n{}\n</work_queue>", lines.join("\n")))
     }
@@ -65,11 +61,11 @@ mod tests {
         );
 
         let popped = queue.pop("refactor").unwrap();
-        assert_eq!(popped.title, "fix X");
+        assert_eq!(popped.id, "fix X");
         assert_eq!(popped.details, "long X");
 
         let popped = queue.pop("refactor").unwrap();
-        assert_eq!(popped.title, "fix Y");
+        assert_eq!(popped.id, "fix Y");
         assert_eq!(popped.details, "long Y");
 
         assert!(queue.pop("refactor").is_none());
@@ -104,7 +100,7 @@ mod tests {
     #[test]
     fn test_entry_without_details_fails_to_deserialize() {
         // details is required in JSON; entries missing it are rejected.
-        let json = r#"{"group":"bugs","title":"fix crash"}"#;
+        let json = r#"{"group":"bugs","id":"fix crash"}"#;
         assert!(serde_json::from_str::<WorkQueueEntry>(json).is_err());
     }
 }

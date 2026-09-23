@@ -85,7 +85,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(output, "group: refactor\ntitle: fix X\ndetails: long X\n");
+        assert_eq!(output, "group: refactor\nid: fix X\ndetails: long X\n");
         assert!(queue.read().unwrap().is_empty());
     }
 
