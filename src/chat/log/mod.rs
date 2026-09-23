@@ -225,8 +225,6 @@ pub enum TenonLogData {
     Assistant(TenonAssistantMessage),
     Tool(TenonToolLog),
     Thought(TenonThoughtLog),
-    /// Alias "Workflow" keeps histories saved before the workflow→choreo rename loadable.
-    #[serde(alias = "Workflow")]
     Choreo(TenonChoreoLog),
 }
 
@@ -438,15 +436,6 @@ mod tests {
             Message::System { content } => content,
             other => panic!("expected System message, got {other:?}"),
         };
-    }
-
-    #[test]
-    fn test_choreo_log_deserializes_legacy_workflow_json() {
-        // History files saved before the workflow→choreo rename use the
-        // "Workflow" variant tag and "step" field name. They must keep loading.
-        let json = r#"{"token_count":5,"Workflow":{"id":"wf-1","content":"Test Workflow","step":2,"tool_log":{"tool_call":{"id":"1","internal_call_id":"1","name":"navigate_workflow","args":{}},"tool_result":null}}}"#;
-        let log: TenonLog = serde_json::from_str(json).unwrap();
-        assert!(matches!(log.data(), TenonLogData::Choreo(c) if c.r#move == Some(2)));
     }
 
     #[test]
