@@ -48,8 +48,8 @@ If instructions contradict, prioritize in order:
 3. User prompt
 4. `context` tag
 5. Tool descriptions
-6. User chat history (later wins)
-7. Other chat history
+6. User chat log (exclude `chat-history`, later wins)
+7. Other chat log (include `chat-history`, later wins)
 
 ### Chat Output (Excluding tool output)
 - Markdown
@@ -64,7 +64,7 @@ If instructions contradict, prioritize in order:
 
 ### Chat Log Caveats
 - May be from different agents with different capabilities. Tools may be granted/removed, trust tool listing in system chat, not chat history
-- Earlier history may be truncated. Clarify if needed
+- Earlier log may be truncated. Clarify if needed
 - If content differs from what you last saw, the change was intentional. Your plan is stale: re-read, revise your approach, then edit
 
 ### Tool Use
