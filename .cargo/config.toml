@@ -1,2 +1,5 @@
 [build]
 rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[registry]
+global-min-publish-age = "14 days"
