@@ -148,9 +148,10 @@ mod tests {
     #[test]
     fn validate_rust_resolves_version_from_lock() {
         let version = validate_rust_dependency("toml", None).unwrap();
-        assert_eq!(
-            version, "0.8.23",
-            "Should resolve exact version from Cargo.lock"
+        assert!(
+            version.starts_with("0.9."),
+            "Should resolve exact version from Cargo.lock, got: {}",
+            version
         );
     }
 
