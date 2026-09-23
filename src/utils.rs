@@ -91,6 +91,35 @@ pub fn notify(message: impl ToString, log_level: LogLevel) {
     GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(message, log_level);
 }
 
+/// Estimate LLM token count for text.
+///
+/// Heuristic: CJK characters count as ~1 token each (they rarely share
+/// tokens), other characters as ~1/4 token each (the common ~4 chars/token
+/// rule), rounded up. Accuracy is comparable to statistical estimators and
+/// sufficient for chat-history budgeting.
+pub fn estimate_tokens(text: &str) -> usize {
+    let mut cjk = 0usize;
+    let mut other = 0usize;
+    for c in text.chars() {
+        if is_cjk(c) {
+            cjk += 1;
+        } else {
+            other += 1;
+        }
+    }
+    cjk + other.div_ceil(4)
+}
+
+fn is_cjk(c: char) -> bool {
+    matches!(c as u32,
+        0x4E00..=0x9FFF      // CJK Unified Ideographs
+        | 0x3400..=0x4DBF    // CJK Unified Ideographs Extension A
+        | 0x3040..=0x30FF    // Hiragana + Katakana
+        | 0xAC00..=0xD7AF    // Hangul Syllables
+        | 0xF900..=0xFAFF    // CJK Compatibility Ideographs
+    )
+}
+
 /// Format a token count with 2 significant figures and K/M/B suffixes.
 ///
 /// Examples:
@@ -519,6 +548,30 @@ count: 5"#;
             Some(h) => unsafe { std::env::set_var("HOME", h) },
             None => {}
         }
+    }
+
+    #[test]
+    fn test_estimate_tokens_empty() {
+        assert_eq!(estimate_tokens(""), 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_ascii() {
+        // ~4 ASCII chars per token, rounded up
+        assert_eq!(estimate_tokens("hello"), 2);
+        assert_eq!(estimate_tokens("hello world"), 3);
+    }
+
+    #[test]
+    fn test_estimate_tokens_cjk() {
+        // Each CJK char counts as ~1 token
+        assert_eq!(estimate_tokens("你好世界"), 4);
+    }
+
+    #[test]
+    fn test_estimate_tokens_mixed() {
+        // "hello 你好": 6 non-CJK chars → 2 tokens, 2 CJK chars → 2 tokens
+        assert_eq!(estimate_tokens("hello 你好"), 4);
     }
 
     #[test]

@@ -6,9 +6,8 @@ use chrono::{DateTime, TimeZone, Utc};
 use rig::message::{AssistantContent, Image, Message, ToolResultContent, UserContent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use skimtoken::estimate_tokens;
 
-use crate::utils::format_yaml_block_scalars;
+use crate::utils::{estimate_tokens, format_yaml_block_scalars};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TenonUserMessage {
