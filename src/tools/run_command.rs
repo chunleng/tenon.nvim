@@ -143,7 +143,7 @@ DENY patterns:
 - Access to secrets: env vars (*KEY*, *SECRET*, *TOKEN*, *API*), files (.env, id_rsa, credentials, .pem)
 - System modify: install packages, system config, services
 - Delete: rm, rmdir, unlink, rmtree, shred
-- Network: curl, wget, nc, netcat, http requests
+- Network: nc, netcat, http requests to arbitrary URLs (registry queries listed under ALLOW are exempt)
 - Code exec: eval, exec, source untrusted scripts
 - Permissions: chmod, chown, setuid
 - Process kill: kill, pkill, killall
@@ -155,6 +155,7 @@ ALLOW patterns:
 - VCS read-only: git status, git log, git diff
 - Build/test: make, cargo build, npm test
 - Info: which, whereis, echo
+- Registry queries (read-only, hit fixed trusted registry endpoints): cargo search, cargo info, npm view, npm search
 - Pure utilities (no side effects): sleep, date, wc, sort, jq, stat, du, ps, basename, realpath, sha256sum, base64
 
 Code subject gate: allow only if BOTH hold:
