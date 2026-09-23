@@ -79,6 +79,9 @@ fn tenon() -> OxiResult<Dictionary> {
             vim.api.nvim_set_hl(0, 'TenonSignSelectBullet', { fg = '#939393', ctermfg = 8 })
             vim.api.nvim_set_hl(0, 'TenonLineSelectTitle', { fg = '#939393', ctermfg = 8, bold = true })
             vim.api.nvim_set_hl(0, 'TenonLineChatMeta', { fg = '#28869c', ctermfg = 6 })
+            vim.api.nvim_set_hl(0, 'TenonGaugeBar', { fg = '#00afaf', ctermfg = 37 })
+            vim.api.nvim_set_hl(0, 'TenonGaugeBarActive', { fg = '#28869c', ctermfg = 6 })
+            vim.api.nvim_set_hl(0, 'TenonGaugeBarCritical', { fg = '#ff7964', ctermfg = 9 })
             "#,
         )
         .exec();

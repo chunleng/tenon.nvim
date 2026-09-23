@@ -13,13 +13,24 @@ use nvim_oxi::api::{
     opts::{OptionOpts, SetExtmarkOpts},
 };
 
-use crate::{ui::nvim_primitives::buffer::NvimBuffer, utils::GLOBAL_EXECUTION_HANDLER};
+use crate::{
+    ui::{
+        nvim_primitives::buffer::NvimBuffer,
+        widget::chat_display::chat_footer::footer_state::GAUGE_BARS,
+    },
+    utils::GLOBAL_EXECUTION_HANDLER,
+};
 
 use super::ChatDisplayData;
 use footer_state::{FooterState, FooterValues};
 pub use spinner::SpinnerState;
 
-fn render_footer(buffer: Arc<NvimBuffer>, title_line: String, token_line: String) {
+fn render_footer(
+    buffer: Arc<NvimBuffer>,
+    title_line: String,
+    token_line: String,
+    gauge_level: usize,
+) {
     let ns_footer = api::create_namespace("TenonChatFooter");
     let _ = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(move || {
         if let Some(mut buffer) = buffer.get_buffer() {
@@ -29,17 +40,65 @@ fn render_footer(buffer: Arc<NvimBuffer>, title_line: String, token_line: String
             // Get line count and set footer on last 2 lines
             if let Ok(line_count) = buffer.line_count() {
                 let footer_start = line_count.saturating_sub(2);
+                let token_line_len = token_line.len();
                 let _ = buffer.set_lines(footer_start.., false, vec![title_line, token_line]);
 
-                // Apply TenonLineChatMeta highlight to footer lines
-                for line in footer_start..line_count {
-                    let opts = SetExtmarkOpts::builder()
-                        .end_row(line)
+                // Clear stale extmarks before re-applying highlights
+                let _ = buffer.clear_namespace(ns_footer, 0..);
+
+                // Apply TenonLineChatMeta highlight to footer lines.
+                // Neovim's line_hl_group extmark overrides inline hl_group
+                // extmarks on the same line regardless of priority
+                // (neovim#31151), so the token line uses an inline extmark
+                // starting after the gauge bars instead. hl_eol is not
+                // allowed with hl_group, so an explicit end_col covers the
+                // rest of the line.
+                let _ = buffer.set_extmark(
+                    ns_footer,
+                    footer_start + 1,
+                    GAUGE_BARS.len(),
+                    &SetExtmarkOpts::builder()
+                        .end_col(token_line_len)
+                        .hl_group("TenonLineChatMeta")
+                        .build(),
+                );
+                let _ = buffer.set_extmark(
+                    ns_footer,
+                    footer_start,
+                    0,
+                    &SetExtmarkOpts::builder()
+                        .end_row(footer_start)
                         .line_hl_group("TenonLineChatMeta")
                         .hl_eol(true)
-                        .build();
-                    let _ = buffer.set_extmark(ns_footer, line, 0, &opts);
-                }
+                        .build(),
+                );
+
+                // Highlight gauge bars on the token line: active bar gets the
+                // gauge highlight (critical variant on the last bar), rest stay dim
+                let active_hl = if gauge_level == 4 {
+                    "TenonGaugeBarCritical"
+                } else {
+                    "TenonGaugeBarActive"
+                };
+                let end_col = ((gauge_level as f32 + 1.0) / 5.0 * GAUGE_BARS.len() as f32) as usize;
+                let _ = buffer.set_extmark(
+                    ns_footer,
+                    footer_start + 1,
+                    0,
+                    &SetExtmarkOpts::builder()
+                        .end_col(end_col)
+                        .hl_group(active_hl)
+                        .build(),
+                );
+                let _ = buffer.set_extmark(
+                    ns_footer,
+                    footer_start + 1,
+                    end_col,
+                    &SetExtmarkOpts::builder()
+                        .end_col(GAUGE_BARS.len())
+                        .hl_group("TenonGaugeBar")
+                        .build(),
+                );
             }
 
             let _ = nvim_oxi::api::set_option_value("modifiable", false, &buf_opts);
@@ -90,8 +149,9 @@ impl ChatFooterRenderer {
                 // Render footer if values changed
                 let values = FooterValues::from(chat_data.clone());
                 if footer_state.should_render(&values) {
-                    let (title_line, token_line) = footer_state.get_footer_lines(&values);
-                    render_footer(attached_buffer.clone(), title_line, token_line);
+                    let (title_line, token_line, gauge_level) =
+                        footer_state.get_footer_lines(&values);
+                    render_footer(attached_buffer.clone(), title_line, token_line, gauge_level);
                 }
 
                 let is_processing = if let Ok(data) = chat_data.read()

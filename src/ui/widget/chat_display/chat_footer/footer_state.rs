@@ -1,6 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use crate::chat::chat_session_count;
+use crate::chat::log::indexer::ChatLogIndexer;
 use crate::get_application_config;
 use crate::tools::resolve_tool_names;
 use crate::ui::widget::chat_display::ChatDisplayData;
@@ -193,7 +194,7 @@ impl FooterState {
         changed
     }
 
-    pub fn get_footer_lines(&self, values: &FooterValues) -> (String, String) {
+    pub fn get_footer_lines(&self, values: &FooterValues) -> (String, String, usize) {
         // Use cached default model
         let default_model_display = self
             .agent_defaults_cache
@@ -270,11 +271,34 @@ impl FooterState {
             .unwrap_or(0);
 
         let token_line = format!(
-            "tokens: {}~ | {} 󰕒 (󰃨 {}%), {} 󰇚, {} total",
-            values.context_tokens, input, cache_pct, output, total
+            "{} {} 󰕒 (󰃨 {}%), {} 󰇚, {} total",
+            GAUGE_BARS, input, cache_pct, output, total
         );
 
-        (title_line, token_line)
+        (title_line, token_line, gauge_level(values.context_tokens))
+    }
+}
+
+/// 5 identical bars always shown; the active one gets a gauge highlight.
+pub const GAUGE_BARS: &str = "▮▮▮▮▮";
+
+/// Active bar index (0-based) for the given context token count.
+/// Test build: MAX = 10, HARD = 20, so bars split at 5/10/15/20.
+fn gauge_level(context_tokens: u64) -> usize {
+    let max = ChatLogIndexer::MAX_ACTIVE_CONTEXT_TOKENS as u64;
+    let hard = ChatLogIndexer::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS as u64;
+    let mid_hard = max + (hard - max) / 2;
+
+    if context_tokens > hard {
+        4
+    } else if context_tokens > mid_hard {
+        3
+    } else if context_tokens > max {
+        2
+    } else if context_tokens > max / 2 {
+        1
+    } else {
+        0
     }
 }
 
@@ -393,17 +417,14 @@ mod tests {
         // Populate cache
         state.should_render(&values);
 
-        let (title_line, token_line) = state.get_footer_lines(&values);
+        let (title_line, token_line, _) = state.get_footer_lines(&values);
 
         // Show model diff and tool diff (model changed, 7 tools removed)
         assert_eq!(
             title_line,
             "󰭹 Test Chat 3 of 5, agent: default (󰚩 anthropic: claude-3-5-sonnet | 󰣖 -7)"
         );
-        assert_eq!(
-            token_line,
-            "tokens: 200~ | 100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total"
-        );
+        assert_eq!(token_line, "▮▮▮▮▮ 100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total");
     }
 
     #[test]
@@ -423,11 +444,11 @@ mod tests {
         // Populate cache
         state.should_render(&values);
 
-        let (title_line, token_line) = state.get_footer_lines(&values);
+        let (title_line, token_line, _) = state.get_footer_lines(&values);
 
         // Show tool diff (model matches, 8 tools removed)
         assert_eq!(title_line, "󰭹  1 of 1, agent: default (󰣖 -8)");
-        assert_eq!(token_line, "tokens: 0~ | 0 󰕒 (󰃨 0%), 0 󰇚, 0 total");
+        assert_eq!(token_line, "▮▮▮▮▮ 0 󰕒 (󰃨 0%), 0 󰇚, 0 total");
     }
 
     #[test]
@@ -457,11 +478,11 @@ mod tests {
         // Populate cache
         state.should_render(&values);
 
-        let (title_line, token_line) = state.get_footer_lines(&values);
+        let (title_line, token_line, _) = state.get_footer_lines(&values);
 
         // No diff shown - delta omitted when 0
         assert_eq!(title_line, "󰭹 Test Chat 1 of 1, agent: default");
-        assert_eq!(token_line, "tokens: 0~ | 0 󰕒 (󰃨 0%), 0 󰇚, 0 total");
+        assert_eq!(token_line, "▮▮▮▮▮ 0 󰕒 (󰃨 0%), 0 󰇚, 0 total");
     }
 
     #[test]
@@ -489,7 +510,7 @@ mod tests {
         // Populate cache
         state.should_render(&values);
 
-        let (title_line, _) = state.get_footer_lines(&values);
+        let (title_line, _, _) = state.get_footer_lines(&values);
 
         assert_eq!(title_line, "󰭹 Test Chat 1 of 1, queue: 2, agent: default");
     }
@@ -515,9 +536,28 @@ mod tests {
         // Populate cache
         state.should_render(&values);
 
-        let (title_line, _) = state.get_footer_lines(&values);
+        let (title_line, _, _) = state.get_footer_lines(&values);
 
         // 1 added (mcp_server____custom_tool), 7 removed (default's 9 minus read_file, edit_file)
         assert_eq!(title_line, "󰭹  1 of 1, agent: default (󰣖 +1/-7)");
+    }
+
+    // Test build constants: MAX_ACTIVE_CONTEXT_TOKENS = 10, HARD_LIMIT_ACTIVE_CONTEXT_TOKENS = 20
+    // Bars: 1: <=5, 2: 6..=10, 3: 11..=15, 4: 16..=20, 5: >20
+    #[test]
+    fn test_gauge_level_boundaries() {
+        assert_eq!(gauge_level(0), 0);
+        assert_eq!(gauge_level(5), 0);
+
+        assert_eq!(gauge_level(6), 1);
+        assert_eq!(gauge_level(10), 1);
+
+        assert_eq!(gauge_level(11), 2);
+        assert_eq!(gauge_level(15), 2);
+
+        assert_eq!(gauge_level(16), 3);
+        assert_eq!(gauge_level(20), 3);
+
+        assert_eq!(gauge_level(21), 4);
     }
 }

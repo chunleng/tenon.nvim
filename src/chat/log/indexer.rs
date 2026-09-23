@@ -22,16 +22,16 @@ pub struct ChatLogIndexer {
 
 impl ChatLogIndexer {
     #[cfg(not(test))]
-    const MAX_ACTIVE_CONTEXT_TOKENS: usize = 10_000;
+    pub(crate) const MAX_ACTIVE_CONTEXT_TOKENS: usize = 10_000;
 
     #[cfg(test)]
-    const MAX_ACTIVE_CONTEXT_TOKENS: usize = 10;
+    pub(crate) const MAX_ACTIVE_CONTEXT_TOKENS: usize = 10;
 
     #[cfg(not(test))]
-    const HARD_LIMIT_ACTIVE_CONTEXT_TOKENS: usize = 30_000;
+    pub(crate) const HARD_LIMIT_ACTIVE_CONTEXT_TOKENS: usize = 30_000;
 
     #[cfg(test)]
-    const HARD_LIMIT_ACTIVE_CONTEXT_TOKENS: usize = 20;
+    pub(crate) const HARD_LIMIT_ACTIVE_CONTEXT_TOKENS: usize = 20;
 
     /// Soft-limit phases cut until the total is below this target.
     const SOFT_CUT_TARGET: usize = Self::MAX_ACTIVE_CONTEXT_TOKENS / 2;
