@@ -67,7 +67,7 @@ impl Tool for SearchText {
     type Output = String;
 
     fn description(&self) -> String {
-        "Search text under directory. Returns match locations".to_string()
+        "Search text under directory. Must provide exactly one of `pattern`/`literal`. Returns match locations".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -76,10 +76,12 @@ impl Tool for SearchText {
             "properties": {
                 "pattern": {
                     "type": "string",
+                    "default": null,
                     "description": "Regex pattern to find, e.g. alternation (`a|b`)"
                 },
                 "literal": {
                     "type": "string",
+                    "default": null,
                     "description": "Literal text to find (exact match, no regex interpretation)"
                 },
                 "path": {
@@ -105,10 +107,6 @@ impl Tool for SearchText {
                     "description": "Max files returned. All files if omitted"
                 }
             },
-            "oneOf": [
-                {"required": ["pattern"]},
-                {"required": ["literal"]}
-            ]
         })
     }
 
@@ -132,12 +130,22 @@ impl Tool for SearchText {
         let max_files = args.max_files;
 
         let (pattern_text, is_regex) = match (args.pattern.as_deref(), args.literal.as_deref()) {
+            (Some(p), Some(l)) => match (!p.is_empty(), !l.is_empty()) {
+                (true, false) => (p, true),
+                (false, true) => (l, false),
+                // Both empty -> use literal
+                (false, false) => (l, false),
+                (true, true) => {
+                    return Err(ToolExecutionError::invalid_args(
+                        "Provide exactly one of `literal` or `pattern`".to_string(),
+                    ));
+                }
+            },
             (Some(p), None) => (p, true),
             (None, Some(l)) => (l, false),
-            _ => {
+            (None, None) => {
                 return Err(ToolExecutionError::invalid_args(
-                    "Provide exactly one of `pattern` (regex) or `literal` (literal text)"
-                        .to_string(),
+                    "Provide exactly one of `literal` or `pattern`".to_string(),
                 ));
             }
         };

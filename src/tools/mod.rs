@@ -117,12 +117,17 @@ pub fn tool_display_summary(
         return Some(format!("command: {}", display));
     }
 
-    // Special case for "search_text": pattern (regex) or literal (literal text), exactly one set
+    // Special case for "search_text": mirror the tool's lenient
+    // literal/pattern resolution (prefer non-empty pattern, fall back to literal)
     if name == "search_text" {
-        let core_arg = ["pattern", "literal"]
-            .into_iter()
-            .find(|k| args.get(k).and_then(|v| v.as_str()).is_some())?;
-        let text = args.get(core_arg).and_then(|v| v.as_str())?;
+        let pattern = args.get("pattern").and_then(|v| v.as_str());
+        let literal = args.get("literal").and_then(|v| v.as_str());
+        let (core_arg, text) = match (pattern, literal) {
+            (Some(p), _) if !p.is_empty() => ("pattern", p),
+            (_, Some(l)) => ("literal", l),
+            (Some(p), None) => ("pattern", p),
+            (None, None) => return None,
+        };
         return Some(format!("{}: {}", core_arg, text));
     }
 

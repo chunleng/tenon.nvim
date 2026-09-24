@@ -207,7 +207,7 @@ impl Tool for EditFile {
     type Output = String;
 
     fn description(&self) -> String {
-        "Find and replace. File doesn't exist → use literal=\"\", replace=\"content\" to create with content"
+        "Find and replace. Must provide exactly one of `literal`/`pattern` field. File doesn't exist → use literal=\"\", replace=\"content\" to create with content"
             .to_string()
     }
 
@@ -216,8 +216,8 @@ impl Tool for EditFile {
             "type": "object",
             "properties": {
                 "filepath": { "type": "string", "description": "File path" },
-                "literal": { "type": "string", "description": "Search exact text match" },
-                "pattern": { "type": "string", "description": "Search regex pattern, dot matches \\n" },
+                "literal": { "type": "string", "default": null, "description": "Search exact text match" },
+                "pattern": { "type": "string", "default": null, "description": "Search regex pattern, dot matches \\n." },
                 "replace": { "type": "string", "description": "Replacement text" },
                 "all": {
                     "type": "boolean",
@@ -225,10 +225,6 @@ impl Tool for EditFile {
                     "description": "true = replace every match, false = error if >1 match"
                 }
             },
-            "oneOf": [
-                { "required": ["literal"] },
-                { "required": ["pattern"] }
-            ],
             "required": ["filepath", "replace"]
         })
     }
@@ -239,9 +235,20 @@ impl Tool for EditFile {
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
         let (search, search_mode) = match (&args.literal, &args.pattern) {
+            (Some(l), Some(p)) => match (!l.is_empty(), !p.is_empty()) {
+                (true, false) => (l.as_str(), SearchMode::Literal),
+                (false, true) => (p.as_str(), SearchMode::Regex),
+                // Both empty -> use literal
+                (false, false) => (l.as_str(), SearchMode::Literal),
+                (true, true) => {
+                    return Err(ToolExecutionError::invalid_args(
+                        "Provide exactly one of `literal` or `pattern`".to_string(),
+                    ));
+                }
+            },
             (Some(l), None) => (l.as_str(), SearchMode::Literal),
             (None, Some(p)) => (p.as_str(), SearchMode::Regex),
-            _ => {
+            (None, None) => {
                 return Err(ToolExecutionError::invalid_args(
                     "Provide exactly one of `literal` or `pattern`".to_string(),
                 ));
