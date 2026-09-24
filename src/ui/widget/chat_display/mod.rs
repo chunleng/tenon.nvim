@@ -18,6 +18,7 @@ use crate::{
         nvim_primitives::{buffer::NvimBuffer, window::NvimWindow},
         widget::Widget,
     },
+    utils::GLOBAL_EXECUTION_HANDLER,
 };
 
 use chat_footer::ChatFooterRenderer;
@@ -103,6 +104,21 @@ impl ChatDisplay {
             {
                 let mut shared = self.shared.write().unwrap();
                 shared.chat_log_cache = Some(chat_log_cache.clone());
+            }
+
+            // Initialize footer space before renderer threads start: wipes the buffer to 2 empty
+            // lines so log/footer rendering begins from a clean state
+            {
+                let buffer = self.inner.clone();
+                let _ = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(move || {
+                    if let Some(mut buffer) = buffer.get_buffer() {
+                        let buf_opts = OptionOpts::builder().buf(buffer.clone()).build();
+                        let _ = nvim_oxi::api::set_option_value("modifiable", true, &buf_opts);
+                        let _ = buffer.set_lines(0.., false, vec!["", ""]);
+                        let _ = nvim_oxi::api::set_option_value("modifiable", false, &buf_opts);
+                    }
+                    Ok(())
+                });
             }
 
             let log_renderer =

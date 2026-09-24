@@ -129,18 +129,6 @@ impl ChatFooterRenderer {
         let mut footer_state = FooterState::new();
 
         std::thread::spawn(move || {
-            // Initialize footer space on startup
-            let buffer_clone = attached_buffer.clone();
-            let _ = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(move || {
-                if let Some(mut buffer) = buffer_clone.get_buffer() {
-                    let buf_opts = OptionOpts::builder().buf(buffer.clone()).build();
-                    let _ = nvim_oxi::api::set_option_value("modifiable", true, &buf_opts);
-                    let _ = buffer.set_lines(0.., false, vec!["", ""]);
-                    let _ = nvim_oxi::api::set_option_value("modifiable", false, &buf_opts);
-                }
-                Ok(())
-            });
-
             loop {
                 if stop_signal_clone.load(Ordering::SeqCst) {
                     break;
