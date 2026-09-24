@@ -270,10 +270,14 @@ impl FooterState {
             .and_then(|v| v.checked_div(values.input_tokens))
             .unwrap_or(0);
 
-        let token_line = format!(
-            "{} {} 󰕒 (󰃨 {}%), {} 󰇚, {} total",
-            GAUGE_BARS, input, cache_pct, output, total
-        );
+        let token_line = if cache_pct > 0 {
+            format!(
+                "{} {} 󰕒 (󰃨 {}%), {} 󰇚, {} total",
+                GAUGE_BARS, input, cache_pct, output, total
+            )
+        } else {
+            format!("{} {} 󰕒, {} 󰇚, {} total", GAUGE_BARS, input, output, total)
+        };
 
         (title_line, token_line, gauge_level(values.context_tokens))
     }
@@ -448,7 +452,7 @@ mod tests {
 
         // Show tool diff (model matches, 8 tools removed)
         assert_eq!(title_line, "󰭹  1 of 1, agent: default (󰣖 -8)");
-        assert_eq!(token_line, "▮▮▮▮▮ 0 󰕒 (󰃨 0%), 0 󰇚, 0 total");
+        assert_eq!(token_line, "▮▮▮▮▮ 0 󰕒, 0 󰇚, 0 total");
     }
 
     #[test]
@@ -482,7 +486,35 @@ mod tests {
 
         // No diff shown - delta omitted when 0
         assert_eq!(title_line, "󰭹 Test Chat 1 of 1, agent: default");
-        assert_eq!(token_line, "▮▮▮▮▮ 0 󰕒 (󰃨 0%), 0 󰇚, 0 total");
+        assert_eq!(token_line, "▮▮▮▮▮ 0 󰕒, 0 󰇚, 0 total");
+    }
+
+    #[test]
+    fn test_footer_state_get_footer_lines_cache_segment_visibility() {
+        let mut state = FooterState::new();
+        // Input tokens exist but no cached tokens - cache segment hidden
+        let values = FooterValues {
+            input_tokens: 100,
+            output_tokens: 50,
+            total_tokens: 150,
+            ..FooterValues::test_default()
+        };
+
+        // Populate cache
+        state.should_render(&values);
+
+        let (_, token_line, _) = state.get_footer_lines(&values);
+        assert_eq!(token_line, "▮▮▮▮▮ 100 󰕒, 50 󰇚, 150 total");
+
+        // Cached tokens arrive - cache segment shown
+        let values = FooterValues {
+            cached_tokens: 25,
+            ..values
+        };
+        state.should_render(&values);
+
+        let (_, token_line, _) = state.get_footer_lines(&values);
+        assert_eq!(token_line, "▮▮▮▮▮ 100 󰕒 (󰃨 25%), 50 󰇚, 150 total");
     }
 
     #[test]
