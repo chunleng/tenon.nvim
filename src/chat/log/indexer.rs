@@ -181,9 +181,13 @@ impl ChatLogIndexer {
             }
         }
 
-        // === HARD LIMIT: Phase 3 - Remove chat/system logs from region 1 ===
+        // === HARD LIMIT: Phases 3-5 ===
+        // Trigger once on exceeding the hard limit, then keep cutting until
+        // below HARD_CUT_TARGET. Later phases must not re-check the hard
+        // limit: an earlier phase may already have dropped the total below
+        // it while it is still above the cut target.
         if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
-            // Remove chat logs (excluding first user) from region 1
+            // Phase 3 - Remove chat logs (excluding first user) from region 1
             for idx in 0..region1_end {
                 if total_tokens < Self::HARD_CUT_TARGET {
                     break;
@@ -203,7 +207,7 @@ impl ChatLogIndexer {
                 }
             }
 
-            // Remove system logs from region 1
+            // Phase 3 - Remove system logs from region 1
             for idx in 0..region1_end {
                 if total_tokens < Self::HARD_CUT_TARGET {
                     break;
@@ -214,10 +218,8 @@ impl ChatLogIndexer {
                     log_window.logs[idx].active = false;
                 }
             }
-        }
 
-        // === HARD LIMIT: Phase 4 - Remove non-idempotent tools from region 2 ===
-        if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
+            // Phase 4 - Remove non-idempotent tools from region 2
             for idx in region1_end..region2_end {
                 if total_tokens < Self::HARD_CUT_TARGET {
                     break;
@@ -228,10 +230,8 @@ impl ChatLogIndexer {
                     log_window.logs[idx].active = false;
                 }
             }
-        }
 
-        // === HARD LIMIT: Phase 5 - Remove idempotent tools from region 3 ===
-        if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
+            // Phase 5 - Remove idempotent tools from region 3
             for idx in region2_end..log_window.logs.len() {
                 if total_tokens < Self::HARD_CUT_TARGET {
                     break;
@@ -718,6 +718,49 @@ mod tests {
         assert!(
             log_window.active_context_token_count() < 10,
             "total cut below half of hard limit"
+        );
+    }
+
+    #[test]
+    fn test_truncation_hard_phases_continue_after_phase3_drops_below_hard_limit() {
+        // Hard phases trigger once on exceeding the hard limit, then keep
+        // cutting until below HARD_CUT_TARGET. Phase 3 brings the total to 13
+        // (below hard limit 20, above cut target 10); phases 4 and 5 must
+        // still run instead of re-checking the hard limit trigger.
+        let logs = vec![
+            create_user_log(1),               // 0 - first user (never removed)
+            create_assistant_log(9),          // 1 - chat log (Region 1), Phase 3 removes → total 13
+            create_user_log(1),               // 2 - user (checkpoint 2x)
+            create_tool_log("web_search", 3), // 3 - non-idempotent tool (Region 2), Phase 4
+            create_user_log(1),               // 4 - user (checkpoint 1x)
+            create_tool_log("web_search", 6), // 5 - non-idempotent tool (Region 3, never removed)
+            create_tool_log("read_file", 1),  // 6 - idempotent tool (Region 3), Phase 5
+            create_assistant_log(0),          // 7
+        ];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let log_window = handler.log_window.read().unwrap();
+
+        assert!(log_window.logs[0].active, "first user preserved");
+        assert!(!log_window.logs[1].active, "chat log removed (Phase 3)");
+        assert!(log_window.logs[2].active, "user preserved (checkpoint 2x)");
+        assert!(
+            !log_window.logs[3].active,
+            "Phase 4 runs even though total is below hard limit after Phase 3"
+        );
+        assert!(log_window.logs[4].active, "user preserved (checkpoint 1x)");
+        assert!(
+            log_window.logs[5].active,
+            "non-idempotent tool in region 3 never removed"
+        );
+        assert!(
+            !log_window.logs[6].active,
+            "Phase 5 runs even though total is below hard limit after Phase 3"
+        );
+        assert!(
+            log_window.active_context_token_count() < 10,
+            "total cut below half of hard limit, got {}",
+            log_window.active_context_token_count()
         );
     }
 
