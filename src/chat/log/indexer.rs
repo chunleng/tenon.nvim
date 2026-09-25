@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::rag::RagContext;
@@ -81,12 +82,26 @@ impl ChatLogIndexer {
     ///   - Phase 5 (idempotent tools region 3)
     /// - Choreo logs are never removed
     /// - First user message is always preserved
+    ///
+    /// Minimum-savings gate: the phases are dry-run first; the collected
+    /// removals are applied only when they free at least the regime's cut
+    /// target (SOFT_CUT_TARGET below the hard limit, HARD_CUT_TARGET above
+    /// it). Otherwise the window is left untouched.
     pub fn apply_context_truncation(&self, log_window: &mut LogWindow) {
         // Early return if under threshold
-        let mut total_tokens = log_window.active_context_token_count();
-        if total_tokens <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
+        let initial_total = log_window.active_context_token_count();
+        if initial_total <= Self::MAX_ACTIVE_CONTEXT_TOKENS {
             return;
         }
+
+        // Regime is decided by the initial total: above the hard limit the
+        // hard phases join in and the gate requires the hard cut target.
+        let hard_regime = initial_total > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS;
+        let min_savings = if hard_regime {
+            Self::HARD_CUT_TARGET
+        } else {
+            Self::SOFT_CUT_TARGET
+        };
 
         // Find checkpoints for region boundaries
         // Region 1: before second checkpoint (older logs)
@@ -131,65 +146,70 @@ impl ChatLogIndexer {
         let region1_end = second_checkpoint.unwrap_or(0);
         let region2_end = first_checkpoint.unwrap_or(0);
 
-        // === SOFT LIMIT: Phase 0 - Remove failed tools from regions 1 & 2 ===
-        // Failed tool results are noise, so every one is cleared regardless of
-        // how many tokens are saved (no cut-target check inside the phase).
-        if total_tokens > Self::SOFT_CUT_TARGET {
-            for idx in 0..region2_end {
-                let indexed = &log_window.logs[idx];
-                if indexed.active && is_failed_tool(&indexed.log) {
-                    total_tokens = total_tokens.saturating_sub(indexed.log.token_count());
-                    log_window.logs[idx].active = false;
-                }
+        // Dry-run the phases: collect candidate indices and simulate the
+        // running total with unchanged cut rules. `candidates.insert` doubles
+        // as the dedup guard (returns false for an already-collected index),
+        // so a log is collected at most once (by the earliest matching
+        // phase), mirroring the previous deactivate-in-place behavior where
+        // later phases saw `active = false`.
+        let mut candidates: HashSet<usize> = HashSet::new();
+        let mut simulated = initial_total;
+
+        // === SOFT LIMIT: Phase 0 - failed tools from regions 1 & 2 ===
+        // Failed tool results are noise, so every one is collected regardless
+        // of how many tokens are saved (no cut-target check inside the phase).
+        for idx in 0..region2_end {
+            let indexed = &log_window.logs[idx];
+            if indexed.active && is_failed_tool(&indexed.log) {
+                simulated = simulated.saturating_sub(indexed.log.token_count());
+                candidates.insert(idx);
             }
         }
 
-        // === SOFT LIMIT: Phase 1 - Remove idempotent tools from regions 1 & 2 ===
+        // === SOFT LIMIT: Phase 1 - idempotent tools from regions 1 & 2 ===
         // Region 1 idempotent tools
         for idx in 0..region1_end {
-            if total_tokens < Self::SOFT_CUT_TARGET {
+            if simulated < Self::SOFT_CUT_TARGET {
                 break;
             }
             let indexed = &log_window.logs[idx];
-            if indexed.active && is_idempotent_tool(&indexed.log) {
-                total_tokens -= indexed.log.token_count();
-                log_window.logs[idx].active = false;
+            if indexed.active && is_idempotent_tool(&indexed.log) && candidates.insert(idx) {
+                simulated -= indexed.log.token_count();
             }
         }
 
         // Region 2 idempotent tools
         for idx in region1_end..region2_end {
-            if total_tokens < Self::SOFT_CUT_TARGET {
+            if simulated < Self::SOFT_CUT_TARGET {
                 break;
             }
             let indexed = &log_window.logs[idx];
-            if indexed.active && is_idempotent_tool(&indexed.log) {
-                total_tokens -= indexed.log.token_count();
-                log_window.logs[idx].active = false;
+            if indexed.active && is_idempotent_tool(&indexed.log) && candidates.insert(idx) {
+                simulated -= indexed.log.token_count();
             }
         }
 
-        // === SOFT LIMIT: Phase 2 - Remove non-idempotent tools from region 1 ===
+        // === SOFT LIMIT: Phase 2 - non-idempotent tools from region 1 ===
         for idx in 0..region1_end {
-            if total_tokens < Self::SOFT_CUT_TARGET {
+            if simulated < Self::SOFT_CUT_TARGET {
                 break;
             }
             let indexed = &log_window.logs[idx];
-            if indexed.active && is_non_idempotent_tool(&indexed.log) {
-                total_tokens -= indexed.log.token_count();
-                log_window.logs[idx].active = false;
+            if indexed.active && is_non_idempotent_tool(&indexed.log) && candidates.insert(idx) {
+                simulated -= indexed.log.token_count();
             }
         }
 
         // === HARD LIMIT: Phases 3-5 ===
-        // Trigger once on exceeding the hard limit, then keep cutting until
-        // below HARD_CUT_TARGET. Later phases must not re-check the hard
-        // limit: an earlier phase may already have dropped the total below
-        // it while it is still above the cut target.
-        if total_tokens > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
-            // Phase 3 - Remove chat logs (excluding first user) from region 1
+        // Only in the hard regime. Trigger once on the simulated total
+        // exceeding the hard limit, then keep cutting until below
+        // HARD_CUT_TARGET. Later phases must not re-check the hard limit: an
+        // earlier phase may already have dropped the total below it while it
+        // is still above the cut target.
+        if hard_regime && simulated > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
+            // Phase 3 - chat logs (excluding first user) from region 1
             for idx in 0..region1_end {
-                if total_tokens < Self::HARD_CUT_TARGET {
+                if simulated < Self::HARD_CUT_TARGET {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
@@ -201,46 +221,53 @@ impl ChatLogIndexer {
                             | TenonLogData::Thought(_)
                     )
                     && !is_first_user(idx)
+                    && candidates.insert(idx)
                 {
-                    total_tokens = total_tokens.saturating_sub(indexed.log.token_count());
-                    log_window.logs[idx].active = false;
+                    simulated = simulated.saturating_sub(indexed.log.token_count());
                 }
             }
 
-            // Phase 3 - Remove system logs from region 1
+            // Phase 3 - system logs from region 1
             for idx in 0..region1_end {
-                if total_tokens < Self::HARD_CUT_TARGET {
+                if simulated < Self::HARD_CUT_TARGET {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
-                if indexed.active && is_system_tool(&indexed.log) {
-                    total_tokens = total_tokens.saturating_sub(indexed.log.token_count());
-                    log_window.logs[idx].active = false;
+                if indexed.active && is_system_tool(&indexed.log) && candidates.insert(idx) {
+                    simulated = simulated.saturating_sub(indexed.log.token_count());
                 }
             }
 
-            // Phase 4 - Remove non-idempotent tools from region 2
+            // Phase 4 - non-idempotent tools from region 2
             for idx in region1_end..region2_end {
-                if total_tokens < Self::HARD_CUT_TARGET {
+                if simulated < Self::HARD_CUT_TARGET {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
-                if indexed.active && is_non_idempotent_tool(&indexed.log) {
-                    total_tokens = total_tokens.saturating_sub(indexed.log.token_count());
-                    log_window.logs[idx].active = false;
+                if indexed.active && is_non_idempotent_tool(&indexed.log) && candidates.insert(idx)
+                {
+                    simulated = simulated.saturating_sub(indexed.log.token_count());
                 }
             }
 
-            // Phase 5 - Remove idempotent tools from region 3
+            // Phase 5 - idempotent tools from region 3
             for idx in region2_end..log_window.logs.len() {
-                if total_tokens < Self::HARD_CUT_TARGET {
+                if simulated < Self::HARD_CUT_TARGET {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
-                if indexed.active && is_idempotent_tool(&indexed.log) {
-                    total_tokens = total_tokens.saturating_sub(indexed.log.token_count());
-                    log_window.logs[idx].active = false;
+                if indexed.active && is_idempotent_tool(&indexed.log) && candidates.insert(idx) {
+                    simulated = simulated.saturating_sub(indexed.log.token_count());
                 }
+            }
+        }
+
+        // Minimum-savings gate: apply the collected removals only when they
+        // free at least the regime's cut target; otherwise leave the window
+        // untouched (context stays as-is until a bigger cut becomes possible).
+        if initial_total - simulated >= min_savings {
+            for idx in candidates {
+                log_window.logs[idx].active = false;
             }
         }
     }
@@ -444,6 +471,10 @@ mod tests {
     // - Hard limit: Phase 3 (chat/system region 1), Phase 4 (non-idempotent tools region 2),
     //               Phase 5 (idempotent tools region 3)
     // - Choreo logs are never removed
+    //
+    // Minimum-savings gate: truncation only applies when the phases can free
+    // at least the regime's cut target (SOFT_CUT_TARGET in the soft regime,
+    // HARD_CUT_TARGET in the hard regime); otherwise the window is untouched
 
     #[test]
     fn test_truncation_no_truncation_when_under_threshold() {
@@ -463,19 +494,20 @@ mod tests {
 
     #[test]
     fn test_truncation_phase0_failed_tools_regions_1_and_2() {
-        // Phase 0: Failed tools in regions 1&2 are cleared unconditionally.
-        // Even though clearing one failed tool would already bring the total
-        // below the soft target, ALL failed tools in regions 1&2 are cleared.
+        // Phase 0: Failed tools in regions 1&2 are all cleared once the
+        // minimum-savings gate passes. Even though clearing one failed tool
+        // would already bring the total below the soft target, ALL failed
+        // tools in regions 1&2 are cleared.
         // Structure:
         // - Region 1: failed tools (indices 1, 2), user (checkpoint 2x) - index 3
         // - Region 2: failed tool (index 4), user (checkpoint 1x) - index 5
         // - Region 3: last assistant - index 6
         let logs = vec![
             create_user_log(1),                     // 0 - first user (never removed)
-            create_failed_tool_log("read_file", 1), // 1 - failed tool (Region 1)
-            create_failed_tool_log("read_file", 1), // 2 - failed tool (Region 1)
+            create_failed_tool_log("read_file", 2), // 1 - failed tool (Region 1)
+            create_failed_tool_log("read_file", 2), // 2 - failed tool (Region 1)
             create_user_log(12),                    // 3 - user (checkpoint 2x)
-            create_failed_tool_log("read_file", 1), // 4 - failed tool (Region 2)
+            create_failed_tool_log("read_file", 2), // 4 - failed tool (Region 2)
             create_user_log(1),                     // 5 - user (checkpoint 1x)
             create_assistant_log(0),                // 6
         ];
@@ -498,19 +530,21 @@ mod tests {
         // limit (so no later phase removes it either).
         let logs = vec![
             create_user_log(1),                     // 0 - first user (never removed)
-            create_user_log(12),                    // 1 - user (checkpoint 2x)
-            create_user_log(1),                     // 2 - user (checkpoint 1x)
-            create_failed_tool_log("read_file", 1), // 3 - failed tool (Region 3)
+            create_failed_tool_log("read_file", 5), // 1 - failed tool (Region 1)
+            create_user_log(12),                    // 2 - user (checkpoint 2x)
+            create_user_log(1),                     // 3 - user (checkpoint 1x)
+            create_failed_tool_log("read_file", 1), // 4 - failed tool (Region 3)
         ];
         let mut handler = ChatLogHandler::new();
         handler.load(logs);
         let log_window = handler.log_window.read().unwrap();
 
         assert!(log_window.logs[0].active, "first user preserved");
-        assert!(log_window.logs[1].active, "user preserved (checkpoint 2x)");
-        assert!(log_window.logs[2].active, "user preserved (checkpoint 1x)");
+        assert!(!log_window.logs[1].active, "failed tool cleared (Region 1)");
+        assert!(log_window.logs[2].active, "user preserved (checkpoint 2x)");
+        assert!(log_window.logs[3].active, "user preserved (checkpoint 1x)");
         assert!(
-            log_window.logs[3].active,
+            log_window.logs[4].active,
             "failed tool in region 3 untouched by Phase 0"
         );
     }
@@ -524,10 +558,10 @@ mod tests {
         // - Region 3: last user - index 4
         let logs = vec![
             create_user_log(1),
-            create_tool_log("read_file", 1),
-            create_tool_log("web_search", 1),
+            create_tool_log("read_file", 2),
+            create_tool_log("web_search", 2),
             create_user_log(6),
-            create_tool_log("read_file", 1),
+            create_tool_log("read_file", 2),
             create_user_log(2),
             create_assistant_log(0),
         ];
@@ -564,7 +598,7 @@ mod tests {
         // Phase 2 removes non-idempotent tools from region 1 only
         let logs = vec![
             create_user_log(1),
-            create_tool_log("web_search", 1),
+            create_tool_log("web_search", 5),
             create_user_log(10),
             create_tool_log("web_search", 1),
             create_user_log(1),
@@ -617,10 +651,10 @@ mod tests {
         // Phase 4 (hard limit 20): Remove non-idempotent tools from region 2
         // After Phase 3, if still over hard limit, remove non-idempotent tools from region 2
         let logs = vec![
-            create_user_log(1),               // 0 - first user (never removed)
-            create_user_log(1),               // 1 - user (checkpoint 2x)
-            create_tool_log("web_search", 1), // 2 - non-idempotent tool (Region 2)
-            create_user_log(18),              // 3 - user (checkpoint 1x)
+            create_user_log(1),                // 0 - first user (never removed)
+            create_user_log(1),                // 1 - user (checkpoint 2x)
+            create_tool_log("web_search", 10), // 2 - non-idempotent tool (Region 2)
+            create_user_log(18),               // 3 - user (checkpoint 1x)
             create_assistant_log(0), // 4 - assistant (preserves last-user exclusion semantics)
         ];
         let mut handler = ChatLogHandler::new();
@@ -642,10 +676,10 @@ mod tests {
         // Phase 5 (hard limit 20): Remove idempotent tools from region 3
         // After Phase 4, if still over hard limit, remove idempotent tools from region 3
         let logs = vec![
-            create_user_log(1),              // 0 - first user (never removed)
-            create_user_log(1),              // 1 - user (checkpoint 2x)
-            create_user_log(20),             // 2 - user (checkpoint 1x)
-            create_tool_log("read_file", 1), // 3 - idempotent tool (Region 3)
+            create_user_log(1),               // 0 - first user (never removed)
+            create_user_log(1),               // 1 - user (checkpoint 2x)
+            create_user_log(20),              // 2 - user (checkpoint 1x)
+            create_tool_log("read_file", 10), // 3 - idempotent tool (Region 3)
         ];
         let mut handler = ChatLogHandler::new();
         handler.load(logs);
@@ -761,6 +795,72 @@ mod tests {
             log_window.active_context_token_count() < 10,
             "total cut below half of hard limit, got {}",
             log_window.active_context_token_count()
+        );
+    }
+
+    #[test]
+    fn test_truncation_skipped_when_savings_below_soft_cut_target() {
+        // Soft regime: the only removable log saves 3 tokens, below
+        // SOFT_CUT_TARGET (5), so truncation is skipped entirely
+        let logs = vec![
+            create_user_log(1),
+            create_tool_log("read_file", 3), // idempotent tool (Region 1)
+            create_user_log(8),              // user (checkpoint 2x)
+            create_user_log(1),              // user (checkpoint 1x)
+            create_assistant_log(0),
+        ];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let log_window = handler.log_window.read().unwrap();
+
+        assert!(
+            log_window.logs.iter().all(|l| l.active),
+            "truncation skipped: potential savings below soft cut target"
+        );
+    }
+
+    #[test]
+    fn test_truncation_skipped_when_savings_below_hard_cut_target() {
+        // Hard regime: the only removable log saves 8 tokens, below
+        // HARD_CUT_TARGET (10), so truncation is skipped entirely and the
+        // context stays over the hard limit
+        let logs = vec![
+            create_user_log(1),      // 0 - first user (never removed)
+            create_assistant_log(8), // 1 - chat log (Region 1)
+            create_user_log(15),     // 2 - user (checkpoint 2x)
+            create_user_log(1),      // 3 - user (checkpoint 1x)
+            create_assistant_log(0), // 4
+        ];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let log_window = handler.log_window.read().unwrap();
+
+        assert!(
+            log_window.logs.iter().all(|l| l.active),
+            "truncation skipped: potential savings below hard cut target"
+        );
+    }
+
+    #[test]
+    fn test_truncation_skipped_in_hard_regime_when_only_soft_phase_savings() {
+        // Hard regime, but the hard phases (3-5) find nothing removable: the
+        // simulated total drops below the hard limit after the soft phases.
+        // Only soft-phase savings exist (8), below the hard cut target (10),
+        // so truncation is skipped entirely
+        let logs = vec![
+            create_user_log(1),              // 0 - first user (never removed)
+            create_tool_log("read_file", 8), // 1 - idempotent tool (Region 1)
+            create_user_log(15),             // 2 - user (checkpoint 2x)
+            create_user_log(1),              // 3 - user (checkpoint 1x)
+            create_assistant_log(0),         // 4
+        ];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let log_window = handler.log_window.read().unwrap();
+
+        assert!(
+            log_window.logs.iter().all(|l| l.active),
+            "truncation skipped: only soft-phase savings in hard regime"
         );
     }
 
