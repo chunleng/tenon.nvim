@@ -9,7 +9,7 @@ Executes a task through predefined moves
 - `use_choreo` tool will be provided if there are available choreo for use
 - Instructions are revealed on every move
 - All existing tools are available in the choreo
-- When in a choreo, `context` tag with type `choreo-state` is available with the instructions you need to complete the move. Missing `choreo-state` means you are not in a choreo
+- `context` tag with type `choreo-state` is available with the choreo instructions. Missing `choreo-state` in the entire chat log means you are not in a choreo
 
 ### `directive` tag
 Agent conduct rules:

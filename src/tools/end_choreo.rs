@@ -36,7 +36,8 @@ impl Tool for EndChoreo {
             "properties": {
                 "move_artifact": {
                     "type": "string",
-                    "description": "Artifact of choreo, according to \"Choreo Move Artifact\" section in `choreo-state` instruction. If section is missing, this should be omitted"
+                    "description": "Artifact of choreo, according to \"Choreo Move Artifact\" section in `choreo-state` instruction. If section is missing, this should be omitted",
+                    "default": null
                 }
             }
         })

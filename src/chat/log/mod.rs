@@ -146,8 +146,6 @@ pub struct TenonChoreoLog {
     pub id: String,
     pub content: String,
     /// Move number within the choreo. `None` for end-of-choreo logs.
-    /// Alias "step" keeps histories saved before the workflow→choreo rename loadable.
-    #[serde(default, alias = "step")]
     pub r#move: Option<usize>,
     /// The tool log (call + result) that navigated to this choreo move.
     #[serde(default)]
@@ -200,13 +198,15 @@ impl TenonChoreoLog {
 
     /// Builds the `<context type="choreo">` system content replayed into LLM history.
     pub fn system_content(&self) -> String {
-        let header = if self.r#move.is_some() {
-            format!("We are currently in a choreo: \"{}\"", self.content)
-        } else {
-            "The choreo has ended".to_string()
+        let header = match self.tool_log.tool_call.name.as_str() {
+            "use_choreo" => format!("Choreo started: \"{}\"", self.content),
+            "navigate_choreo" => format!("Choreo move changed: \"{}\"", self.content),
+            _ => "The choreo has ended".to_string(),
         };
         let mut content = format!("<context type=\"choreo\">\n{header}\n");
-        if let Some(artifact) = self.previous_step_artifact() {
+        if let Some(artifact) = self.previous_step_artifact()
+            && artifact.is_empty()
+        {
             content.push_str(&format!(
                 "The following information has been passed from the previous step:\n\
                  ```yaml\n\

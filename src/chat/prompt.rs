@@ -66,7 +66,8 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
                 })
                 .collect();
 
-            // Only add default ending if at last move and no goto already ends choreo
+            // Add default navigation only when no goto already covers it:
+            // end the choreo at the last move, otherwise advance to the next move
             if active.r#move == total_moves {
                 let has_ending_goto = current_move.goto_instructions.iter().any(|instr| {
                     let target_move = instr.to.resolve_move_index(active.r#move);
@@ -77,6 +78,15 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
                 });
                 if !has_ending_goto {
                     goto_lines.push("end_choreo".to_string());
+                }
+            } else {
+                let next_move = active.r#move + 1;
+                let has_next_move_goto = current_move
+                    .goto_instructions
+                    .iter()
+                    .any(|instr| instr.to.resolve_move_index(active.r#move) == Some(next_move));
+                if !has_next_move_goto {
+                    goto_lines.push(format!("navigate_choreo move:{next_move}"));
                 }
             }
 
@@ -97,8 +107,9 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
             contexts.push(format!(
                 "<context type=\"choreo-state\">\n\
                     Currently in \"{}\" move of {} choreo.\n\
-                    Execute \"Process\" in `instruction` tag step by step if numbered, not all at once; don't stop partway unless explicitly asked. \
-                    Call a tool from `navigation` tag when the condition matches, or choose the best one when all steps in \"Process\" are finished; if no instruction explicitly mentions the condition, navigate to the next move, using artifact from the \"Choreo Move Artifact\" section, if available\n\
+                    1. Execute the \"Process\" section of the `instruction` tag. If its steps are numbered, run them in order, completing all of them within this turn; do not stop partway unless the user explicitly asks.\n\
+                    2. Navigate only after all \"Process\" steps are done, unless the instruction explicitly says to navigate earlier. Reference and select from the `navigation` tag: call the tool whose condition matches; use an unconditioned entry only when no conditioned entry matches.\n\
+                    3. If the instruction contains a \"Choreo Move Artifact\" section, produce the artifact it specifies for the navigation target you are calling, and pass it in the `move_artifact` field of `navigate_choreo` or `end_choreo`. If the section is absent, omit the field.\n\
                     \n\n\
                     {}\
                     <instruction>\n\
@@ -294,7 +305,35 @@ mod tests {
         let messages =
             build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
 
-        assert_system(&messages[0], "navigate_choreo move:2");
+        let choreo_text = message_text(&messages[0]);
+        assert_eq!(
+            choreo_text.matches("navigate_choreo move:2").count(),
+            1,
+            "explicit next-move goto must not be duplicated by the fallback: {choreo_text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_build_choreo_messages_adds_default_next_move_fallback() {
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().unwrap())
+            .ok();
+
+        let registry = crate::get_choreo_registry();
+        let choreo = registry.get("implement_code").unwrap().clone();
+
+        // Move 5 of 6 only has a conditional goto back to move 2, so the
+        // default next-move navigation must be appended.
+        let active = Arc::new(RwLock::new(Some(ActiveChoreo {
+            choreo,
+            r#move: 5,
+            memory: HashMap::new(),
+        })));
+
+        let messages =
+            build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
+
+        assert_system(&messages[0], "navigate_choreo move:6");
     }
 
     #[tokio::test]
