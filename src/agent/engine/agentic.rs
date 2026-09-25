@@ -430,7 +430,7 @@ impl AgenticStreamEngine {
 mod tests {
     use super::*;
     use crate::clients::{OllamaProviderConfig, ProviderConfig, SupportedModels};
-    use crate::tools::{EditFile, ReadFile};
+    use crate::tools::{EditFile, ReadFile, TenonTool};
 
     fn test_model() -> SupportedModels {
         SupportedModels {
@@ -443,7 +443,10 @@ mod tests {
 
     #[test]
     fn test_engine_stores_dynamic_tool_names() {
-        let tools = vec![into_dynamic_tool(ReadFile), into_dynamic_tool(EditFile)];
+        let tools = vec![
+            into_dynamic_tool(TenonTool::new(ReadFile)),
+            into_dynamic_tool(EditFile),
+        ];
         let engine =
             AgenticStreamEngine::new(test_model(), vec![], tools, vec![], AgenticAgentType::Tool);
         let names: Vec<&str> = engine.tool_names.iter().map(|t| t.name()).collect();
@@ -456,7 +459,10 @@ mod tests {
             .set(std::env::current_dir().unwrap())
             .ok();
 
-        let tools = vec![into_dynamic_tool(ReadFile), into_dynamic_tool(EditFile)];
+        let tools = vec![
+            into_dynamic_tool(TenonTool::new(ReadFile)),
+            into_dynamic_tool(EditFile),
+        ];
         let mut engine =
             AgenticStreamEngine::new(test_model(), vec![], tools, vec![], AgenticAgentType::Tool);
 

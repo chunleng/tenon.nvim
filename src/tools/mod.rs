@@ -30,13 +30,106 @@ pub use push_tasks::PushTasks;
 pub use read_file::ReadFile;
 pub use record_thought::RecordThought;
 pub use remove_path::RemovePath;
-use rig::tool::{DynamicTool, IntoToolOutput, Tool, ToolExecutionError};
+use rig::tool::{DynamicTool, IntoToolOutput, Tool, ToolContext, ToolExecutionError};
 pub use run_command::RunCommand;
 pub use search_dependency_code::SearchDependencyCode;
 pub use search_text::SearchText;
 pub use web_search::WebSearch;
 
 use serde_json::Value;
+
+use futures::stream::{BoxStream, StreamExt};
+use serde::de::DeserializeOwned;
+use std::future::Future;
+
+/// Core tool logic
+pub trait ToolCore: Send + Sync {
+    /// Unique registration and provider-facing name.
+    const NAME: &'static str;
+    /// Typed JSON arguments.
+    type Args: DeserializeOwned + Send + Sync;
+    /// Output convertible into Rig's canonical model presentation.
+    type Output: IntoToolOutput;
+    /// Typed error returned by direct calls to this tool.
+    type Error: std::error::Error + Send + Sync + 'static;
+    /// Per-call execution instance.
+    type Call: ToolCoreCall<Output = Self::Output, Error = Self::Error>;
+
+    /// Model-facing description.
+    fn description(&self) -> String;
+
+    /// JSON Schema for arguments.
+    fn parameters(&self) -> serde_json::Value;
+
+    /// Initialize the tool calling struct. A good place to perform validation and kick off work.
+    fn init_call(
+        &self,
+        context: &mut ToolContext,
+        args: Self::Args,
+    ) -> impl Future<Output = Result<Self::Call, Self::Error>> + Send;
+}
+
+pub trait ToolCoreCall: Send {
+    /// Output convertible into Rig's canonical model presentation.
+    type Output: IntoToolOutput;
+    /// Typed error returned by this call.
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Stream progress content until the end.
+    ///
+    /// Default is `None` (nothing to stream). Items are plain strings for live visibility
+    fn stream(&mut self, _context: &mut ToolContext) -> Option<BoxStream<'_, String>> {
+        None
+    }
+
+    /// Get the result, used for the chat log.
+    fn result(
+        self,
+        context: &mut ToolContext,
+    ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
+}
+
+/// `ToolCore` wrapper that implements `rig::tool::Tool`.
+///
+/// Used for tool registration in Tenon, providing features necessary for Tenon.
+pub struct TenonTool<T> {
+    inner: T,
+}
+
+impl<T> TenonTool<T> {
+    pub fn new(inner: T) -> Self {
+        Self { inner }
+    }
+}
+
+impl<T: ToolCore> Tool for TenonTool<T> {
+    const NAME: &'static str = T::NAME;
+    type Args = T::Args;
+    type Output = T::Output;
+    type Error = T::Error;
+
+    fn description(&self) -> String {
+        self.inner.description()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        self.inner.parameters()
+    }
+
+    async fn call(
+        &self,
+        context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Output, Self::Error> {
+        let mut call = self.inner.init_call(context, args).await?;
+        if let Some(mut stream) = call.stream(context) {
+            while let Some(item) = stream.next().await {
+                let _ = item;
+            }
+        }
+        call.result(context).await
+    }
+}
 
 /// Classification of tools based on their behavior when rerun.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -275,7 +368,7 @@ pub(crate) fn into_dynamic_tool<T: Tool + 'static>(tool: T) -> DynamicTool {
             let output = tool
                 .call(context, args)
                 .await
-                .map_err(|e| tool.map_error(e))?;
+                .map_err(ToolExecutionError::from_error)?;
             output.into_tool_output()
         })
     })
@@ -289,7 +382,10 @@ fn builtin_tools() -> Vec<Option<(String, DynamicTool)>> {
         Some(("analyze_image".to_string(), into_dynamic_tool(AnalyzeImage))),
         Some(("list_files".to_string(), into_dynamic_tool(ListFiles))),
         Some(("move_path".to_string(), into_dynamic_tool(MovePath))),
-        Some(("read_file".to_string(), into_dynamic_tool(ReadFile))),
+        Some((
+            "read_file".to_string(),
+            into_dynamic_tool(TenonTool::new(ReadFile)),
+        )),
         Some(("remove_path".to_string(), into_dynamic_tool(RemovePath))),
         Some(("run_command".to_string(), into_dynamic_tool(RunCommand))),
         Some((

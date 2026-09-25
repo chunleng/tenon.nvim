@@ -13,7 +13,7 @@ pub enum SupportedLanguages {
 
 use crate::agent::worker::full::{GoalOrientedWorker, GoalResult};
 use crate::get_application_config;
-use crate::tools::{ListFiles, ReadFile, SearchText, into_dynamic_tool};
+use crate::tools::{ListFiles, ReadFile, SearchText, TenonTool, into_dynamic_tool};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -85,7 +85,7 @@ impl Tool for SearchDependencyCode {
 
         let tools = vec![
             into_dynamic_tool(SearchText),
-            into_dynamic_tool(ReadFile),
+            into_dynamic_tool(TenonTool::new(ReadFile)),
             into_dynamic_tool(ListFiles),
         ];
 

@@ -1,6 +1,7 @@
+use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::path_from_str;
 
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -16,43 +17,16 @@ pub struct ReadFileArgs {
 #[derive(Deserialize, Serialize, Clone)]
 pub struct ReadFile;
 
-impl Tool for ReadFile {
-    const NAME: &'static str = "read_file";
+pub struct ReadFileCall {
+    args: ReadFileArgs,
+}
+
+impl ToolCoreCall for ReadFileCall {
     type Error = ToolExecutionError;
-    type Args = ReadFileArgs;
     type Output = String;
 
-    fn description(&self) -> String {
-        "Read file contents. Supports line ranges (1-based, inclusive; default: full file). Empty string is returned if and only if the file exists and is empty. A missing file returns `Toolset error: ...`".to_string()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "filepath": {
-                    "type": "string",
-                    "description": "Path to file (absolute or relative)"
-                },
-                "start_line": {
-                    "type": "number",
-                    "description": "Start line (1-based)",
-                    "default": 1
-                },
-                "end_line": {
-                    "type": "number",
-                    "description": "End line (1-based, inclusive). EOF if omitted"
-                }
-            },
-            "required": ["filepath"]
-        })
-    }
-
-    async fn call(
-        &self,
-        _context: &mut ToolContext,
-        args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let args = self.args;
         let path = path_from_str(&args.filepath);
 
         match fs::read_to_string(path) {
@@ -92,6 +66,48 @@ impl Tool for ReadFile {
     }
 }
 
+impl ToolCore for ReadFile {
+    const NAME: &'static str = "read_file";
+    type Error = ToolExecutionError;
+    type Args = ReadFileArgs;
+    type Output = String;
+    type Call = ReadFileCall;
+
+    fn description(&self) -> String {
+        "Read file contents. Supports line ranges (1-based, inclusive; default: full file). Empty string is returned if and only if the file exists and is empty. A missing file returns `Toolset error: ...`".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "filepath": {
+                    "type": "string",
+                    "description": "Path to file (absolute or relative)"
+                },
+                "start_line": {
+                    "type": "number",
+                    "description": "Start line (1-based)",
+                    "default": 1
+                },
+                "end_line": {
+                    "type": "number",
+                    "description": "End line (1-based, inclusive). EOF if omitted"
+                }
+            },
+            "required": ["filepath"]
+        })
+    }
+
+    async fn init_call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(ReadFileCall { args })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,16 +126,19 @@ mod tests {
         let path = write_temp_file("swapped", content);
         let filepath = path.to_string_lossy().to_string();
 
-        let result = ReadFile
-            .call(
-                &mut ToolContext::new(),
+        let mut context = ToolContext::new();
+        let call = ReadFile
+            .init_call(
+                &mut context,
                 ReadFileArgs {
                     filepath,
                     start_line: Some(5),
                     end_line: Some(2),
                 },
             )
-            .await;
+            .await
+            .expect("init_call should succeed");
+        let result = call.result(&mut context).await;
 
         std::fs::remove_file(&path).ok();
         let output = result.expect("should swap and return lines, not error");
@@ -132,16 +151,19 @@ mod tests {
         let path = write_temp_file("equal", content);
         let filepath = path.to_string_lossy().to_string();
 
-        let result = ReadFile
-            .call(
-                &mut ToolContext::new(),
+        let mut context = ToolContext::new();
+        let call = ReadFile
+            .init_call(
+                &mut context,
                 ReadFileArgs {
                     filepath,
                     start_line: Some(2),
                     end_line: Some(2),
                 },
             )
-            .await;
+            .await
+            .expect("init_call should succeed");
+        let result = call.result(&mut context).await;
 
         std::fs::remove_file(&path).ok();
         let output = result.expect("equal start/end is a valid single-line read");
