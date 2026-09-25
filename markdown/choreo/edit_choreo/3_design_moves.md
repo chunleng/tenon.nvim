@@ -1,3 +1,6 @@
+## Scope
+This move only deals with move design: the move sequence, each move's artifact, goto instructions, and the choreo definition in `{config_path}/{choreo_id}.rs`. Do not edit move instruction files; that belongs to the Draft move.
+
 ## Process
 1. If re-entered from Review or Draft, focus on the feedback that triggered the re-entry (structural issues from Review, or design-change feedback from Draft)
 2. If there's an existing choreo, read its config and all instruction files before designing modifications
