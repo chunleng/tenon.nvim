@@ -73,8 +73,9 @@ impl Tool for AskQuestion {
                         "required": ["text"]
                     },
                     "description": "Answer choices. Every option must be a genuine, distinct choice. \
-                        Never add an option that just leads back to typing \
-                        (e.g. \"Something else\", \"Others\")"
+                        An \"Answer by Chat..\" option is appended automatically, so the user \
+                        can always answer in chat. Never add an option that just leads back \
+                        to typing (e.g. \"Something else\", \"Others\")"
                 }
             },
             "required": ["question", "options"]
