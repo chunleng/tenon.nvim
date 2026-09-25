@@ -79,7 +79,7 @@ pub fn choreo() -> Choreo {
                 goto_instructions: vec![
                     MoveGotoInstruction {
                         to: GotoMove::Move(2),
-                        condition: Some("tests fail".to_string()),
+                        condition: Some("goal-related test/check failures exist".to_string()),
                         output_to_choreo_memory: None,
                     },
                 ],
