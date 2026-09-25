@@ -182,6 +182,7 @@ mod tests {
                 tool_call: TenonToolCall {
                     id: "test-id".to_string(),
                     internal_call_id: "test-internal-id".to_string(),
+                    item_id: None,
                     name: "navigate_choreo".to_string(),
                     args: serde_json::json!({}),
                 },
@@ -282,6 +283,7 @@ mod tests {
         let tool_call = TenonToolCall {
             id: "1".into(),
             internal_call_id: "1".into(),
+            item_id: None,
             name: name.into(),
             args: serde_json::json!({}),
         };

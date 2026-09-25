@@ -148,6 +148,7 @@ mod tests {
             tool_call: TenonToolCall {
                 id: "1".into(),
                 internal_call_id: "1".into(),
+                item_id: None,
                 name: name.into(),
                 args: serde_json::json!({}),
             },

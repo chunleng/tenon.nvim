@@ -127,6 +127,7 @@ mod tests {
         TenonToolCall {
             id: "test-id".to_string(),
             internal_call_id: "test-internal-id".to_string(),
+            item_id: None,
             name: name.to_string(),
             args: serde_json::json!({"move": 2, "move_artifact": "test output from move 1"}),
         }

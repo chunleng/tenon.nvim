@@ -211,6 +211,7 @@ mod tests {
         let tool_call = TenonToolCall {
             id: "1".to_string(),
             internal_call_id: "call_1".to_string(),
+            item_id: None,
             name: "read_file".to_string(),
             args: json!({"path": "test.txt"}),
         };
@@ -231,6 +232,7 @@ mod tests {
         let tool_call = TenonToolCall {
             id: "1".to_string(),
             internal_call_id: "call_1".to_string(),
+            item_id: None,
             name: "read_file".to_string(),
             args: json!({"path": "test.txt"}),
         };
@@ -274,6 +276,7 @@ mod tests {
         let tool_call = TenonToolCall {
             id: "1".to_string(),
             internal_call_id: "call_1".to_string(),
+            item_id: None,
             name: "read_file".to_string(),
             args: json!({"path": "test.txt"}),
         };
@@ -297,6 +300,7 @@ mod tests {
         let tool_call = TenonToolCall {
             id: "1".to_string(),
             internal_call_id: "call_1".to_string(),
+            item_id: None,
             name: "read_file".to_string(),
             args: json!({"path": "test.txt"}),
         };
@@ -353,6 +357,7 @@ mod tests {
                 tool_call: TenonToolCall {
                     id: "test-id".to_string(),
                     internal_call_id: "test-internal-id".to_string(),
+                    item_id: None,
                     name: "navigate_choreo".to_string(),
                     args: serde_json::json!({}),
                 },

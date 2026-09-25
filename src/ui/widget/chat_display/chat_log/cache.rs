@@ -390,6 +390,7 @@ mod tests {
                     tool_call: crate::chat::log::TenonToolCall {
                         id: id.to_string(),
                         internal_call_id: id.to_string(),
+                        item_id: None,
                         name: name.to_string(),
                         args: serde_json::json!({}),
                     },
@@ -847,6 +848,7 @@ mod tests {
                     tool_call: crate::chat::log::TenonToolCall {
                         id: id.to_string(),
                         internal_call_id: id.to_string(),
+                        item_id: None,
                         name: name.to_string(),
                         args: serde_json::json!({}),
                     },
@@ -868,6 +870,7 @@ mod tests {
                     tool_call: crate::chat::log::TenonToolCall {
                         id: id.to_string(),
                         internal_call_id: id.to_string(),
+                        item_id: None,
                         name: name.to_string(),
                         args: serde_json::json!({}),
                     },

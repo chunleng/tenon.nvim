@@ -69,6 +69,9 @@ impl From<&TenonAssistantMessage> for Option<Message> {
 pub struct TenonToolCall {
     pub id: String,
     pub internal_call_id: String,
+    /// Provider-issued output-item id (OpenAI Responses `fc_...`), if any.
+    #[serde(default)]
+    pub item_id: Option<String>,
     pub name: String,
     pub args: Value,
 }
@@ -104,8 +107,12 @@ impl From<&TenonToolLog> for Vec<Message> {
     fn from(value: &TenonToolLog) -> Self {
         // Dual ids to fit the most troublesome OpenAI response API:
         // item handle `fc_...` + correlator `call_...`
-        let item_id = format!("fc_{}", &value.tool_call.id);
-        let call_id = format!("call_{}", &value.tool_call.id);
+        let item_id = value
+            .tool_call
+            .item_id
+            .clone()
+            .unwrap_or_else(|| format!("fc_{}", value.tool_call.id));
+        let call_id = format!("call_{}", value.tool_call.id);
         let mut messages = vec![Message::Assistant {
             id: None,
             content: vec![AssistantContent::tool_call_with_call_id(
@@ -266,6 +273,7 @@ mod tests {
             tool_call: TenonToolCall {
                 id: "1".into(),
                 internal_call_id: "1".into(),
+                item_id: None,
                 name: "test".into(),
                 args: serde_json::json!({}),
             },
@@ -308,6 +316,7 @@ mod tests {
                 tool_call: TenonToolCall {
                     id: "call-1".to_string(),
                     internal_call_id: "call-1".to_string(),
+                    item_id: None,
                     name: "navigate_choreo".to_string(),
                     args: serde_json::json!({"move": 2, "move_artifact": "scope analysis done"}),
                 },
@@ -342,6 +351,7 @@ mod tests {
                 tool_call: TenonToolCall {
                     id: "call-1".to_string(),
                     internal_call_id: "call-1".to_string(),
+                    item_id: None,
                     name: "end_choreo".to_string(),
                     args: serde_json::json!({"move_artifact": "final summary of work"}),
                 },
@@ -371,6 +381,7 @@ mod tests {
             tool_call: TenonToolCall {
                 id: "call-1".to_string(),
                 internal_call_id: "call-1".to_string(),
+                item_id: None,
                 name: name.to_string(),
                 args,
             },

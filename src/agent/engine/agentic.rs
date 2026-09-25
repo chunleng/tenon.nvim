@@ -239,6 +239,10 @@ impl AgenticStreamEngine {
                             log: Arc::new(TenonLog::new(TenonLogData::Tool(TenonToolLog {
                                 tool_call: TenonToolCall {
                                     id: tool_call.id.to_string(),
+                                    item_id: tool_call
+                                        .provider
+                                        .as_ref()
+                                        .and_then(|p| p.item_id.clone()),
                                     internal_call_id,
                                     name: tool_call.function.name,
                                     args: tool_call.function.arguments,
@@ -360,6 +364,10 @@ impl AgenticStreamEngine {
                                             TenonToolLog {
                                                 tool_call: TenonToolCall {
                                                     id: tool_result.call.to_string(),
+                                                    item_id: tool_result
+                                                        .provider
+                                                        .as_ref()
+                                                        .and_then(|p| p.item_id.clone()),
                                                     internal_call_id: internal_call_id.clone(),
                                                     name: tool_name,
                                                     args: serde_json::Value::Null,
