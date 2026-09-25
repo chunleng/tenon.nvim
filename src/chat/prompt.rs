@@ -52,7 +52,7 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
                         .condition
                         .as_ref()
                         .map(|x| format!("{} → ", x))
-                        .unwrap_or_default();
+                        .unwrap_or_else(|| "any → ".to_string());
                     let target_move = instr.to.resolve_move_index(active.r#move);
                     match target_move {
                         None => format!("{}end_choreo", condition),
@@ -77,7 +77,7 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
                     }
                 });
                 if !has_ending_goto {
-                    goto_lines.push("end_choreo".to_string());
+                    goto_lines.push("any → end_choreo".to_string());
                 }
             } else {
                 let next_move = active.r#move + 1;
@@ -86,11 +86,16 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
                     .iter()
                     .any(|instr| instr.to.resolve_move_index(active.r#move) == Some(next_move));
                 if !has_next_move_goto {
-                    goto_lines.push(format!("navigate_choreo move:{next_move}"));
+                    goto_lines.push(format!("any → navigate_choreo move:{next_move}"));
                 }
             }
 
-            let goto_instruction = goto_lines.join("\n");
+            let goto_instruction = format!(
+                "If the `instruction` tag contains a \"Choreo Move Artifact\" section, produce the artifact it specifies for the target you are calling and pass it in the `move_artifact` field of the tool call. If the section is absent, omit the field.\n\n\
+                Below are the navigation options in the form `condition → tool tool_param`:\n\
+                {}",
+                goto_lines.join("\n")
+            );
 
             // Build memory section if there's stored memory
             let memory_section = if active.memory.is_empty() {
@@ -108,8 +113,7 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
                 "<context type=\"choreo-state\">\n\
                     Currently in \"{}\" move of {} choreo.\n\
                     1. Execute the \"Process\" section of the `instruction` tag. If its steps are numbered, run them in order, completing all of them within this turn; do not stop partway unless the user explicitly asks.\n\
-                    2. Navigate only after all \"Process\" steps are done, unless the instruction explicitly says to navigate earlier. Reference and select from the `navigation` tag: call the tool whose condition matches; use an unconditioned entry only when no conditioned entry matches.\n\
-                    3. If the instruction contains a \"Choreo Move Artifact\" section, produce the artifact it specifies for the navigation target you are calling, and pass it in the `move_artifact` field of `navigate_choreo` or `end_choreo`. If the section is absent, omit the field.\n\
+                    2. Navigate only after all \"Process\" steps are done, unless the instruction explicitly says to navigate earlier. Reference and select from the `navigation` tag: call the tool whose condition matches; an `any` condition matches only when no other condition does.\
                     \n\n\
                     {}\
                     <instruction>\n\
