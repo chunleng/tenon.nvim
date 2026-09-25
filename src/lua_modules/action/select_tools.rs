@@ -2,7 +2,7 @@ use nvim_oxi::{Function, api::types::LogLevel};
 
 use crate::{
     get_application_config, get_chat_window,
-    tools::{all_tool_names, resolve_tools, tool_matches_selectors},
+    tools::{all_tool_names, tool_matches_selectors},
     ui::picker::{FzfAction, FzfOption, SelectMode, action, pick},
     utils::GLOBAL_EXECUTION_HANDLER,
 };
@@ -20,7 +20,7 @@ pub fn select_tools_fn() -> Function<(), ()> {
                 Some((
                     session
                         .engine
-                        .tool_names
+                        .tools
                         .iter()
                         .map(|t| t.name().to_string())
                         .collect(),
@@ -78,7 +78,7 @@ pub fn select_tools_fn() -> Function<(), ()> {
                                     && let Ok(loaded) = win.loaded_chat_session.read()
                                     && let Ok(mut session) = loaded.write()
                                 {
-                                    session.engine.tool_names = resolve_tools(&tools);
+                                    session.engine.set_tools(tools);
                                     win.force_render();
                                 }
                             }

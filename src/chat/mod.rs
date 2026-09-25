@@ -4,7 +4,6 @@ use crate::chat::history::{SessionMetadata, save_to_history};
 use crate::get_application_config;
 use crate::hooks::run_needs_attention_hooks;
 use crate::tools::ask_question::{AskQuestionOption, QuestionResult};
-use crate::tools::resolve_tools;
 use chrono::{DateTime, Local};
 use nvim_oxi::Result as OxiResult;
 use rig::completion::Usage;
@@ -134,7 +133,7 @@ impl ChatSession {
         let engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
-            resolve_tools(&agent.tool_names),
+            agent.tool_names,
             agent.choreos,
             AgenticAgentType::Direct(Arc::downgrade(&pending_actions_channel)),
         );
@@ -177,7 +176,7 @@ impl ChatSession {
         let mut engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
-            resolve_tools(&agent.tool_names),
+            agent.tool_names,
             agent.choreos,
             AgenticAgentType::Direct(Arc::downgrade(&pending_actions_channel)),
         );

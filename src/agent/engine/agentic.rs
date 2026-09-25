@@ -16,9 +16,14 @@ use crate::chat::{
 };
 use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource, PresetContent, directive_path};
-use crate::tools::{AskQuestion, RecordThought, into_dynamic_tool};
+use crate::tools::{AskQuestion, RecordThought, into_dynamic_tool, resolve_tools};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use rig::agent::Agent;
+
+/// Tools whose call/result logging is handled by `TenonTool` itself.
+/// The engine skips its own log registration for these to avoid duplicates.
+/// Keep in sync with the tools wrapped in `TenonTool` in `builtin_tools()`.
+const TENON_WRAPPED_TOOLS: &[&str] = &["read_file", "run_command"];
 
 /// Distinguishes agents with direct user access from sub-agents used as tools.
 /// Determines which system tools (e.g. AskQuestion) are available.
@@ -35,19 +40,19 @@ pub enum AgenticAgentType {
 pub struct AgenticStreamEngine {
     pub model: SupportedModels,
     pub directive: Vec<Directive>,
-    pub tool_names: Vec<DynamicTool>,
+    pub tools: Vec<DynamicTool>,
     pub choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
     pub active_choreo: Arc<RwLock<Option<ActiveChoreo>>>,
     pub work_queue: Arc<RwLock<WorkQueue>>,
     pub log_handler: ChatLogHandler,
-    system_tools: Vec<DynamicTool>,
+    pub system_tools: Vec<DynamicTool>,
 }
 
 impl AgenticStreamEngine {
     pub fn new(
         model: SupportedModels,
         directive: Vec<Directive>,
-        tool_names: Vec<DynamicTool>,
+        tool_names: Vec<String>,
         choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
         agent_type: AgenticAgentType,
     ) -> Self {
@@ -68,16 +73,23 @@ impl AgenticStreamEngine {
             );
             system_tools.insert(0, into_dynamic_tool(AskQuestion { event_channel }));
         }
+        let log_handler = ChatLogHandler::new();
+        let tools = resolve_tools(&tool_names, log_handler.log_window.clone());
         Self {
             model,
             directive,
-            tool_names,
+            tools,
             choreos,
             active_choreo: Arc::new(RwLock::new(None)),
             work_queue,
-            log_handler: ChatLogHandler::new(),
+            log_handler,
             system_tools,
         }
+    }
+
+    /// Re-resolves tools from raw selectors, replacing the current set.
+    pub fn set_tools(&mut self, tool_names: Vec<String>) {
+        self.tools = resolve_tools(&tool_names, self.log_handler.log_window.clone());
     }
 
     /// Replaces log_window from logs and reconstructs active_choreo from choreo logs.
@@ -89,7 +101,10 @@ impl AgenticStreamEngine {
         {
             let log_window = self.log_handler.log_window.read().unwrap();
             for indexed in &log_window.logs {
-                if let TenonLogData::Choreo(choreo_log) = indexed.log.data() {
+                let Ok(log) = indexed.log.read() else {
+                    continue;
+                };
+                if let TenonLogData::Choreo(choreo_log) = log.data() {
                     match choreo_log.r#move {
                         Some(move_number) => {
                             if let Some(choreo) = registry.get(&choreo_log.id) {
@@ -103,7 +118,9 @@ impl AgenticStreamEngine {
                 }
             }
         }
-        *self.active_choreo.write().unwrap() = active;
+        if let Ok(mut active_choreo) = self.active_choreo.write() {
+            *active_choreo = active;
+        }
     }
 
     fn build_chat_adapter(&self) -> Agent {
@@ -118,7 +135,7 @@ impl AgenticStreamEngine {
 
         // System tools must be resolved first
         let mut tools = self.system_tools.clone();
-        tools.extend(self.tool_names.iter().cloned());
+        tools.extend(self.tools.clone());
 
         let has_active = self
             .active_choreo
@@ -191,18 +208,19 @@ impl AgenticStreamEngine {
                 Ok(StreamItem::Text { text }) => {
                     if let Ok(mut log_window) = self.log_handler.log_window.write() {
                         let mut updated = false;
-                        if let Some(indexed_log) = log_window.logs.last_mut() {
-                            let log = Arc::make_mut(&mut indexed_log.log);
+                        if let Some(indexed_log) = log_window.logs.last_mut()
+                            && let Ok(mut log) = indexed_log.log.write()
+                        {
                             updated = log.append_text(&text);
                         }
                         if !updated {
                             log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                log: Arc::new(TenonLog::new(TenonLogData::Assistant(
+                                log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Assistant(
                                     TenonAssistantMessage {
                                         reasoning: None,
                                         content: vec![TenonAssistantMessageContent::Text(text)],
                                     },
-                                ))),
+                                )))),
                                 active: true,
                             });
                         }
@@ -211,18 +229,19 @@ impl AgenticStreamEngine {
                 Ok(StreamItem::ReasoningDelta { reasoning }) => {
                     if let Ok(mut log_window) = self.log_handler.log_window.write() {
                         let mut updated = false;
-                        if let Some(indexed_log) = log_window.logs.last_mut() {
-                            let log = Arc::make_mut(&mut indexed_log.log);
+                        if let Some(indexed_log) = log_window.logs.last_mut()
+                            && let Ok(mut log) = indexed_log.log.write()
+                        {
                             updated = log.append_reasoning(&reasoning);
                         }
                         if !updated {
                             log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                log: Arc::new(TenonLog::new(TenonLogData::Assistant(
+                                log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Assistant(
                                     TenonAssistantMessage {
                                         reasoning: Some(reasoning),
                                         content: vec![],
                                     },
-                                ))),
+                                )))),
                                 active: true,
                             });
                         }
@@ -233,22 +252,26 @@ impl AgenticStreamEngine {
                     internal_call_id,
                 }) => {
                     if tool_call.function.name != "record_thought"
+                        && !TENON_WRAPPED_TOOLS.contains(&tool_call.function.name.as_str())
                         && let Ok(mut log_window) = self.log_handler.log_window.write()
                     {
                         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                            log: Arc::new(TenonLog::new(TenonLogData::Tool(TenonToolLog {
-                                tool_call: TenonToolCall {
-                                    id: tool_call.id.to_string(),
-                                    item_id: tool_call
-                                        .provider
-                                        .as_ref()
-                                        .and_then(|p| p.item_id.clone()),
-                                    internal_call_id,
-                                    name: tool_call.function.name,
-                                    args: tool_call.function.arguments,
+                            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
+                                TenonToolLog {
+                                    tool_call: TenonToolCall {
+                                        id: tool_call.id.to_string(),
+                                        item_id: tool_call
+                                            .provider
+                                            .as_ref()
+                                            .and_then(|p| p.item_id.clone()),
+                                        internal_call_id,
+                                        name: tool_call.function.name,
+                                        args: tool_call.function.arguments,
+                                    },
+                                    tool_result: None,
+                                    progress: vec![],
                                 },
-                                tool_result: None,
-                            }))),
+                            )))),
                             active: true,
                         });
                     }
@@ -257,16 +280,26 @@ impl AgenticStreamEngine {
                     tool_result,
                     internal_call_id,
                 }) => {
+                    // TenonTool-wrapped tools log themselves in TenonTool::call
+                    if TENON_WRAPPED_TOOLS.contains(&tool_result.name.as_str()) {
+                        continue;
+                    }
                     if let Ok(mut log_window) = self.log_handler.log_window.write() {
-                        if let Some(log) = log_window.logs.iter_mut().find_map(|x| {
-                            if let TenonLogData::Tool(tool) = x.log.data()
-                                && tool.tool_call.internal_call_id == internal_call_id
-                            {
-                                return Some(x);
-                            }
-                            None
-                        }) {
-                            let log = Arc::make_mut(&mut log.log);
+                        // Find the log handle by internal_call_id and clone it
+                        // out, releasing the window borrow before mutating or
+                        // pushing below (the write guard's Drop would otherwise
+                        // extend the borrow across the pushes).
+                        let target = log_window.logs.iter().find_map(|x| {
+                            let log = x.log.read().ok()?;
+                            let is_match = matches!(
+                                log.data(),
+                                TenonLogData::Tool(tool)
+                                    if tool.tool_call.internal_call_id == internal_call_id
+                            );
+                            if is_match { Some(x.log.clone()) } else { None }
+                        });
+
+                        if let Some(log) = target {
                             let result = match tool_result.content.first() {
                                 Some(ToolResultContent::Text(text)) => {
                                     if text.text.starts_with("ToolCallError: ") {
@@ -287,16 +320,25 @@ impl AgenticStreamEngine {
                                 None => Ok(TenonToolResult::Text(rig::agent::Text::default())),
                             };
 
-                            log.set_tool_result(Some(result.clone()));
+                            if let Ok(mut log) = log.write() {
+                                log.set_tool_result(Some(result.clone()));
+                            }
 
-                            // Handle choreo tool results
-                            if let TenonLogData::Tool(tool_log) = log.data()
-                                && ["use_choreo", "navigate_choreo", "end_choreo"]
-                                    .contains(&tool_log.tool_call.name.as_str())
-                                && result.is_ok()
-                            {
-                                let tool_log_clone = tool_log.clone();
+                            // Handle choreo tool results. Short-lived read
+                            // guard, dropped before the pushes below.
+                            let choreo_tool_log =
+                                log.read().ok().and_then(|log| match log.data() {
+                                    TenonLogData::Tool(tool_log)
+                                        if ["use_choreo", "navigate_choreo", "end_choreo"]
+                                            .contains(&tool_log.tool_call.name.as_str())
+                                            && result.is_ok() =>
+                                    {
+                                        Some(tool_log.clone())
+                                    }
+                                    _ => None,
+                                });
 
+                            if let Some(tool_log_clone) = choreo_tool_log {
                                 if tool_log_clone.tool_call.name == "end_choreo" {
                                     let id = self
                                         .active_choreo
@@ -310,13 +352,13 @@ impl AgenticStreamEngine {
                                         *active = None;
                                     }
                                     log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                        log: Arc::new(TenonLog::new(TenonLogData::Choreo(
-                                            TenonChoreoLog::new(
+                                        log: Arc::new(RwLock::new(TenonLog::new(
+                                            TenonLogData::Choreo(TenonChoreoLog::new(
                                                 id,
                                                 "Choreo ended",
                                                 None,
                                                 tool_log_clone,
-                                            ),
+                                            )),
                                         ))),
                                         active: true,
                                     });
@@ -330,8 +372,8 @@ impl AgenticStreamEngine {
                                     {
                                         log_window.logs.push(
                                             crate::chat::log::indexer::IndexedLog {
-                                                log: Arc::new(TenonLog::new(TenonLogData::Choreo(
-                                                    choreo_log,
+                                                log: Arc::new(RwLock::new(TenonLog::new(
+                                                    TenonLogData::Choreo(choreo_log),
                                                 ))),
                                                 active: true,
                                             },
@@ -360,8 +402,8 @@ impl AgenticStreamEngine {
                                         .unwrap_or("unknown")
                                         .to_string();
                                     log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                        log: Arc::new(TenonLog::new(TenonLogData::Tool(
-                                            TenonToolLog {
+                                        log: Arc::new(RwLock::new(TenonLog::new(
+                                            TenonLogData::Tool(TenonToolLog {
                                                 tool_call: TenonToolCall {
                                                     id: tool_result.call.to_string(),
                                                     item_id: tool_result
@@ -375,7 +417,8 @@ impl AgenticStreamEngine {
                                                 tool_result: Some(Err(TenonToolError(
                                                     text.text.clone(),
                                                 ))),
-                                            },
+                                                progress: vec![],
+                                            }),
                                         ))),
                                         active: true,
                                     });
@@ -394,12 +437,12 @@ impl AgenticStreamEngine {
                                             .map(|s| s.to_string());
                                         log_window.logs.push(
                                             crate::chat::log::indexer::IndexedLog {
-                                                log: Arc::new(TenonLog::new(
+                                                log: Arc::new(RwLock::new(TenonLog::new(
                                                     TenonLogData::Thought(TenonThoughtLog {
                                                         thought,
                                                         summary,
                                                     }),
-                                                )),
+                                                ))),
                                                 active: true,
                                             },
                                         );
@@ -430,7 +473,6 @@ impl AgenticStreamEngine {
 mod tests {
     use super::*;
     use crate::clients::{OllamaProviderConfig, ProviderConfig, SupportedModels};
-    use crate::tools::{EditFile, ReadFile, TenonTool};
 
     fn test_model() -> SupportedModels {
         SupportedModels {
@@ -442,14 +484,15 @@ mod tests {
     }
 
     #[test]
-    fn test_engine_stores_dynamic_tool_names() {
-        let tools = vec![
-            into_dynamic_tool(TenonTool::new(ReadFile)),
-            into_dynamic_tool(EditFile),
-        ];
-        let engine =
-            AgenticStreamEngine::new(test_model(), vec![], tools, vec![], AgenticAgentType::Tool);
-        let names: Vec<&str> = engine.tool_names.iter().map(|t| t.name()).collect();
+    fn test_engine_resolves_tools_at_new() {
+        let engine = AgenticStreamEngine::new(
+            test_model(),
+            vec![],
+            vec!["read_file".to_string(), "edit_file".to_string()],
+            vec![],
+            AgenticAgentType::Tool,
+        );
+        let names: Vec<String> = engine.tools.iter().map(|t| t.name().to_string()).collect();
         assert_eq!(names, vec!["read_file", "edit_file"]);
     }
 
@@ -459,12 +502,13 @@ mod tests {
             .set(std::env::current_dir().unwrap())
             .ok();
 
-        let tools = vec![
-            into_dynamic_tool(TenonTool::new(ReadFile)),
-            into_dynamic_tool(EditFile),
-        ];
-        let mut engine =
-            AgenticStreamEngine::new(test_model(), vec![], tools, vec![], AgenticAgentType::Tool);
+        let mut engine = AgenticStreamEngine::new(
+            test_model(),
+            vec![],
+            vec!["read_file".to_string(), "edit_file".to_string()],
+            vec![],
+            AgenticAgentType::Tool,
+        );
 
         // Navigate to move 2
         let move1_log = TenonLog::new(TenonLogData::Choreo(TenonChoreoLog {

@@ -13,7 +13,6 @@ pub enum SupportedLanguages {
 
 use crate::agent::worker::full::{GoalOrientedWorker, GoalResult};
 use crate::get_application_config;
-use crate::tools::{ListFiles, ReadFile, SearchText, TenonTool, into_dynamic_tool};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -83,13 +82,13 @@ impl Tool for SearchDependencyCode {
             .ok_or_else(|| ToolExecutionError::other("No default agent configured"))?;
         let model = agent_config.model.clone();
 
-        let tools = vec![
-            into_dynamic_tool(SearchText),
-            into_dynamic_tool(TenonTool::new(ReadFile)),
-            into_dynamic_tool(ListFiles),
+        let tool_names = vec![
+            "search_text".to_string(),
+            "read_file".to_string(),
+            "list_files".to_string(),
         ];
 
-        let mut agent = GoalOrientedWorker::new(model, vec![], tools);
+        let mut agent = GoalOrientedWorker::new(model, vec![], tool_names);
 
         let task = format!(
             "Investigate the following in the dependency source code located at:\n{}\n\n\

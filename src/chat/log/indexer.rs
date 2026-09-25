@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::rag::RagContext;
 use crate::tools::{ToolClassification, get_tool_classification};
@@ -11,7 +11,7 @@ use super::{TenonLog, TenonLogData};
 /// Wrapper around TenonLog for indexing purposes.
 #[derive(Clone)]
 pub struct IndexedLog {
-    pub log: Arc<TenonLog>,
+    pub log: Arc<RwLock<TenonLog>>,
     pub active: bool,
 }
 
@@ -57,7 +57,11 @@ impl ChatLogIndexer {
         let mut chat_history = log_window
             .active_history_log()
             .iter()
-            .flat_map(|indexed| Vec::<Message>::from(indexed.as_ref()))
+            .filter_map(|indexed| {
+                let log = indexed.read().ok()?;
+                Some(Vec::<Message>::from(&*log))
+            })
+            .flatten()
             .collect::<Vec<_>>();
         let rag_history_messages = self.get_relevant_context(&log_window, user_message);
         for msg in rag_history_messages.into_iter().rev() {
@@ -160,8 +164,12 @@ impl ChatLogIndexer {
         // of how many tokens are saved (no cut-target check inside the phase).
         for idx in 0..region2_end {
             let indexed = &log_window.logs[idx];
-            if indexed.active && is_failed_tool(&indexed.log) {
-                simulated = simulated.saturating_sub(indexed.log.token_count());
+            let log = match indexed.log.read() {
+                Ok(log) => log,
+                Err(_) => continue,
+            };
+            if indexed.active && is_failed_tool(&log) {
+                simulated = simulated.saturating_sub(log.token_count());
                 candidates.insert(idx);
             }
         }
@@ -173,8 +181,12 @@ impl ChatLogIndexer {
                 break;
             }
             let indexed = &log_window.logs[idx];
-            if indexed.active && is_idempotent_tool(&indexed.log) && candidates.insert(idx) {
-                simulated -= indexed.log.token_count();
+            let log = match indexed.log.read() {
+                Ok(log) => log,
+                Err(_) => continue,
+            };
+            if indexed.active && is_idempotent_tool(&log) && candidates.insert(idx) {
+                simulated -= log.token_count();
             }
         }
 
@@ -184,8 +196,12 @@ impl ChatLogIndexer {
                 break;
             }
             let indexed = &log_window.logs[idx];
-            if indexed.active && is_idempotent_tool(&indexed.log) && candidates.insert(idx) {
-                simulated -= indexed.log.token_count();
+            let log = match indexed.log.read() {
+                Ok(log) => log,
+                Err(_) => continue,
+            };
+            if indexed.active && is_idempotent_tool(&log) && candidates.insert(idx) {
+                simulated -= log.token_count();
             }
         }
 
@@ -195,8 +211,12 @@ impl ChatLogIndexer {
                 break;
             }
             let indexed = &log_window.logs[idx];
-            if indexed.active && is_non_idempotent_tool(&indexed.log) && candidates.insert(idx) {
-                simulated -= indexed.log.token_count();
+            let log = match indexed.log.read() {
+                Ok(log) => log,
+                Err(_) => continue,
+            };
+            if indexed.active && is_non_idempotent_tool(&log) && candidates.insert(idx) {
+                simulated -= log.token_count();
             }
         }
 
@@ -213,9 +233,13 @@ impl ChatLogIndexer {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
+                let log = match indexed.log.read() {
+                    Ok(log) => log,
+                    Err(_) => continue,
+                };
                 if indexed.active
                     && matches!(
-                        &indexed.log.data(),
+                        log.data(),
                         TenonLogData::User(_)
                             | TenonLogData::Assistant(_)
                             | TenonLogData::Thought(_)
@@ -223,7 +247,7 @@ impl ChatLogIndexer {
                     && !is_first_user(idx)
                     && candidates.insert(idx)
                 {
-                    simulated = simulated.saturating_sub(indexed.log.token_count());
+                    simulated = simulated.saturating_sub(log.token_count());
                 }
             }
 
@@ -233,8 +257,12 @@ impl ChatLogIndexer {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
-                if indexed.active && is_system_tool(&indexed.log) && candidates.insert(idx) {
-                    simulated = simulated.saturating_sub(indexed.log.token_count());
+                let log = match indexed.log.read() {
+                    Ok(log) => log,
+                    Err(_) => continue,
+                };
+                if indexed.active && is_system_tool(&log) && candidates.insert(idx) {
+                    simulated = simulated.saturating_sub(log.token_count());
                 }
             }
 
@@ -244,9 +272,12 @@ impl ChatLogIndexer {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
-                if indexed.active && is_non_idempotent_tool(&indexed.log) && candidates.insert(idx)
-                {
-                    simulated = simulated.saturating_sub(indexed.log.token_count());
+                let log = match indexed.log.read() {
+                    Ok(log) => log,
+                    Err(_) => continue,
+                };
+                if indexed.active && is_non_idempotent_tool(&log) && candidates.insert(idx) {
+                    simulated = simulated.saturating_sub(log.token_count());
                 }
             }
 
@@ -256,8 +287,12 @@ impl ChatLogIndexer {
                     break;
                 }
                 let indexed = &log_window.logs[idx];
-                if indexed.active && is_idempotent_tool(&indexed.log) && candidates.insert(idx) {
-                    simulated = simulated.saturating_sub(indexed.log.token_count());
+                let log = match indexed.log.read() {
+                    Ok(log) => log,
+                    Err(_) => continue,
+                };
+                if indexed.active && is_idempotent_tool(&log) && candidates.insert(idx) {
+                    simulated = simulated.saturating_sub(log.token_count());
                 }
             }
         }
@@ -283,12 +318,15 @@ impl ChatLogIndexer {
         let relevant_logs = self.rag_context.build_context(&inactive_logs, user_message);
         relevant_logs
             .iter()
-            .map(|log| Message::System {
-                content: format!(
-                    "<chat-history role=\"{}\">{}</chat-history>",
-                    log.data().role(),
-                    log.to_embeddable_text().trim()
-                ),
+            .filter_map(|log| {
+                let log = log.read().ok()?;
+                Some(Message::System {
+                    content: format!(
+                        "<chat-history role=\"{}\">{}</chat-history>",
+                        log.data().role(),
+                        log.to_embeddable_text().trim()
+                    ),
+                })
             })
             .collect()
     }
@@ -331,6 +369,7 @@ mod tests {
                 args: serde_json::json!({}),
             },
             tool_result: Some(Err(crate::chat::log::TenonToolError("boom".into()))),
+            progress: vec![],
         }));
         log.token_count = token_count;
         log
@@ -352,6 +391,7 @@ mod tests {
                     ..Default::default()
                 },
             ))),
+            progress: vec![],
         }));
         log.token_count = token_count;
         log

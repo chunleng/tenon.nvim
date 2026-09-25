@@ -793,7 +793,13 @@ impl ChatWindow {
         let mut buffer = detail_widget.buffer().inner.clone();
         let buf_opts = api::opts::OptionOpts::builder().buf(buffer.clone()).build();
         api::set_option_value("modifiable", true, &buf_opts)?;
-        let lines = format_log_detail(&log);
+        let lines = {
+            if let Ok(log) = log.read() {
+                format_log_detail(&log)
+            } else {
+                vec![String::new()]
+            }
+        };
         buffer.set_lines(0.., false, lines)?;
         api::set_option_value("modifiable", false, &buf_opts)?;
 
@@ -1211,6 +1217,7 @@ mod tests {
                 text: "file content".into(),
                 ..Default::default()
             }))),
+            progress: vec![],
         }));
         let lines = format_log_detail(&log);
         let content = lines.join("\n");
@@ -1252,6 +1259,7 @@ mod tests {
                     text: "move: 2\nartifact: \"move output here\"".into(),
                     ..Default::default()
                 }))),
+                progress: vec![],
             },
         )));
         let lines = format_log_detail(&log);
@@ -1357,6 +1365,7 @@ mod tests {
                     text: "move output here".into(),
                     ..Default::default()
                 }))),
+                progress: vec![],
             },
         )));
         let lines = format_log_detail(&log);

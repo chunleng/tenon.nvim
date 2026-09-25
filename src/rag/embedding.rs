@@ -4,7 +4,7 @@ use crate::utils::path_from_str;
 use anyhow::Result;
 use fastembed::similarity::top_k;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 #[cfg(test)]
 const MAX_TEXT_CHARS: usize = 50;
@@ -20,26 +20,38 @@ const EMBED_CHUNK_SIZE: usize = 16;
 /// Idempotent tool logs are skipped (embedded as empty strings) since their
 /// results are reproducible and add no retrieval signal.
 /// Texts exceeding MAX_TEXT_CHARS are embedded as empty strings.
-pub fn generate_embeddings(logs: &[Arc<TenonLog>]) -> Result<Vec<Vec<f32>>> {
+pub fn generate_embeddings(logs: &[Arc<RwLock<TenonLog>>]) -> Result<Vec<Vec<f32>>> {
     if logs.is_empty() {
         return Ok(vec![]);
     }
 
-    let texts: Vec<String> = logs.iter().map(|log| log.to_embeddable_text()).collect();
+    // A failed read maps to an empty string, which is treated as skipped below, so output positions
+    // stay aligned with input positions.
+    let texts: Vec<String> = logs
+        .iter()
+        .map(|log| {
+            log.read()
+                .map(|log| log.to_embeddable_text())
+                .unwrap_or_default()
+        })
+        .collect();
 
     // Substitute an empty string for skipped logs so output positions stay
     // aligned with input positions.
     let embeddable: Vec<&str> = logs
         .iter()
         .zip(&texts)
-        .map(|(log, text)| match log.data() {
-            TenonLogData::Tool(tool_log)
-                if get_tool_classification(&tool_log.tool_call.name)
-                    == ToolClassification::Idempotent =>
-            {
-                ""
-            }
-            _ => text.as_str(),
+        .map(|(log, text)| match log.read().ok().as_deref() {
+            Some(log) => match log.data() {
+                TenonLogData::Tool(tool_log)
+                    if get_tool_classification(&tool_log.tool_call.name)
+                        == ToolClassification::Idempotent =>
+                {
+                    ""
+                }
+                _ => text.as_str(),
+            },
+            None => "",
         })
         .collect();
 
@@ -135,25 +147,28 @@ pub fn find_top_k_similar(
 mod tests {
     use super::*;
     use crate::chat::log::{TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonUserMessage};
-    use std::sync::Arc;
+    use std::sync::{Arc, RwLock};
 
-    fn user_log(text: &str) -> Arc<TenonLog> {
-        Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-            text.to_string(),
+    fn user_log(text: &str) -> Arc<RwLock<TenonLog>> {
+        Arc::new(RwLock::new(TenonLog::new(TenonLogData::User(
+            TenonUserMessage::Text(text.to_string()),
         ))))
     }
 
-    fn tool_log(name: &str) -> Arc<TenonLog> {
-        Arc::new(TenonLog::new(TenonLogData::Tool(TenonToolLog {
-            tool_call: TenonToolCall {
-                id: "1".into(),
-                internal_call_id: "1".into(),
-                item_id: None,
-                name: name.into(),
-                args: serde_json::json!({}),
+    fn tool_log(name: &str) -> Arc<RwLock<TenonLog>> {
+        Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
+            TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "1".into(),
+                    internal_call_id: "1".into(),
+                    item_id: None,
+                    name: name.into(),
+                    args: serde_json::json!({}),
+                },
+                tool_result: None,
+                progress: vec![],
             },
-            tool_result: None,
-        })))
+        ))))
     }
 
     #[test]

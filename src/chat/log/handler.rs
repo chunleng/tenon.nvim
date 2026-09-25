@@ -30,7 +30,7 @@ impl ChatLogHandler {
             logs: logs
                 .into_iter()
                 .map(|log| IndexedLog {
-                    log: Arc::new(log),
+                    log: Arc::new(RwLock::new(log)),
                     active: true,
                 })
                 .collect(),
@@ -49,8 +49,8 @@ impl ChatLogHandler {
         if let Ok(mut log_window) = self.log_window.write() {
             log_window.prune_incomplete_messages();
             log_window.logs.push(IndexedLog {
-                log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                    message,
+                log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::User(
+                    TenonUserMessage::Text(message),
                 )))),
                 active: true,
             });
@@ -61,8 +61,9 @@ impl ChatLogHandler {
         if let Ok(log_window) = self.log_window.read() {
             let len = log_window.logs.len();
             if len > 0
-                && let TenonLogData::User(TenonUserMessage::Text(text_msg)) =
-                    log_window.logs[len - 1].log.data()
+                && let Some(last) = log_window.logs.last()
+                && let Ok(log) = last.log.read()
+                && let TenonLogData::User(TenonUserMessage::Text(text_msg)) = log.data()
             {
                 return text_msg.clone();
             }

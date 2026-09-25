@@ -40,7 +40,7 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
             let model_display = session.engine.model.display_name();
             let current_tool_names: Vec<String> = session
                 .engine
-                .tool_names
+                .tools
                 .iter()
                 .map(|t| t.name().to_string())
                 .collect();

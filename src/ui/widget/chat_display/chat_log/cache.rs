@@ -14,7 +14,7 @@ pub enum RenderType {
 pub struct StreamUpdate {
     pub replace_line_start: usize,
     pub replace_line_end: usize,
-    pub target_log: Arc<TenonLog>,
+    pub target_log: Arc<RwLock<TenonLog>>,
     pub render_type: RenderType,
     pub line_separator_after: bool,
 }
@@ -28,7 +28,7 @@ enum RenderedLocation {
 }
 
 struct RenderedLogEntry {
-    log: Arc<TenonLog>,
+    log: Arc<RwLock<TenonLog>>,
     render_location: RenderedLocation,
     last_updated_at: DateTime<Utc>,
 }
@@ -53,14 +53,25 @@ use std::sync::atomic::Ordering;
 fn upsert_entry_if_changed(
     rendered_entries: &mut Vec<RenderedLogEntry>,
     log_index: usize,
-    log: &Arc<TenonLog>,
+    log: &Arc<RwLock<TenonLog>>,
     render_type: RenderType,
     line_separator_after: bool,
     current_line: usize,
 ) -> (Option<RenderedLocation>, usize) {
-    let content_lines = match render_type {
-        RenderType::Normal => log.data.lines().len(),
-        RenderType::Tail(x) => log.data.lines().len().min(x),
+    let Some((content_lines, is_hidden_system_tool, last_updated_at)) =
+        log.read().ok().map(|log| {
+            (
+                match render_type {
+                    RenderType::Normal => log.data.lines().len(),
+                    RenderType::Tail(x) => log.data.lines().len().min(x),
+                },
+                log.data.is_hidden_system_tool(),
+                log.last_updated_at,
+            )
+        })
+    else {
+        // Lock failed: skip render, keep position tracking unchanged.
+        return (None, current_line);
     };
     let total_lines = content_lines + line_separator_after as usize;
     if let Some(existing) = rendered_entries.get_mut(log_index) {
@@ -71,7 +82,7 @@ fn upsert_entry_if_changed(
                 line_count,
             } => (*line_start, *line_count),
             RenderedLocation::Hidden => {
-                if log.data.is_hidden_system_tool() {
+                if is_hidden_system_tool {
                     return (None, current_line);
                 }
                 existing.log = log.clone();
@@ -79,7 +90,7 @@ fn upsert_entry_if_changed(
                     line_start: current_line,
                     line_count: total_lines,
                 };
-                existing.last_updated_at = log.last_updated_at;
+                existing.last_updated_at = last_updated_at;
                 return (
                     Some(RenderedLocation::Shown {
                         line_start: current_line,
@@ -95,7 +106,7 @@ fn upsert_entry_if_changed(
 
         // Unchanged entry: return position for tracking, but no render needed
         if Arc::ptr_eq(log, &existing.log)
-            && log.last_updated_at <= existing.last_updated_at
+            && last_updated_at <= existing.last_updated_at
             && !separator_changed
         {
             return (None, line_start + line_count);
@@ -106,7 +117,7 @@ fn upsert_entry_if_changed(
             line_start: current_line,
             line_count: total_lines,
         };
-        existing.last_updated_at = log.last_updated_at;
+        existing.last_updated_at = last_updated_at;
 
         return (
             Some(RenderedLocation::Shown {
@@ -121,11 +132,11 @@ fn upsert_entry_if_changed(
     }
 
     // New entry
-    if log.data.is_hidden_system_tool() {
+    if is_hidden_system_tool {
         rendered_entries.push(RenderedLogEntry {
             log: log.clone(),
             render_location: RenderedLocation::Hidden,
-            last_updated_at: log.last_updated_at,
+            last_updated_at,
         });
         (Some(RenderedLocation::Hidden), current_line)
     } else {
@@ -135,7 +146,7 @@ fn upsert_entry_if_changed(
                 line_start: current_line,
                 line_count: total_lines,
             },
-            last_updated_at: log.last_updated_at,
+            last_updated_at,
         });
 
         (
@@ -160,7 +171,7 @@ impl ChatLogCache {
     /// Returns the log entry that occupies the given 0-based buffer line, or
     /// `None` if the line doesn't belong to any rendered entry. Hidden entries
     /// are skipped.
-    pub fn get_log_at_line(&self, line: usize) -> Option<Arc<TenonLog>> {
+    pub fn get_log_at_line(&self, line: usize) -> Option<Arc<RwLock<TenonLog>>> {
         self.rendered_entries
             .iter()
             .find_map(|entry| match &entry.render_location {
@@ -210,18 +221,27 @@ impl ChatLogCache {
                 .iter()
                 .enumerate()
                 .filter_map(|(offset, indexed_log)| {
-                    let next_log = log_window.logs[check_from + offset + 1..]
+                    let is_next_log_tool = log_window.logs[check_from + offset + 1..]
                         .iter()
-                        .find(|n| !n.log.data.is_hidden_system_tool())
-                        .map(|n| &n.log.data);
+                        .find_map(|n| {
+                            let log = n.log.read().ok()?;
+                            if log.data.is_hidden_system_tool() {
+                                None
+                            } else {
+                                Some(matches!(log.data, TenonLogData::Tool(_)))
+                            }
+                        });
 
-                    let current_log = &indexed_log.log.data;
+                    let Ok(log) = indexed_log.log.read() else {
+                        return None;
+                    };
+                    let current_log = &log.data;
 
                     let render_type = match current_log {
                         TenonLogData::Assistant(msg)
                             if msg.chat_is_empty() && msg.reasoning.is_some() =>
                         {
-                            if next_log.is_some() {
+                            if is_next_log_tool.is_some() {
                                 RenderType::Tail(1)
                             } else {
                                 RenderType::Normal
@@ -235,7 +255,8 @@ impl ChatLogCache {
 
                     // Add line separator unless both current and next are Tools
                     let line_separator_after = !(matches!(current_log, TenonLogData::Tool(_))
-                        && next_log.is_some_and(|n| matches!(n, TenonLogData::Tool(_))));
+                        && is_next_log_tool.unwrap_or(false));
+                    drop(log);
 
                     let log_index = check_from + offset;
                     let log = &indexed_log.log;
@@ -276,18 +297,26 @@ impl ChatLogCache {
             let new_check_from = self
                 .rendered_entries
                 .last()
-                .map_or(current_count, |last_entry| match &last_entry.log.data {
-                    TenonLogData::Assistant(_) | TenonLogData::Thought(_) => current_count - 1,
-                    TenonLogData::Tool(_) => (0..current_count - 1)
-                        .rev()
-                        .take_while(|&i| {
-                            self.rendered_entries
-                                .get(i)
-                                .is_some_and(|e| matches!(e.log.data, TenonLogData::Tool(_)))
-                        })
-                        .last()
-                        .unwrap_or(current_count - 1),
-                    _ => current_count,
+                .map_or(current_count, |last_entry| {
+                    let Ok(log) = last_entry.log.read() else {
+                        return current_count;
+                    };
+                    match &log.data {
+                        TenonLogData::Assistant(_) | TenonLogData::Thought(_) => current_count - 1,
+                        TenonLogData::Tool(_) => (0..current_count - 1)
+                            .rev()
+                            .take_while(|&i| {
+                                self.rendered_entries.get(i).is_some_and(|e| {
+                                    e.log
+                                        .read()
+                                        .ok()
+                                        .is_some_and(|l| matches!(l.data, TenonLogData::Tool(_)))
+                                })
+                            })
+                            .last()
+                            .unwrap_or(current_count - 1),
+                        _ => current_count,
+                    }
                 });
             self.check_from_index
                 .store(new_check_from, Ordering::SeqCst);
@@ -316,8 +345,8 @@ mod tests {
         let session = cache.chat_session.write().unwrap();
         let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                text.to_string(),
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::User(
+                TenonUserMessage::Text(text.to_string()),
             )))),
             active: true,
         });
@@ -327,12 +356,12 @@ mod tests {
         let session = cache.chat_session.write().unwrap();
         let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Assistant(
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Assistant(
                 TenonAssistantMessage {
                     reasoning: Some(reasoning.to_string()),
                     content: vec![],
                 },
-            ))),
+            )))),
             active: true,
         });
     }
@@ -341,12 +370,12 @@ mod tests {
         let session = cache.chat_session.write().unwrap();
         let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs[index] = crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Assistant(
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Assistant(
                 TenonAssistantMessage {
                     reasoning: Some(reasoning.to_string()),
                     content: vec![],
                 },
-            ))),
+            )))),
             active: true,
         };
     }
@@ -355,14 +384,14 @@ mod tests {
         let session = cache.chat_session.write().unwrap();
         let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs[index] = crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Assistant(
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Assistant(
                 TenonAssistantMessage {
                     reasoning: None,
                     content: vec![crate::chat::log::TenonAssistantMessageContent::Text(
                         content.to_string(),
                     )],
                 },
-            ))),
+            )))),
             active: true,
         };
     }
@@ -371,12 +400,12 @@ mod tests {
         let session = cache.chat_session.write().unwrap();
         let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Thought(
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Thought(
                 crate::chat::log::TenonThoughtLog {
                     thought: thought.to_string(),
                     summary: None,
                 },
-            ))),
+            )))),
             active: true,
         });
     }
@@ -385,7 +414,7 @@ mod tests {
         let session = cache.chat_session.write().unwrap();
         let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Tool(
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
                 crate::chat::log::TenonToolLog {
                     tool_call: crate::chat::log::TenonToolCall {
                         id: id.to_string(),
@@ -395,8 +424,9 @@ mod tests {
                         args: serde_json::json!({}),
                     },
                     tool_result: None,
+                    progress: vec![],
                 },
-            ))),
+            )))),
             active: true,
         });
     }
@@ -421,23 +451,23 @@ mod tests {
             "current_line should be 2 after 'Hello' log (2 lines)"
         );
         assert_eq!(
-            updates[0].target_log.data.lines(),
+            updates[0].target_log.read().unwrap().data.lines(),
             vec!["Hello"],
             "should show all lines of user log"
         );
         assert!(updates[0].line_separator_after);
         assert_eq!(
-            updates[0].target_log.data.sign(),
+            updates[0].target_log.read().unwrap().data.sign(),
             " ",
             "should show User sign"
         );
         assert_eq!(
-            updates[0].target_log.data.sign_hl_group(),
+            updates[0].target_log.read().unwrap().data.sign_hl_group(),
             "TenonSignUser",
             "should show User sign hl group"
         );
         assert_eq!(
-            updates[0].target_log.data.line_hl_group(),
+            updates[0].target_log.read().unwrap().data.line_hl_group(),
             "",
             "User has no line hl group"
         );
@@ -462,13 +492,13 @@ mod tests {
             "current_line should be 6 after 3 logs (2 lines each)"
         );
         assert_eq!(
-            updates[0].target_log.data.lines(),
+            updates[0].target_log.read().unwrap().data.lines(),
             vec!["World"],
             "first log lines should be ['World']"
         );
         assert!(updates[0].line_separator_after);
         assert_eq!(
-            updates[1].target_log.data.lines(),
+            updates[1].target_log.read().unwrap().data.lines(),
             vec!["Test"],
             "second log lines should be ['Test']"
         );
@@ -494,7 +524,10 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 3);
-        assert_eq!(updates[2].target_log.data.lines(), vec!["Thinking..."]);
+        assert_eq!(
+            updates[2].target_log.read().unwrap().data.lines(),
+            vec!["Thinking..."]
+        );
         assert!(updates[2].line_separator_after);
         assert_eq!(updates[2].replace_line_start, 4);
         assert_eq!(updates[2].replace_line_end, 4);
@@ -504,7 +537,7 @@ mod tests {
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(
-            updates[0].target_log.data.lines(),
+            updates[0].target_log.read().unwrap().data.lines(),
             vec!["Thinking...", "More thoughts"]
         );
         assert!(updates[0].line_separator_after);
@@ -521,7 +554,7 @@ mod tests {
         );
         // Assistant re-rendered with limited lines
         assert_eq!(
-            updates[0].target_log.data.lines(),
+            updates[0].target_log.read().unwrap().data.lines(),
             vec!["Thinking...", "More thoughts"]
         );
         assert!(updates[0].line_separator_after);
@@ -532,7 +565,10 @@ mod tests {
             "should replace old 3-line assistant"
         );
         // User log
-        assert_eq!(updates[1].target_log.data.lines(), vec!["Hello"]);
+        assert_eq!(
+            updates[1].target_log.read().unwrap().data.lines(),
+            vec!["Hello"]
+        );
         assert!(updates[1].line_separator_after);
         assert_eq!(
             updates[1].replace_line_start, 6,
@@ -559,20 +595,23 @@ mod tests {
         assert_eq!(updates.len(), 3);
 
         // User log with separator
-        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Hello"]
+        );
         assert!(updates[0].line_separator_after);
         // Tool → Tool: no separator between consecutive tools
-        assert!(updates[1].target_log.data.lines()[0].contains("tool1"));
+        assert!(updates[1].target_log.read().unwrap().data.lines()[0].contains("tool1"));
         assert_eq!(
-            updates[1].target_log.data.lines().len(),
+            updates[1].target_log.read().unwrap().data.lines().len(),
             1,
             "tool1 should have no separator when next is tool"
         );
         assert!(!updates[1].line_separator_after);
         // Last tool has separator
-        assert!(updates[2].target_log.data.lines()[0].contains("tool2"));
+        assert!(updates[2].target_log.read().unwrap().data.lines()[0].contains("tool2"));
         assert_eq!(
-            updates[2].target_log.data.lines().len(),
+            updates[2].target_log.read().unwrap().data.lines().len(),
             1,
             "last tool should have separator"
         );
@@ -590,7 +629,7 @@ mod tests {
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(
-            updates[0].target_log.data.lines(),
+            updates[0].target_log.read().unwrap().data.lines(),
             vec!["Thinking...", "More thoughts"]
         );
         assert!(updates[0].line_separator_after);
@@ -601,7 +640,10 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].target_log.data.lines(), vec!["Final answer"]);
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Final answer"]
+        );
         assert!(updates[0].line_separator_after);
         assert_eq!(updates[0].replace_line_start, 0);
         assert_eq!(updates[0].replace_line_end, 3, "should use stored line_end");
@@ -614,7 +656,10 @@ mod tests {
             1,
             "should skip unchanged assistant log, return only user log"
         );
-        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Hello"]
+        );
         assert!(updates[0].line_separator_after);
         assert_eq!(
             updates[0].replace_line_start, 2,
@@ -632,7 +677,7 @@ mod tests {
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(
-            updates[0].target_log.data.lines(),
+            updates[0].target_log.read().unwrap().data.lines(),
             vec!["Line 1", "Line 2", "Line 3"],
             "should capture all lines from multi-line log"
         );
@@ -644,7 +689,10 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].target_log.data.lines(), vec!["Second log"]);
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Second log"]
+        );
         assert!(updates[0].line_separator_after);
         assert_eq!(updates[0].replace_line_start, 4);
     }
@@ -657,7 +705,10 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].target_log.data.lines(), vec!["Thinking..."]);
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Thinking..."]
+        );
         assert!(updates[0].line_separator_after);
 
         let (updates, _) = cache.poll_render_update();
@@ -671,7 +722,7 @@ mod tests {
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
         assert_eq!(
-            updates[0].target_log.data.lines(),
+            updates[0].target_log.read().unwrap().data.lines(),
             vec!["Thinking...", "More thoughts"]
         );
         assert!(updates[0].line_separator_after);
@@ -697,7 +748,7 @@ mod tests {
             "assistant reasoning with no next log should be Normal"
         );
         assert_eq!(
-            updates[0].target_log.data.lines().len(),
+            updates[0].target_log.read().unwrap().data.lines().len(),
             5,
             "all 5 lines should be present"
         );
@@ -744,9 +795,12 @@ mod tests {
             2,
             "System tools should be excluded from render"
         );
-        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Hello"]
+        );
         assert!(updates[0].line_separator_after);
-        assert!(updates[1].target_log.data.lines()[0].contains("read_file"));
+        assert!(updates[1].target_log.read().unwrap().data.lines()[0].contains("read_file"));
     }
 
     #[test]
@@ -761,11 +815,14 @@ mod tests {
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 4);
 
-        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Hello"]
+        );
         assert!(updates[0].line_separator_after);
-        assert!(updates[1].target_log.data.lines()[0].contains("tool1"));
-        assert!(updates[2].target_log.data.lines()[0].contains("tool2"));
-        assert!(updates[3].target_log.data.lines()[0].contains("tool3"));
+        assert!(updates[1].target_log.read().unwrap().data.lines()[0].contains("tool1"));
+        assert!(updates[2].target_log.read().unwrap().data.lines()[0].contains("tool2"));
+        assert!(updates[3].target_log.read().unwrap().data.lines()[0].contains("tool3"));
         assert!(updates[3].line_separator_after);
 
         cache.poll_render_update();
@@ -774,8 +831,8 @@ mod tests {
         let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.remove(3); // Remove tool3
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                "World".to_string(),
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::User(
+                TenonUserMessage::Text("World".to_string()),
             )))),
             active: true,
         });
@@ -788,14 +845,17 @@ mod tests {
         assert_eq!(updates.len(), 2);
 
         // Tool2: now has separator (became last tool)
-        assert!(updates[0].target_log.data.lines()[0].contains("tool2"));
-        assert_eq!(updates[0].target_log.data.lines().len(), 1);
+        assert!(updates[0].target_log.read().unwrap().data.lines()[0].contains("tool2"));
+        assert_eq!(updates[0].target_log.read().unwrap().data.lines().len(), 1);
         assert!(updates[0].line_separator_after);
         assert_eq!(updates[0].replace_line_start, 3);
         assert_eq!(updates[0].replace_line_end, 4);
 
         // User log: ["World"]
-        assert_eq!(updates[1].target_log.data.lines(), vec!["World"]);
+        assert_eq!(
+            updates[1].target_log.read().unwrap().data.lines(),
+            vec!["World"]
+        );
         assert!(updates[1].line_separator_after);
         assert_eq!(updates[1].replace_line_start, 5);
         assert_eq!(updates[1].replace_line_end, 6);
@@ -813,26 +873,26 @@ mod tests {
 
         // User log occupies lines [0, 2)
         assert!(
-            matches!(cache.get_log_at_line(0), Some(log) if matches!(log.data, TenonLogData::User(_)))
+            matches!(cache.get_log_at_line(0), Some(log) if matches!(log.read().unwrap().data, TenonLogData::User(_)))
         );
         assert!(
-            matches!(cache.get_log_at_line(1), Some(log) if matches!(log.data, TenonLogData::User(_)))
+            matches!(cache.get_log_at_line(1), Some(log) if matches!(log.read().unwrap().data, TenonLogData::User(_)))
         );
 
         // Assistant log occupies lines [2, 4)
         assert!(
-            matches!(cache.get_log_at_line(2), Some(log) if matches!(log.data, TenonLogData::Assistant(_)))
+            matches!(cache.get_log_at_line(2), Some(log) if matches!(log.read().unwrap().data, TenonLogData::Assistant(_)))
         );
         assert!(
-            matches!(cache.get_log_at_line(3), Some(log) if matches!(log.data, TenonLogData::Assistant(_)))
+            matches!(cache.get_log_at_line(3), Some(log) if matches!(log.read().unwrap().data, TenonLogData::Assistant(_)))
         );
 
         // Tool log occupies lines [4, 6)
         assert!(
-            matches!(cache.get_log_at_line(4), Some(log) if matches!(log.data, TenonLogData::Tool(_)))
+            matches!(cache.get_log_at_line(4), Some(log) if matches!(log.read().unwrap().data, TenonLogData::Tool(_)))
         );
         assert!(
-            matches!(cache.get_log_at_line(5), Some(log) if matches!(log.data, TenonLogData::Tool(_)))
+            matches!(cache.get_log_at_line(5), Some(log) if matches!(log.read().unwrap().data, TenonLogData::Tool(_)))
         );
 
         // Out of range
@@ -843,7 +903,7 @@ mod tests {
         let session = cache.chat_session.write().unwrap();
         let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Tool(
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
                 crate::chat::log::TenonToolLog {
                     tool_call: crate::chat::log::TenonToolCall {
                         id: id.to_string(),
@@ -855,8 +915,9 @@ mod tests {
                     tool_result: Some(Err(crate::chat::log::TenonToolError(
                         "Toolset error: something went wrong".into(),
                     ))),
+                    progress: vec![],
                 },
-            ))),
+            )))),
             active: true,
         });
     }
@@ -865,7 +926,7 @@ mod tests {
         let session = cache.chat_session.write().unwrap();
         let mut log_window = session.engine.log_handler.log_window.write().unwrap();
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Tool(
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
                 crate::chat::log::TenonToolLog {
                     tool_call: crate::chat::log::TenonToolCall {
                         id: id.to_string(),
@@ -880,19 +941,23 @@ mod tests {
                             ..Default::default()
                         },
                     ))),
+                    progress: vec![],
                 },
-            ))),
+            )))),
             active: true,
         });
     }
 
     fn update_tool_log_to_error(cache: &mut ChatLogCache, index: usize) {
         let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
-        let log = Arc::make_mut(&mut log_window.logs[index].log);
-        log.set_tool_result(Some(Err(crate::chat::log::TenonToolError(
-            "Toolset error: something went wrong".into(),
-        ))));
+        let log_window = session.engine.log_handler.log_window.write().unwrap();
+        log_window.logs[index]
+            .log
+            .write()
+            .unwrap()
+            .set_tool_result(Some(Err(crate::chat::log::TenonToolError(
+                "Toolset error: something went wrong".into(),
+            ))));
     }
 
     #[test]
@@ -905,10 +970,13 @@ mod tests {
         let (updates, _) = cache.poll_render_update();
 
         assert_eq!(updates.len(), 2, "System tool with error should be visible");
-        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Hello"]
+        );
         assert!(updates[0].line_separator_after);
         assert!(
-            updates[1].target_log.data.lines()[0].contains("use_choreo"),
+            updates[1].target_log.read().unwrap().data.lines()[0].contains("use_choreo"),
             "errored system tool should be rendered"
         );
     }
@@ -927,7 +995,10 @@ mod tests {
             1,
             "System tool with Ok result should be hidden"
         );
-        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Hello"]
+        );
         assert!(updates[0].line_separator_after);
     }
 
@@ -945,7 +1016,10 @@ mod tests {
             1,
             "System tool with pending result should be hidden"
         );
-        assert_eq!(updates[0].target_log.data.lines(), vec!["Hello"]);
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Hello"]
+        );
         assert!(updates[0].line_separator_after);
     }
 
@@ -968,7 +1042,7 @@ mod tests {
             "errored system tool should become visible"
         );
         assert!(
-            updates[0].target_log.data.lines()[0].contains("use_choreo"),
+            updates[0].target_log.read().unwrap().data.lines()[0].contains("use_choreo"),
             "transitioned system tool should be rendered"
         );
     }
@@ -984,10 +1058,10 @@ mod tests {
 
         // System tool is Hidden; user log still occupies lines [0, 2)
         assert!(
-            matches!(cache.get_log_at_line(0), Some(log) if matches!(log.data, TenonLogData::User(_)))
+            matches!(cache.get_log_at_line(0), Some(log) if matches!(log.read().unwrap().data, TenonLogData::User(_)))
         );
         assert!(
-            matches!(cache.get_log_at_line(1), Some(log) if matches!(log.data, TenonLogData::User(_)))
+            matches!(cache.get_log_at_line(1), Some(log) if matches!(log.read().unwrap().data, TenonLogData::User(_)))
         );
     }
 }

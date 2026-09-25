@@ -1,15 +1,18 @@
 use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::get_application_config;
 use crate::utils::format_yaml_block_scalars;
-use futures::stream::{self, StreamExt};
+use futures::stream::{self, BoxStream, StreamExt};
 
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use crate::tools::{ToolCore, ToolCoreCall};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::process::Command;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 
 /// Hard cap on combined stdout+stderr output size (bytes).
 const OUTPUT_CAP: usize = 32 * 1024;
@@ -26,8 +29,29 @@ pub struct RunCommandArgs {
     pub env: Option<HashMap<String, String>>,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
 pub struct RunCommand;
+
+/// Collected raw output from a running command, shared between the output
+/// stream and the call instance.
+#[derive(Default, Clone, Debug)]
+struct CollectedOutput {
+    stdout: String,
+    stderr: String,
+    exit_code: Option<i32>,
+    timed_out: bool,
+}
+
+/// Per-call execution state for `run_command`.
+#[derive(Debug)]
+pub struct RunCommandCall {
+    child: Option<Child>,
+    filter: Option<String>,
+    head: Option<usize>,
+    tail: Option<usize>,
+    timeout: u64,
+    deadline: tokio::time::Instant,
+    collected: Arc<Mutex<CollectedOutput>>,
+}
 
 #[derive(Serialize)]
 struct RunCommandOutput {
@@ -283,11 +307,12 @@ fn truncate_output(output: &str) -> (String, bool) {
     (output[..OUTPUT_CAP].to_string(), true)
 }
 
-impl Tool for RunCommand {
+impl ToolCore for RunCommand {
     const NAME: &'static str = "run_command";
     type Error = ToolExecutionError;
     type Args = RunCommandArgs;
     type Output = String;
+    type Call = RunCommandCall;
 
     fn description(&self) -> String {
         "Run command (exec form). Tool outputs yaml with both stdout and stderr\n
@@ -340,11 +365,11 @@ impl Tool for RunCommand {
         })
     }
 
-    async fn call(
+    async fn init_call(
         &self,
         _context: &mut ToolContext,
         args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+    ) -> Result<Self::Call, Self::Error> {
         // filter, head, and tail are mutually exclusive
         let set_count = args.filter.is_some() as usize
             + args.head.is_some() as usize
@@ -376,8 +401,6 @@ impl Tool for RunCommand {
         let program = &args.argv[0];
         let program_args = &args.argv[1..];
 
-        let timeout_secs = args.timeout.unwrap_or(30);
-
         let mut cmd = Command::new(program);
         cmd.args(program_args)
             .stdout(Stdio::piped())
@@ -391,54 +414,193 @@ impl Tool for RunCommand {
             cmd.envs(env);
         }
 
+        let timeout = args.timeout.unwrap_or(30);
         let child = cmd.spawn().map_err(|e| {
             ToolExecutionError::other(format!("Failed to spawn '{}': {}", program, e))
         })?;
 
-        // Run with timeout
-        let result =
-            tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait_with_output()).await;
+        Ok(RunCommandCall {
+            child: Some(child),
+            filter: args.filter,
+            head: args.head,
+            tail: args.tail,
+            timeout,
+            deadline: tokio::time::Instant::now() + Duration::from_secs(timeout),
+            collected: Arc::new(Mutex::new(CollectedOutput::default())),
+        })
+    }
+}
 
-        let output = match result {
-            Ok(Ok(out)) => out,
-            Ok(Err(e)) => {
-                return Err(ToolExecutionError::other(format!("Process error: {}", e)));
-            }
-            Err(_) => {
-                // Timeout — try to get partial output by killing
-                return Err(ToolExecutionError::timeout(format!(
-                    "Command timed out after {}s: '{}'",
-                    timeout_secs, full_command
-                )));
-            }
+/// State for the output stream of a running command.
+struct RunStreamState {
+    stdout: tokio::io::Lines<BufReader<ChildStdout>>,
+    stderr: tokio::io::Lines<BufReader<ChildStderr>>,
+    stdout_done: bool,
+    stderr_done: bool,
+    child: Option<Child>,
+    collected: Arc<Mutex<CollectedOutput>>,
+}
+
+impl ToolCoreCall for RunCommandCall {
+    type Output = String;
+    type Error = ToolExecutionError;
+
+    fn stream(&mut self, _context: &mut ToolContext) -> Option<BoxStream<'_, String>> {
+        let mut child = self.child.take()?;
+        let stdout = child.stdout.take()?;
+        let stderr = child.stderr.take()?;
+
+        let state = RunStreamState {
+            stdout: BufReader::new(stdout).lines(),
+            stderr: BufReader::new(stderr).lines(),
+            stdout_done: false,
+            stderr_done: false,
+            child: Some(child),
+            collected: Arc::clone(&self.collected),
         };
 
-        let exit_code = output.status.code().unwrap_or(-1);
-        let raw_stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let raw_stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        // One step of the command output stream: yield the next stdout/stderr
+        // line, then finish. Errors (e.g. timeout) are not streamed; they
+        // surface through `result`.
+        let deadline = self.deadline;
+        Some(Box::pin(stream::unfold(
+            state,
+            move |mut state| async move {
+                loop {
+                    // Timed out, or both pipes closed: settle the process
+                    // and record the collected output
+                    let mut timed_out = state
+                        .collected
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .timed_out;
+                    if timed_out || (state.stdout_done && state.stderr_done) {
+                        let mut exit_code = None;
+                        if let Some(mut child) = state.child.take() {
+                            if timed_out {
+                                let _ = child.kill().await;
+                            } else {
+                                tokio::select! {
+                                    _ = tokio::time::sleep_until(deadline) => {
+                                        let _ = child.kill().await;
+                                        timed_out = true;
+                                    }
+                                    status = child.wait() => {
+                                        exit_code =
+                                            Some(status.ok().and_then(|s| s.code()).unwrap_or(-1));
+                                    }
+                                }
+                            }
+                        }
+                        let mut collected =
+                            state.collected.lock().unwrap_or_else(|e| e.into_inner());
+                        collected.exit_code = exit_code;
+                        collected.timed_out = timed_out;
+                        return None;
+                    }
 
-        // Output filters apply to stdout only; stderr passes through raw
-        let filtered_stdout =
-            apply_output_filters(&raw_stdout, args.filter.as_deref(), args.head, args.tail);
+                    tokio::select! {
+                        _ = tokio::time::sleep_until(deadline) => {
+                            state
+                                .collected
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .timed_out = true;
+                        }
+                        line = state.stdout.next_line(), if !state.stdout_done => {
+                            match line {
+                                Ok(Some(line)) => {
+                                    {
+                                        let mut collected = state
+                                            .collected
+                                            .lock()
+                                            .unwrap_or_else(|e| e.into_inner());
+                                        collected.stdout.push_str(&line);
+                                        collected.stdout.push('\n');
+                                    }
+                                    return Some((line, state));
+                                }
+                                Ok(None) | Err(_) => {
+                                    state.stdout_done = true;
+                                }
+                            }
+                        }
+                        line = state.stderr.next_line(), if !state.stderr_done => {
+                            match line {
+                                Ok(Some(line)) => {
+                                    {
+                                        let mut collected = state
+                                            .collected
+                                            .lock()
+                                            .unwrap_or_else(|e| e.into_inner());
+                                        collected.stderr.push_str(&line);
+                                        collected.stderr.push('\n');
+                                    }
+                                    return Some((line, state));
+                                }
+                                Ok(None) | Err(_) => {
+                                    state.stderr_done = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        )))
+    }
 
-        // Truncate each stream individually to OUTPUT_CAP
-        let (truncated_stdout, stdout_was_truncated) = truncate_output(&filtered_stdout);
-        let (truncated_stderr, stderr_was_truncated) = truncate_output(&raw_stderr);
-        let truncated = stdout_was_truncated || stderr_was_truncated;
-
-        let result = RunCommandOutput {
-            exit_code,
-            stdout: truncated_stdout,
-            stderr: truncated_stderr,
-            truncated,
-        };
-
-        Ok(format_yaml_block_scalars(
-            &serde_yaml::to_string(&result).unwrap_or_else(|_| {
-                "exit_code: -1\nstdout: \"\"\nstderr: \"\"\ntruncated: false\n".to_string()
-            }),
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        // Return whatever the stream collected; if the stream was never
+        // consumed this is simply empty
+        let collected = self
+            .collected
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if collected.timed_out {
+            return Err(ToolExecutionError::timeout(format!(
+                "Command timed out after {}s",
+                self.timeout
+            )));
+        }
+        Ok(format_result(
+            collected.exit_code.unwrap_or(-1),
+            &collected.stdout,
+            &collected.stderr,
+            self.filter.as_deref(),
+            self.head,
+            self.tail,
         ))
     }
+}
+
+/// Apply filters and truncation, then format the yaml result block.
+fn format_result(
+    exit_code: i32,
+    raw_stdout: &str,
+    raw_stderr: &str,
+    filter: Option<&str>,
+    head: Option<usize>,
+    tail: Option<usize>,
+) -> String {
+    // Output filters apply to stdout only; stderr passes through raw
+    let filtered_stdout = apply_output_filters(raw_stdout, filter, head, tail);
+
+    // Truncate each stream individually to OUTPUT_CAP
+    let (truncated_stdout, stdout_was_truncated) = truncate_output(&filtered_stdout);
+    let (truncated_stderr, stderr_was_truncated) = truncate_output(raw_stderr);
+    let truncated = stdout_was_truncated || stderr_was_truncated;
+
+    let result = RunCommandOutput {
+        exit_code,
+        stdout: truncated_stdout,
+        stderr: truncated_stderr,
+        truncated,
+    };
+
+    format_yaml_block_scalars(&serde_yaml::to_string(&result).unwrap_or_else(|_| {
+        "exit_code: -1\nstdout: \"\"\nstderr: \"\"\ntruncated: false\n".to_string()
+    }))
 }
 
 #[cfg(test)]
@@ -501,17 +663,20 @@ mod tests {
         assert_eq!(result, "line3\nline4\nline5");
     }
 
-    /// Set global config with whitelist ["*"] so commands run without the LLM
-    /// safety check. First caller wins (OnceLock); safe under parallel tests.
-    fn setup_whitelist_all() {
+    /// Install a thread-local config override with run_command whitelist ["*"]
+    /// so commands run without the LLM safety check. The returned guard must be
+    /// bound for the test's lifetime; dropping it reverts the override. The
+    /// global OnceLock CONFIG is never touched, so this works regardless of
+    /// which test initialized it first.
+    fn setup_whitelist_all() -> crate::ConfigOverride {
         let mut config = TenonConfig::default();
         config.tools.run_command.whitelist = vec!["*".to_string()];
-        let _ = crate::CONFIG.set(config);
+        crate::ConfigOverride::set(config)
     }
 
     #[tokio::test]
     async fn test_filter_head_tail_mutually_exclusive() {
-        setup_whitelist_all();
+        let _whitelist = setup_whitelist_all();
         let tool = RunCommand;
         let mut context = ToolContext::new();
 
@@ -525,7 +690,7 @@ mod tests {
             tail: None,
             env: None,
         };
-        let err = tool.call(&mut context, args).await.unwrap_err();
+        let err = tool.init_call(&mut context, args).await.unwrap_err();
         assert_eq!(err.kind(), ToolErrorKind::InvalidArgs);
 
         // filter + tail
@@ -538,7 +703,7 @@ mod tests {
             tail: Some(1),
             env: None,
         };
-        let err = tool.call(&mut context, args).await.unwrap_err();
+        let err = tool.init_call(&mut context, args).await.unwrap_err();
         assert_eq!(err.kind(), ToolErrorKind::InvalidArgs);
 
         // all three
@@ -551,13 +716,13 @@ mod tests {
             tail: Some(1),
             env: None,
         };
-        let err = tool.call(&mut context, args).await.unwrap_err();
+        let err = tool.init_call(&mut context, args).await.unwrap_err();
         assert_eq!(err.kind(), ToolErrorKind::InvalidArgs);
     }
 
     #[tokio::test]
     async fn test_filter_applies_to_stdout() {
-        setup_whitelist_all();
+        let _whitelist = setup_whitelist_all();
 
         let tool = RunCommand;
         let mut context = ToolContext::new();
@@ -575,7 +740,12 @@ mod tests {
             env: None,
         };
 
-        let output = tool.call(&mut context, args).await.unwrap();
+        let mut call = tool.init_call(&mut context, args).await.unwrap();
+        {
+            let mut stream = call.stream(&mut context).unwrap();
+            while stream.next().await.is_some() {}
+        }
+        let output = call.result(&mut context).await.unwrap();
 
         // stdout filtered: keeps matching line
         assert!(

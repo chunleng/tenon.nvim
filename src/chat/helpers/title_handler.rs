@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::chat::log::TenonLogData;
@@ -54,9 +54,8 @@ impl TitleHandler {
 
         let first_message = match self.log_window.read() {
             Ok(log_window) => log_window.logs.iter().find_map(|indexed| {
-                if let TenonLogData::User(crate::chat::TenonUserMessage::Text(msg)) =
-                    indexed.log.data()
-                {
+                let log = indexed.log.read().unwrap_or_else(PoisonError::into_inner);
+                if let TenonLogData::User(crate::chat::TenonUserMessage::Text(msg)) = log.data() {
                     Some(msg.clone())
                 } else {
                     None

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 
 use super::indexer::IndexedLog;
 use super::{TenonLog, TenonLogData};
@@ -14,7 +14,13 @@ impl LogWindow {
         self.logs
             .iter()
             .filter(|indexed| indexed.active)
-            .map(|indexed| indexed.log.token_count())
+            .map(|indexed| {
+                indexed
+                    .log
+                    .read()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .token_count()
+            })
             .sum()
     }
 
@@ -22,15 +28,19 @@ impl LogWindow {
     /// Active logs are those with active=true.
     /// Excludes the last item if it's a user message (the current prompt is
     /// passed separately to the LLM, not as part of history).
-    pub fn active_history_log(&self) -> Vec<Arc<TenonLog>> {
-        let active: Vec<Arc<TenonLog>> = self
+    pub fn active_history_log(&self) -> Vec<Arc<RwLock<TenonLog>>> {
+        let active: Vec<Arc<RwLock<TenonLog>>> = self
             .logs
             .iter()
             .filter(|indexed| indexed.active)
             .map(|indexed| indexed.log.clone())
             .collect();
         let len = active.len();
-        if len > 0 && matches!(active[len - 1].data(), TenonLogData::User(_)) {
+        let last_is_user = len > 0
+            && active[len - 1]
+                .read()
+                .map_or(true, |log| matches!(log.data(), TenonLogData::User(_)));
+        if last_is_user {
             active[..len - 1].to_vec()
         } else {
             active
@@ -38,9 +48,15 @@ impl LogWindow {
     }
 
     /// Returns all logs, excluding the last item if it's a user message.
-    pub fn history_log(&self) -> Vec<Arc<TenonLog>> {
+    pub fn history_log(&self) -> Vec<Arc<RwLock<TenonLog>>> {
         let len = self.logs.len();
-        let skip_last = len > 0 && matches!(self.logs[len - 1].log.data(), TenonLogData::User(_));
+        let skip_last = len > 0
+            && self.logs[len - 1]
+                .log
+                .read()
+                // On read failure, default to skipping the last item,
+                // consistent with `active_history_log`.
+                .map_or(true, |log| matches!(log.data(), TenonLogData::User(_)));
         self.logs
             .iter()
             .take(if skip_last { len - 1 } else { len })
@@ -50,7 +66,7 @@ impl LogWindow {
 
     /// Returns inactive logs that will go through RAG filter.
     /// These are logs that have been excluded from active context (active=false).
-    pub fn inactive_log(&self) -> Vec<Arc<TenonLog>> {
+    pub fn inactive_log(&self) -> Vec<Arc<RwLock<TenonLog>>> {
         self.logs
             .iter()
             .filter(|indexed| !indexed.active)
@@ -60,9 +76,13 @@ impl LogWindow {
 
     /// Finds the index of the first user message in the entire log.
     pub fn find_first_user_index(&self) -> Option<usize> {
-        self.logs
-            .iter()
-            .position(|indexed| matches!(&indexed.log.data(), TenonLogData::User(_)))
+        self.logs.iter().position(|indexed| {
+            indexed
+                .log
+                .read()
+                .ok()
+                .is_some_and(|log| matches!(log.data(), TenonLogData::User(_)))
+        })
     }
 
     /// Determines if the log at the given index is "in choreo".
@@ -70,11 +90,14 @@ impl LogWindow {
         self.logs[..log_idx]
             .iter()
             .rev()
-            .find(|indexed| matches!(indexed.log.data(), TenonLogData::Choreo(_)))
-            .map(|indexed| match indexed.log.data() {
-                TenonLogData::Choreo(choreo_log) => choreo_log.r#move.is_some(),
-                _ => false,
+            .filter_map(|indexed| {
+                let log = indexed.log.read().ok()?;
+                match log.data() {
+                    TenonLogData::Choreo(choreo_log) => Some(choreo_log.r#move.is_some()),
+                    _ => None,
+                }
             })
+            .next()
             .unwrap_or(false)
     }
 
@@ -82,19 +105,22 @@ impl LogWindow {
     /// to prevent sending broken history to the LLM.
     pub fn prune_incomplete_messages(&mut self) {
         let logs = &self.logs;
-        let last_non_tool_index = logs
-            .iter()
-            .enumerate()
-            .rfind(|(_, log)| !matches!(log.log.data(), TenonLogData::Tool(_)));
+        let last_non_tool_index = logs.iter().enumerate().rfind(|(_, log)| {
+            !log.log
+                .read()
+                .map_or(true, |l| matches!(l.data(), TenonLogData::Tool(_)))
+        });
 
         if let Some((index, _)) = last_non_tool_index {
             let mut new_logs = Vec::with_capacity(logs.len());
             new_logs.extend_from_slice(&logs[..=index]);
 
             for log in &logs[index + 1..] {
-                if let TenonLogData::Tool(tool_log) = log.log.data()
-                    && tool_log.tool_result.is_some()
-                {
+                let keep = log.log.read().ok().is_some_and(|l| match l.data() {
+                    TenonLogData::Tool(tool_log) => tool_log.tool_result.is_some(),
+                    _ => false,
+                });
+                if keep {
                     new_logs.push(log.clone());
                 }
             }
@@ -104,11 +130,10 @@ impl LogWindow {
             self.logs = logs
                 .iter()
                 .filter(|log| {
-                    if let TenonLogData::Tool(tool_log) = log.log.data() {
-                        tool_log.tool_result.is_some()
-                    } else {
-                        true
-                    }
+                    log.log.read().ok().is_none_or(|l| match l.data() {
+                        TenonLogData::Tool(tool_log) => tool_log.tool_result.is_some(),
+                        _ => true,
+                    })
                 })
                 .cloned()
                 .collect();
@@ -128,16 +153,19 @@ impl LogWindow {
         let last_idx = end - 1;
         let log_to_search = &logs[..end];
         if self.is_log_in_choreo(last_idx) {
-            log_to_search
-                .iter()
-                .rposition(|indexed| match indexed.data() {
+            log_to_search.iter().rposition(|indexed| {
+                indexed.read().ok().is_some_and(|log| match log.data() {
                     TenonLogData::Choreo(choreo_log) => choreo_log.r#move.is_some(),
                     _ => false,
                 })
+            })
         } else {
-            log_to_search
-                .iter()
-                .rposition(|indexed| matches!(indexed.data(), TenonLogData::User(_)))
+            log_to_search.iter().rposition(|indexed| {
+                indexed
+                    .read()
+                    .ok()
+                    .is_some_and(|log| matches!(log.data(), TenonLogData::User(_)))
+            })
         }
     }
 }
@@ -187,6 +215,7 @@ mod tests {
                     args: serde_json::json!({}),
                 },
                 tool_result: None,
+                progress: vec![],
             },
         )))
     }
@@ -196,7 +225,7 @@ mod tests {
             logs: logs
                 .into_iter()
                 .map(|log| IndexedLog {
-                    log: Arc::new(log),
+                    log: Arc::new(RwLock::new(log)),
                     active: true,
                 })
                 .collect(),
@@ -296,18 +325,21 @@ mod tests {
             None
         };
         IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::Tool(TenonToolLog {
-                tool_call,
-                tool_result,
-            }))),
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
+                TenonToolLog {
+                    tool_call,
+                    tool_result,
+                    progress: vec![],
+                },
+            )))),
             active: true,
         }
     }
 
     fn create_user_indexed_log(text: &str) -> IndexedLog {
         IndexedLog {
-            log: Arc::new(TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
-                text.to_string(),
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::User(
+                TenonUserMessage::Text(text.to_string()),
             )))),
             active: true,
         }
@@ -325,8 +357,14 @@ mod tests {
         // Last item is user → excluded
         let history = log_window.history_log();
         assert_eq!(history.len(), 2);
-        assert!(matches!(history[0].data(), TenonLogData::User(_)));
-        assert!(matches!(history[1].data(), TenonLogData::Assistant(_)));
+        assert!(matches!(
+            history[0].read().unwrap().data(),
+            TenonLogData::User(_)
+        ));
+        assert!(matches!(
+            history[1].read().unwrap().data(),
+            TenonLogData::Assistant(_)
+        ));
 
         // Last item is not user → all included
         let logs = vec![create_user_log(1), create_assistant_log(1)];
@@ -347,8 +385,14 @@ mod tests {
         // Last active item is user → excluded
         let history = log_window.active_history_log();
         assert_eq!(history.len(), 2);
-        assert!(matches!(history[0].data(), TenonLogData::User(_)));
-        assert!(matches!(history[1].data(), TenonLogData::Assistant(_)));
+        assert!(matches!(
+            history[0].read().unwrap().data(),
+            TenonLogData::User(_)
+        ));
+        assert!(matches!(
+            history[1].read().unwrap().data(),
+            TenonLogData::Assistant(_)
+        ));
 
         // With inactive logs: only active items, excluding last user
         let mut log_window = create_log_window(vec![
@@ -363,8 +407,14 @@ mod tests {
 
         let history = log_window.active_history_log();
         assert_eq!(history.len(), 2);
-        assert!(matches!(history[0].data(), TenonLogData::User(_)));
-        assert!(matches!(history[1].data(), TenonLogData::Assistant(_)));
+        assert!(matches!(
+            history[0].read().unwrap().data(),
+            TenonLogData::User(_)
+        ));
+        assert!(matches!(
+            history[1].read().unwrap().data(),
+            TenonLogData::Assistant(_)
+        ));
 
         // Last item is not user → all active included
         let log_window = create_log_window(vec![create_user_log(1), create_assistant_log(1)]);
@@ -387,14 +437,14 @@ mod tests {
 
         assert_eq!(log_window.logs.len(), 2);
         assert!(matches!(
-            log_window.logs[0].log.data(),
+            log_window.logs[0].log.read().unwrap().data(),
             TenonLogData::User(_)
         ));
         assert!(matches!(
-            log_window.logs[1].log.data(),
+            log_window.logs[1].log.read().unwrap().data(),
             TenonLogData::Tool(_)
         ));
-        if let TenonLogData::Tool(tl) = &log_window.logs[1].log.data() {
+        if let TenonLogData::Tool(tl) = &log_window.logs[1].log.read().unwrap().data() {
             assert!(tl.tool_result.is_some());
         }
     }

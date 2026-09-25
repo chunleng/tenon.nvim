@@ -80,8 +80,11 @@ impl ChatLogRenderer {
                             let buf_opts = OptionOpts::builder().buf(buffer.clone()).build();
                             let _ = nvim_oxi::api::set_option_value("modifiable", true, &buf_opts);
                             for update in updates {
-                                let mut lines: Vec<String> =
-                                    update.target_log.data.lines().into_iter().collect();
+                                let Ok(data_guard) = update.target_log.read() else {
+                                    continue;
+                                };
+                                let data = &data_guard.data;
+                                let mut lines: Vec<String> = data.lines().into_iter().collect();
                                 if let RenderType::Tail(x) = update.render_type
                                     && lines.len() > x
                                 {
@@ -96,7 +99,6 @@ impl ChatLogRenderer {
                                 if update.line_separator_after {
                                     lines.push("");
                                 }
-                                let data = &update.target_log.data;
                                 update_buffer(
                                     &mut buffer,
                                     ns,

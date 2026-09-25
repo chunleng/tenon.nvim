@@ -2,7 +2,6 @@ use nvim_oxi::{Function, api::types::LogLevel};
 
 use crate::{
     get_application_config, get_chat_window,
-    tools::resolve_tools,
     ui::picker::{FzfOption, SelectMode, box_single_select, pick},
     utils::GLOBAL_EXECUTION_HANDLER,
 };
@@ -42,7 +41,7 @@ pub fn select_agent_fn() -> Function<(), ()> {
                                     session.active_agent_name = name.clone();
                                     session.engine.model = agent.model.clone();
                                     session.engine.directive = agent.directive.clone();
-                                    session.engine.tool_names = resolve_tools(&agent.tool_names);
+                                    session.engine.set_tools(agent.tool_names.clone());
                                     session.engine.choreos = agent.choreos.clone();
                                     win.force_render();
                                 }

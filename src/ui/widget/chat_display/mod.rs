@@ -67,7 +67,7 @@ impl ChatDisplay {
 
     /// Returns the log entry at the cursor position in the attached window, or
     /// `None` if the cursor is not on a rendered log line.
-    pub fn get_log_at_cursor(&self) -> Option<Arc<TenonLog>> {
+    pub fn get_log_at_cursor(&self) -> Option<Arc<RwLock<TenonLog>>> {
         let window_arc = self.attached_window.as_ref()?;
         let window = window_arc.get_window()?;
         let Ok((cursor_row, _)) = window.get_cursor() else {

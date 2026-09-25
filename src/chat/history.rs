@@ -47,11 +47,14 @@ pub fn save_to_history(
     work_queue: &Arc<RwLock<WorkQueue>>,
     history_directory: &str,
 ) {
-    let logs_vec: Vec<TenonLog> = log_window
+    let Ok(logs_vec) = log_window
         .logs
         .iter()
-        .map(|indexed| (*indexed.log).clone())
-        .collect();
+        .map(|indexed| indexed.log.read().map(|log| log.clone()))
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return;
+    };
     let usage_val = usage.read().map(|u| u.accumulated).unwrap_or_default();
     let work_queue_val = work_queue.read().map(|q| q.clone()).unwrap_or_default();
 

@@ -175,13 +175,14 @@ mod tests {
         let tool_log = crate::chat::TenonToolLog {
             tool_call: dummy_tool_call("navigate_choreo"),
             tool_result: None,
+            progress: vec![],
         };
         {
             let choreo = active_choreo.choreo.clone();
             let choreo_log = choreo.generate_log(active_choreo.r#move, tool_log).unwrap();
             let mut log_window = log_window.write().unwrap();
             log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                log: Arc::new(TenonLog::new(TenonLogData::Choreo(choreo_log))),
+                log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Choreo(choreo_log)))),
                 active: true,
             });
         }
@@ -193,8 +194,9 @@ mod tests {
                 .logs
                 .iter()
                 .find_map(|indexed| {
-                    if let TenonLogData::Choreo(choreo_log) = indexed.log.data() {
-                        Some(choreo_log)
+                    let log = indexed.log.read().ok()?;
+                    if let TenonLogData::Choreo(choreo_log) = log.data() {
+                        Some(choreo_log.clone())
                     } else {
                         None
                     }

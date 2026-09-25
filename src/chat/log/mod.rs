@@ -97,10 +97,32 @@ impl TenonToolError {
     }
 }
 
+fn serialize_progress<S: serde::Serializer>(
+    lines: &[String],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&lines.join("\n"))
+}
+
+fn deserialize_progress<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<String>, D::Error> {
+    let joined = String::deserialize(deserializer)?;
+    Ok(joined.lines().map(str::to_string).collect())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TenonToolLog {
     pub tool_call: TenonToolCall,
     pub tool_result: Option<Result<TenonToolResult, TenonToolError>>,
+    /// Streaming progress lines collected while the tool is still running.
+    /// Persisted as a single string joined by newlines to keep history compact.
+    #[serde(
+        default,
+        serialize_with = "serialize_progress",
+        deserialize_with = "deserialize_progress"
+    )]
+    pub progress: Vec<String>,
 }
 
 impl From<&TenonToolLog> for Vec<Message> {
@@ -278,6 +300,7 @@ mod tests {
                 args: serde_json::json!({}),
             },
             tool_result: None,
+            progress: vec![],
         }));
         std::thread::sleep(std::time::Duration::from_millis(10));
         let before = Utc::now();
@@ -289,6 +312,62 @@ mod tests {
 
         assert!(log.last_updated_at >= before);
         assert!(log.last_updated_at <= after);
+    }
+
+    #[test]
+    fn test_tool_progress_persisted_as_joined_string() {
+        let log = TenonLog::new(TenonLogData::Tool(TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                item_id: None,
+                name: "test".into(),
+                args: serde_json::json!({}),
+            },
+            tool_result: None,
+            progress: vec!["step 1".to_string(), "step 2".to_string()],
+        }));
+
+        let json = serde_json::to_string(&log).unwrap();
+        assert!(
+            json.contains(r#""progress":"step 1\nstep 2""#),
+            "progress must be persisted as a single joined string, got: {json}"
+        );
+
+        let round_tripped: TenonLog = serde_json::from_str(&json).unwrap();
+        let TenonLogData::Tool(tool_log) = round_tripped.data() else {
+            panic!("expected tool log")
+        };
+        assert_eq!(
+            tool_log.progress,
+            vec!["step 1".to_string(), "step 2".to_string()],
+            "deserialized progress should split back into lines"
+        );
+    }
+
+    #[test]
+    fn test_tool_progress_empty_round_trips_to_empty() {
+        let log = TenonLog::new(TenonLogData::Tool(TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                item_id: None,
+                name: "test".into(),
+                args: serde_json::json!({}),
+            },
+            tool_result: None,
+            progress: vec![],
+        }));
+
+        let json = serde_json::to_string(&log).unwrap();
+        let round_tripped: TenonLog = serde_json::from_str(&json).unwrap();
+        let TenonLogData::Tool(tool_log) = round_tripped.data() else {
+            panic!("expected tool log")
+        };
+        assert!(
+            tool_log.progress.is_empty(),
+            "empty progress should round-trip to empty vec"
+        );
     }
 
     #[test]
@@ -324,6 +403,7 @@ mod tests {
                     text: "output:\n  move: 2\n  artifact: scope analysis done".to_string(),
                     ..Default::default()
                 }))),
+                progress: vec![],
             },
         };
 
@@ -359,6 +439,7 @@ mod tests {
                     text: "choreo completed. output: final summary of work".to_string(),
                     ..Default::default()
                 }))),
+                progress: vec![],
             },
         };
 
@@ -389,6 +470,7 @@ mod tests {
                 text: result_text.to_string(),
                 ..Default::default()
             }))),
+            progress: vec![],
         }
     }
 
@@ -562,6 +644,16 @@ impl TenonLog {
                 self.last_updated_at = Utc::now();
             }
             _ => panic!("set_tool_result called on non-Tool TenonLog"),
+        }
+    }
+
+    /// Appends streaming progress text to a Tool log. As in-progress text is
+    /// display-only (not part of LLM history), there's no need to count_tokens.
+    /// No-op if this is not a Tool log.
+    pub fn append_tool_progress(&mut self, text: &str) {
+        if let TenonLogData::Tool(tool_log) = &mut self.data {
+            tool_log.progress.extend(text.lines().map(str::to_string));
+            self.last_updated_at = Utc::now();
         }
     }
 

@@ -1,7 +1,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
-use rig::tool::{DynamicTool, Tool, ToolContext, ToolExecutionError};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -120,18 +120,14 @@ pub struct GoalOrientedWorker {
 }
 
 impl GoalOrientedWorker {
-    pub fn new(model: SupportedModels, directive: Vec<Directive>, tools: Vec<DynamicTool>) -> Self {
+    pub fn new(model: SupportedModels, directive: Vec<Directive>, tool_names: Vec<String>) -> Self {
         let result_slot: Arc<RwLock<Option<GoalResult>>> = Arc::new(RwLock::new(None));
 
-        let answer_tool = into_dynamic_tool(AnswerTool {
+        let mut engine =
+            AgenticStreamEngine::new(model, directive, tool_names, vec![], AgenticAgentType::Tool);
+        engine.system_tools.push(into_dynamic_tool(AnswerTool {
             result: Arc::clone(&result_slot),
-        });
-
-        let mut all_tools = vec![answer_tool];
-        all_tools.extend(tools);
-
-        let engine =
-            AgenticStreamEngine::new(model, directive, all_tools, vec![], AgenticAgentType::Tool);
+        }));
 
         Self {
             engine,

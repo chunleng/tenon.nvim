@@ -19,8 +19,43 @@ pub fn get_chat_window() -> Arc<Mutex<ChatWindow>> {
 
 pub static CONFIG: OnceLock<TenonConfig> = OnceLock::new();
 
+#[cfg(test)]
+use std::cell::RefCell;
+
+#[cfg(test)]
+thread_local! {
+    /// Test-only override read before the global CONFIG.
+    static CONFIG_OVERRIDE: RefCell<Option<TenonConfig>> = const { RefCell::new(None) };
+}
+
 pub fn get_application_config() -> TenonConfig {
+    // The override mechanism only exists for tests; production pays no thread-local lookup.
+    #[cfg(test)]
+    if let Some(config) = CONFIG_OVERRIDE.with(|c| c.borrow().clone()) {
+        return config;
+    }
     CONFIG.get_or_init(TenonConfig::default).clone()
+}
+
+/// Scoped test override for the global CONFIG. While alive, every
+/// `get_application_config()` call on this thread returns the override instead
+/// of touching the global OnceLock; dropping it reverts automatically.
+#[cfg(test)]
+pub struct ConfigOverride;
+
+#[cfg(test)]
+impl ConfigOverride {
+    pub fn set(config: TenonConfig) -> Self {
+        CONFIG_OVERRIDE.with(|c| *c.borrow_mut() = Some(config));
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for ConfigOverride {
+    fn drop(&mut self) {
+        CONFIG_OVERRIDE.with(|c| *c.borrow_mut() = None);
+    }
 }
 
 pub static DIRECTIVE_REGISTRY: OnceLock<HashMap<String, Directive>> = OnceLock::new();

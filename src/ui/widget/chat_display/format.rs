@@ -218,6 +218,7 @@ mod tests {
         let log = TenonToolLog {
             tool_call,
             tool_result: None,
+            progress: vec![],
         };
         let data = TenonLogData::Tool(log);
 
@@ -241,6 +242,7 @@ mod tests {
         let pending = TenonLogData::Tool(TenonToolLog {
             tool_call: tool_call.clone(),
             tool_result: None,
+            progress: vec![],
         });
         assert_eq!(pending.prefix_hl_group(), "");
 
@@ -251,6 +253,7 @@ mod tests {
                 text: "content".to_string(),
                 ..Default::default()
             }))),
+            progress: vec![],
         });
         assert_eq!(success.prefix_hl_group(), "TenonLineToolSuccess");
 
@@ -258,6 +261,7 @@ mod tests {
         let error = TenonLogData::Tool(TenonToolLog {
             tool_call,
             tool_result: Some(Err(TenonToolError("File not found".to_string()))),
+            progress: vec![],
         });
         assert_eq!(error.prefix_hl_group(), "TenonLineToolError");
 
@@ -286,6 +290,7 @@ mod tests {
                 text: "content".to_string(),
                 ..Default::default()
             }))),
+            progress: vec![],
         };
         let data = TenonLogData::Tool(log);
 
@@ -307,6 +312,7 @@ mod tests {
         let log = TenonToolLog {
             tool_call,
             tool_result: Some(Err(TenonToolError("File not found".to_string()))),
+            progress: vec![],
         };
         let data = TenonLogData::Tool(log);
 
@@ -362,6 +368,7 @@ mod tests {
                     args: serde_json::json!({}),
                 },
                 tool_result: None,
+                progress: vec![],
             },
         );
         let data = TenonLogData::Choreo(choreo);
