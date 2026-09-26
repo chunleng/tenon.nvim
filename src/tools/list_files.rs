@@ -1,8 +1,9 @@
+use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::{normalize_glob, path_from_str};
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -21,48 +22,16 @@ pub struct ListFilesArgs {
 #[derive(Deserialize, Serialize, Clone)]
 pub struct ListFiles;
 
-impl Tool for ListFiles {
-    const NAME: &'static str = "list_files";
+pub struct ListFilesCall {
+    args: ListFilesArgs,
+}
+
+impl ToolCoreCall for ListFilesCall {
     type Error = ToolExecutionError;
-    type Args = ListFilesArgs;
     type Output = String;
 
-    fn description(&self) -> String {
-        "List files matching glob. YAML: files[] + metadata.".to_string()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "pattern": {
-                    "type": "string",
-                    "description": "Glob pattern. `**/*.rs` matches recursively in all subdirs; `*.rs` matches files directly under path"
-                },
-                "path": {
-                    "type": "string",
-                    "description": "Search dir. cwd if omitted"
-                },
-                "show_gitignored": {
-                    "type": "boolean",
-                    "description": "Include gitignored",
-                    "default": false
-                },
-                "max_count": {
-                    "type": "integer",
-                    "description": "Max results",
-                    "default": 20
-                }
-            },
-            "required": ["pattern"]
-        })
-    }
-
-    async fn call(
-        &self,
-        _context: &mut ToolContext,
-        args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let args = self.args;
         let max_count = args.max_count.unwrap_or(20);
         let show_gitignored = args.show_gitignored.unwrap_or(false);
         let search_dir = args.path.unwrap_or_else(|| ".".to_string());
@@ -134,5 +103,52 @@ impl Tool for ListFiles {
             }))
             .unwrap_or_else(|_| "files: []\ntotal_matched: 0\ntruncated: false".to_string()),
         ))
+    }
+}
+
+impl ToolCore for ListFiles {
+    const NAME: &'static str = "list_files";
+    type Error = ToolExecutionError;
+    type Args = ListFilesArgs;
+    type Output = String;
+    type Call = ListFilesCall;
+
+    fn description(&self) -> String {
+        "List files matching glob. YAML: files[] + metadata.".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Glob pattern. `**/*.rs` matches recursively in all subdirs; `*.rs` matches files directly under path"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Search dir. cwd if omitted"
+                },
+                "show_gitignored": {
+                    "type": "boolean",
+                    "description": "Include gitignored",
+                    "default": false
+                },
+                "max_count": {
+                    "type": "integer",
+                    "description": "Max results",
+                    "default": 20
+                }
+            },
+            "required": ["pattern"]
+        })
+    }
+
+    async fn init_call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(ListFilesCall { args })
     }
 }

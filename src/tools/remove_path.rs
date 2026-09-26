@@ -1,7 +1,8 @@
+use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::path_from_str;
 
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -15,34 +16,16 @@ pub struct RemovePathArgs {
 #[derive(Deserialize, Serialize, Clone)]
 pub struct RemovePath;
 
-impl Tool for RemovePath {
-    const NAME: &'static str = "remove_path";
+pub struct RemovePathCall {
+    args: RemovePathArgs,
+}
+
+impl ToolCoreCall for RemovePathCall {
     type Error = ToolExecutionError;
-    type Args = RemovePathArgs;
     type Output = String;
 
-    fn description(&self) -> String {
-        "Delete file/dir. Error if missing.".to_string()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "filepath": {
-                    "type": "string",
-                    "description": "Path"
-                }
-            },
-            "required": ["filepath"]
-        })
-    }
-
-    async fn call(
-        &self,
-        _context: &mut ToolContext,
-        args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let args = self.args;
         let path = path_from_str(&args.filepath);
 
         if !path.exists() {
@@ -69,5 +52,38 @@ impl Tool for RemovePath {
                 args.filepath, e
             ))),
         }
+    }
+}
+
+impl ToolCore for RemovePath {
+    const NAME: &'static str = "remove_path";
+    type Error = ToolExecutionError;
+    type Args = RemovePathArgs;
+    type Output = String;
+    type Call = RemovePathCall;
+
+    fn description(&self) -> String {
+        "Delete file/dir. Error if missing.".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "filepath": {
+                    "type": "string",
+                    "description": "Path"
+                }
+            },
+            "required": ["filepath"]
+        })
+    }
+
+    async fn init_call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(RemovePathCall { args })
     }
 }

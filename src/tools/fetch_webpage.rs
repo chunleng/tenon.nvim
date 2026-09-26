@@ -5,9 +5,11 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+
+use crate::tools::{ToolCore, ToolCoreCall};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -19,39 +21,16 @@ pub struct FetchWebpageArgs {
 #[derive(Deserialize, Serialize, Clone)]
 pub struct FetchWebpage;
 
-impl Tool for FetchWebpage {
-    const NAME: &'static str = "fetch_webpage";
+pub struct FetchWebpageCall {
+    args: FetchWebpageArgs,
+}
+
+impl ToolCoreCall for FetchWebpageCall {
     type Error = ToolExecutionError;
-    type Args = FetchWebpageArgs;
     type Output = String;
 
-    fn description(&self) -> String {
-        "Fetch webpage → readable text. Returns status code and response. With prompt (RECOMMENDED): answer from content. Else: full markdown"
-            .to_string()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "URL"
-                },
-                "prompt": {
-                    "type": "string",
-                    "description": "What to extract/answer. Returns answer only. Scalar: fact/yes-no. Structured: table/steps/kvpairs. Compressed: summary/takeaways/translation. Filtered: partial document"
-                }
-            },
-            "required": ["url"]
-        })
-    }
-
-    async fn call(
-        &self,
-        _context: &mut ToolContext,
-        args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let args = self.args;
         let domain = reqwest::Url::parse(&args.url)
             .ok()
             .and_then(|u| u.host_str().map(str::to_string))
@@ -125,6 +104,44 @@ impl Tool for FetchWebpage {
         );
 
         Ok(output)
+    }
+}
+
+impl ToolCore for FetchWebpage {
+    const NAME: &'static str = "fetch_webpage";
+    type Error = ToolExecutionError;
+    type Args = FetchWebpageArgs;
+    type Output = String;
+    type Call = FetchWebpageCall;
+
+    fn description(&self) -> String {
+        "Fetch webpage → readable text. Returns status code and response. With prompt (RECOMMENDED): answer from content. Else: full markdown"
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL"
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "What to extract/answer. Returns answer only. Scalar: fact/yes-no. Structured: table/steps/kvpairs. Compressed: summary/takeaways/translation. Filtered: partial document"
+                }
+            },
+            "required": ["url"]
+        })
+    }
+
+    async fn init_call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(FetchWebpageCall { args })
     }
 }
 

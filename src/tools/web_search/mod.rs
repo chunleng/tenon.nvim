@@ -2,13 +2,15 @@ mod brave;
 mod langsearch;
 mod tavily;
 
+use crate::tools::{ToolCore, ToolCoreCall};
 use async_trait::async_trait;
 pub use brave::Brave;
 pub use langsearch::LangSearch;
 use rand::Rng;
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::Arc;
 use std::time::Duration;
 pub use tavily::Tavily;
 
@@ -67,14 +69,44 @@ pub struct WebSearchArgs {
 }
 
 pub struct WebSearch {
-    pub provider: Box<dyn SearchProvider>,
+    pub provider: Arc<dyn SearchProvider>,
 }
 
-impl Tool for WebSearch {
+pub struct WebSearchCall {
+    args: WebSearchArgs,
+    provider: Arc<dyn SearchProvider>,
+}
+
+impl ToolCoreCall for WebSearchCall {
+    type Error = ToolExecutionError;
+    type Output = String;
+
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let count = self.args.count.unwrap_or(5);
+
+        let results = self
+            .provider
+            .search(
+                &self.args.query,
+                self.args.freshness,
+                count,
+                self.args.region,
+            )
+            .await?;
+
+        Ok(crate::utils::format_yaml_block_scalars(
+            &serde_yaml::to_string(&results)
+                .unwrap_or_else(|e| format!("error: \"Serialize failed: {}\"", e)),
+        ))
+    }
+}
+
+impl ToolCore for WebSearch {
     const NAME: &'static str = "web_search";
     type Error = ToolExecutionError;
     type Args = WebSearchArgs;
     type Output = String;
+    type Call = WebSearchCall;
 
     fn description(&self) -> String {
         "Search web → YAML results. Each: name, url, snippet".to_string()
@@ -107,22 +139,15 @@ impl Tool for WebSearch {
         })
     }
 
-    async fn call(
+    async fn init_call(
         &self,
         _context: &mut ToolContext,
         args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
-        let count = args.count.unwrap_or(5);
-
-        let results = self
-            .provider
-            .search(&args.query, args.freshness, count, args.region)
-            .await?;
-
-        Ok(crate::utils::format_yaml_block_scalars(
-            &serde_yaml::to_string(&results)
-                .unwrap_or_else(|e| format!("error: \"Serialize failed: {}\"", e)),
-        ))
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(WebSearchCall {
+            args,
+            provider: Arc::clone(&self.provider),
+        })
     }
 }
 

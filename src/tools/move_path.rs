@@ -1,8 +1,9 @@
+use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::format_yaml_block_scalars;
 use crate::utils::path_from_str;
 
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -60,38 +61,16 @@ fn collect_files_recursive(
     Ok(())
 }
 
-impl Tool for MovePath {
-    const NAME: &'static str = "move_path";
+pub struct MovePathCall {
+    args: MovePathArgs,
+}
+
+impl ToolCoreCall for MovePathCall {
     type Error = ToolExecutionError;
-    type Args = MovePathArgs;
     type Output = String;
 
-    fn description(&self) -> String {
-        "Move/rename file or dir. Dir dest → move into. Error if dest file exists.".to_string()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "source": {
-                    "type": "string",
-                    "description": "Source path"
-                },
-                "destination": {
-                    "type": "string",
-                    "description": "Destination path"
-                }
-            },
-            "required": ["source", "destination"]
-        })
-    }
-
-    async fn call(
-        &self,
-        _context: &mut ToolContext,
-        args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let args = self.args;
         let source = path_from_str(&args.source);
 
         // 1. Source must exist
@@ -200,5 +179,42 @@ impl Tool for MovePath {
             .execute_rust_on_main_thread(|| Ok(nvim_oxi::api::command("checktime")?));
 
         Ok(output)
+    }
+}
+
+impl ToolCore for MovePath {
+    const NAME: &'static str = "move_path";
+    type Error = ToolExecutionError;
+    type Args = MovePathArgs;
+    type Output = String;
+    type Call = MovePathCall;
+
+    fn description(&self) -> String {
+        "Move/rename file or dir. Dir dest → move into. Error if dest file exists.".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "Source path"
+                },
+                "destination": {
+                    "type": "string",
+                    "description": "Destination path"
+                }
+            },
+            "required": ["source", "destination"]
+        })
+    }
+
+    async fn init_call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(MovePathCall { args })
     }
 }

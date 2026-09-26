@@ -461,42 +461,63 @@ pub(crate) fn into_dynamic_tool<T: Tool + 'static>(tool: T) -> DynamicTool {
 /// Build the list of built-in tools (excluding MCP tools).
 fn builtin_tools(log_window: Arc<RwLock<LogWindow>>) -> Vec<Option<(String, DynamicTool)>> {
     let mut all_tools: Vec<Option<(String, DynamicTool)>> = vec![
-        Some(("edit_file".to_string(), into_dynamic_tool(EditFile))),
-        Some(("fetch_webpage".to_string(), into_dynamic_tool(FetchWebpage))),
-        Some(("analyze_image".to_string(), into_dynamic_tool(AnalyzeImage))),
-        Some(("list_files".to_string(), into_dynamic_tool(ListFiles))),
-        Some(("move_path".to_string(), into_dynamic_tool(MovePath))),
+        Some((
+            "edit_file".to_string(),
+            into_dynamic_tool(TenonTool::new(EditFile, log_window.clone())),
+        )),
+        Some((
+            "fetch_webpage".to_string(),
+            into_dynamic_tool(TenonTool::new(FetchWebpage, log_window.clone())),
+        )),
+        Some((
+            "analyze_image".to_string(),
+            into_dynamic_tool(TenonTool::new(AnalyzeImage, log_window.clone())),
+        )),
+        Some((
+            "list_files".to_string(),
+            into_dynamic_tool(TenonTool::new(ListFiles, log_window.clone())),
+        )),
+        Some((
+            "move_path".to_string(),
+            into_dynamic_tool(TenonTool::new(MovePath, log_window.clone())),
+        )),
         Some((
             "read_file".to_string(),
             into_dynamic_tool(TenonTool::new(ReadFile, log_window.clone())),
         )),
-        Some(("remove_path".to_string(), into_dynamic_tool(RemovePath))),
+        Some((
+            "remove_path".to_string(),
+            into_dynamic_tool(TenonTool::new(RemovePath, log_window.clone())),
+        )),
         Some((
             "run_command".to_string(),
             into_dynamic_tool(TenonTool::new(RunCommand, log_window.clone())),
         )),
         Some((
             "search_dependency_code".to_string(),
-            into_dynamic_tool(SearchDependencyCode),
+            into_dynamic_tool(TenonTool::new(SearchDependencyCode, log_window.clone())),
         )),
-        Some(("search_text".to_string(), into_dynamic_tool(SearchText))),
+        Some((
+            "search_text".to_string(),
+            into_dynamic_tool(TenonTool::new(SearchText, log_window.clone())),
+        )),
     ];
 
     if let Some(web_search_config) = &crate::get_application_config().tools.web_search {
-        let provider: Box<dyn web_search::SearchProvider> = match web_search_config {
-            WebSearchConfig::Brave { api_key } => Box::new(Brave {
+        let provider: Arc<dyn web_search::SearchProvider> = match web_search_config {
+            WebSearchConfig::Brave { api_key } => Arc::new(Brave {
                 api_key: api_key.clone(),
             }),
-            WebSearchConfig::LangSearch { api_key } => Box::new(LangSearch {
+            WebSearchConfig::LangSearch { api_key } => Arc::new(LangSearch {
                 api_key: api_key.clone(),
             }),
-            WebSearchConfig::Tavily { api_key } => Box::new(Tavily {
+            WebSearchConfig::Tavily { api_key } => Arc::new(Tavily {
                 api_key: api_key.clone(),
             }),
         };
         all_tools.push(Some((
             "web_search".to_string(),
-            into_dynamic_tool(WebSearch { provider }),
+            into_dynamic_tool(TenonTool::new(WebSearch { provider }, log_window)),
         )));
     }
 

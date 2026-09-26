@@ -1,9 +1,10 @@
+use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::{format_yaml_block_scalars, normalize_glob, path_from_str};
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
 
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -60,61 +61,16 @@ fn truncate_line(line: &str) -> String {
     }
 }
 
-impl Tool for SearchText {
-    const NAME: &'static str = "search_text";
+pub struct SearchTextCall {
+    args: SearchTextArgs,
+}
+
+impl ToolCoreCall for SearchTextCall {
     type Error = ToolExecutionError;
-    type Args = SearchTextArgs;
     type Output = String;
 
-    fn description(&self) -> String {
-        "Search text under directory. Must provide exactly one of `pattern`/`literal`. Returns match locations".to_string()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "pattern": {
-                    "type": "string",
-                    "default": null,
-                    "description": "Regex pattern to find, e.g. alternation (`a|b`)"
-                },
-                "literal": {
-                    "type": "string",
-                    "default": null,
-                    "description": "Literal text to find (exact match, no regex interpretation)"
-                },
-                "path": {
-                    "type": "string",
-                    "description": "Directory to search. cwd if omitted"
-                },
-                "glob": {
-                    "type": "string",
-                    "description": "File filter. `**/*.rs` matches recursively in all subdirs; `*.rs` matches files directly under path. All files if omitted"
-                },
-                "ignore_case": {
-                    "type": "boolean",
-                    "description": "Case-insensitive search",
-                    "default": false
-                },
-                "context_lines": {
-                    "type": "number",
-                    "description": "Lines before+after match",
-                    "default": 0
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Max files returned. All files if omitted"
-                }
-            },
-        })
-    }
-
-    async fn call(
-        &self,
-        _context: &mut ToolContext,
-        args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let args = self.args;
         let search_dir = args.path.unwrap_or_else(|| ".".to_string());
         let search_path = path_from_str(&search_dir);
 
@@ -245,6 +201,66 @@ impl Tool for SearchText {
                     .to_string()
             }),
         ))
+    }
+}
+
+impl ToolCore for SearchText {
+    const NAME: &'static str = "search_text";
+    type Error = ToolExecutionError;
+    type Args = SearchTextArgs;
+    type Output = String;
+    type Call = SearchTextCall;
+
+    fn description(&self) -> String {
+        "Search text under directory. Must provide exactly one of `pattern`/`literal`. Returns match locations".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "default": null,
+                    "description": "Regex pattern to find, e.g. alternation (`a|b`)"
+                },
+                "literal": {
+                    "type": "string",
+                    "default": null,
+                    "description": "Literal text to find (exact match, no regex interpretation)"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Directory to search. cwd if omitted"
+                },
+                "glob": {
+                    "type": "string",
+                    "description": "File filter. `**/*.rs` matches recursively in all subdirs; `*.rs` matches files directly under path. All files if omitted"
+                },
+                "ignore_case": {
+                    "type": "boolean",
+                    "description": "Case-insensitive search",
+                    "default": false
+                },
+                "context_lines": {
+                    "type": "number",
+                    "description": "Lines before+after match",
+                    "default": 0
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Max files returned. All files if omitted"
+                }
+            },
+        })
+    }
+
+    async fn init_call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(SearchTextCall { args })
     }
 }
 

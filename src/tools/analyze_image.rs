@@ -4,9 +4,11 @@ use crate::utils::path_from_str;
 use base64::{Engine, engine::general_purpose::STANDARD};
 
 use rig::message::{ImageMediaType, Message, MimeType, UserContent};
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+
+use crate::tools::{ToolCore, ToolCoreCall};
 
 fn is_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
@@ -70,39 +72,16 @@ pub struct AnalyzeImageArgs {
 #[derive(Deserialize, Serialize, Clone)]
 pub struct AnalyzeImage;
 
-impl Tool for AnalyzeImage {
-    const NAME: &'static str = "analyze_image";
+pub struct AnalyzeImageCall {
+    args: AnalyzeImageArgs,
+}
+
+impl ToolCoreCall for AnalyzeImageCall {
     type Error = ToolExecutionError;
-    type Args = AnalyzeImageArgs;
     type Output = String;
 
-    fn description(&self) -> String {
-        "Analyze image and answer questions about its content. Accepts local file path or URL. Returns text answer based on prompt."
-            .to_string()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "image": {
-                    "type": "string",
-                    "description": "Path or URL to image. Supports common formats (PNG, JPEG, GIF, WebP, BMP, SVG)."
-                },
-                "prompt": {
-                    "type": "string",
-                    "description": "Question or instruction about the image"
-                }
-            },
-            "required": ["image", "prompt"]
-        })
-    }
-
-    async fn call(
-        &self,
-        _context: &mut ToolContext,
-        args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let args = self.args;
         let image_content = if is_url(&args.image) {
             UserContent::image_url(&args.image, None, None)
         } else {
@@ -142,6 +121,44 @@ impl Tool for AnalyzeImage {
         })?;
 
         Ok(response)
+    }
+}
+
+impl ToolCore for AnalyzeImage {
+    const NAME: &'static str = "analyze_image";
+    type Error = ToolExecutionError;
+    type Args = AnalyzeImageArgs;
+    type Output = String;
+    type Call = AnalyzeImageCall;
+
+    fn description(&self) -> String {
+        "Analyze image and answer questions about its content. Accepts local file path or URL. Returns text answer based on prompt."
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "image": {
+                    "type": "string",
+                    "description": "Path or URL to image. Supports common formats (PNG, JPEG, GIF, WebP, BMP, SVG)."
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "Question or instruction about the image"
+                }
+            },
+            "required": ["image", "prompt"]
+        })
+    }
+
+    async fn init_call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(AnalyzeImageCall { args })
     }
 }
 

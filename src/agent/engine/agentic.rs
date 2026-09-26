@@ -23,7 +23,19 @@ use rig::agent::Agent;
 /// Tools whose call/result logging is handled by `TenonTool` itself.
 /// The engine skips its own log registration for these to avoid duplicates.
 /// Keep in sync with the tools wrapped in `TenonTool` in `builtin_tools()`.
-const TENON_WRAPPED_TOOLS: &[&str] = &["read_file", "run_command"];
+const TENON_WRAPPED_TOOLS: &[&str] = &[
+    "analyze_image",
+    "edit_file",
+    "fetch_webpage",
+    "list_files",
+    "move_path",
+    "read_file",
+    "remove_path",
+    "run_command",
+    "search_dependency_code",
+    "search_text",
+    "web_search",
+];
 
 /// Distinguishes agents with direct user access from sub-agents used as tools.
 /// Determines which system tools (e.g. AskQuestion) are available.

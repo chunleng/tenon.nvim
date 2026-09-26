@@ -1,6 +1,7 @@
 mod rust;
 
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use crate::tools::{ToolCore, ToolCoreCall};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
 use std::path::PathBuf;
@@ -25,11 +26,12 @@ pub struct SearchDependencyCodeArgs {
 
 pub struct SearchDependencyCode;
 
-impl Tool for SearchDependencyCode {
+impl ToolCore for SearchDependencyCode {
     const NAME: &'static str = "search_dependency_code";
     type Error = ToolExecutionError;
     type Args = SearchDependencyCodeArgs;
     type Output = String;
+    type Call = SearchDependencyCodeCall;
 
     fn description(&self) -> String {
         "Search a project dependency's source code to understand how it works \
@@ -63,11 +65,26 @@ impl Tool for SearchDependencyCode {
         })
     }
 
-    async fn call(
+    async fn init_call(
         &self,
         _context: &mut ToolContext,
         args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(SearchDependencyCodeCall { args })
+    }
+}
+
+pub struct SearchDependencyCodeCall {
+    args: SearchDependencyCodeArgs,
+}
+
+impl ToolCoreCall for SearchDependencyCodeCall {
+    type Error = ToolExecutionError;
+    type Output = String;
+
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let args = self.args;
+
         // Validate project type, dependency existence, and version match.
         // Resolves exact version from Cargo.lock when not provided.
         let resolved_version = validate_dependency_source(&args)?;

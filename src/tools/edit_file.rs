@@ -1,8 +1,9 @@
+use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::path_from_str;
 use regex::RegexBuilder;
 
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -200,40 +201,16 @@ pub struct EditFileArgs {
 #[derive(Deserialize, Serialize, Clone)]
 pub struct EditFile;
 
-impl Tool for EditFile {
-    const NAME: &'static str = "edit_file";
+pub struct EditFileCall {
+    args: EditFileArgs,
+}
+
+impl ToolCoreCall for EditFileCall {
     type Error = ToolExecutionError;
-    type Args = EditFileArgs;
     type Output = String;
 
-    fn description(&self) -> String {
-        "Find and replace. Must provide exactly one of `literal`/`pattern` field. File doesn't exist → use literal=\"\", replace=\"content\" to create with content"
-            .to_string()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "filepath": { "type": "string", "description": "File path" },
-                "literal": { "type": "string", "default": null, "description": "Search exact text match" },
-                "pattern": { "type": "string", "default": null, "description": "Search regex pattern, dot matches \\n." },
-                "replace": { "type": "string", "description": "Replacement text" },
-                "all": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "true = replace every match, false = error if >1 match"
-                }
-            },
-            "required": ["filepath", "replace"]
-        })
-    }
-
-    async fn call(
-        &self,
-        _context: &mut ToolContext,
-        args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let args = self.args;
         let (search, search_mode) = match (&args.literal, &args.pattern) {
             (Some(l), Some(p)) => match (!l.is_empty(), !p.is_empty()) {
                 (true, false) => (l.as_str(), SearchMode::Literal),
@@ -299,6 +276,45 @@ impl Tool for EditFile {
             "count": edits.len(),
         }))
         .map_err(|e| ToolExecutionError::other(format!("Serialize failed: {}", e)))
+    }
+}
+
+impl ToolCore for EditFile {
+    const NAME: &'static str = "edit_file";
+    type Error = ToolExecutionError;
+    type Args = EditFileArgs;
+    type Output = String;
+    type Call = EditFileCall;
+
+    fn description(&self) -> String {
+        "Find and replace. Must provide exactly one of `literal`/`pattern` field. File doesn't exist → use literal=\"\", replace=\"content\" to create with content"
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "filepath": { "type": "string", "description": "File path" },
+                "literal": { "type": "string", "default": null, "description": "Search exact text match" },
+                "pattern": { "type": "string", "default": null, "description": "Search regex pattern, dot matches \\n." },
+                "replace": { "type": "string", "description": "Replacement text" },
+                "all": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "true = replace every match, false = error if >1 match"
+                }
+            },
+            "required": ["filepath", "replace"]
+        })
+    }
+
+    async fn init_call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(EditFileCall { args })
     }
 }
 
