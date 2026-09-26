@@ -5,7 +5,7 @@ use nvim_oxi::api::types::LogLevel;
 use rig::completion::Usage;
 use rig::message::ToolResultContent;
 use rig::prelude::Message;
-use rig::tool::DynamicTool;
+use rig::tool::{DynamicTool, ToolContext};
 
 use crate::agent::provider::{ChatStream, StreamItem, get_agent};
 use crate::chat::prompt::build_choreo_messages;
@@ -16,7 +16,7 @@ use crate::chat::{
 };
 use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource, PresetContent, directive_path};
-use crate::tools::{AskQuestion, RecordThought, into_dynamic_tool, resolve_tools};
+use crate::tools::{AskQuestion, RecordThought, TenonTool, into_dynamic_tool, resolve_tools};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use rig::agent::Agent;
 
@@ -25,6 +25,7 @@ use rig::agent::Agent;
 /// Keep in sync with the tools wrapped in `TenonTool` in `builtin_tools()`.
 const TENON_WRAPPED_TOOLS: &[&str] = &[
     "analyze_image",
+    "ask_question",
     "edit_file",
     "fetch_webpage",
     "list_files",
@@ -36,15 +37,6 @@ const TENON_WRAPPED_TOOLS: &[&str] = &[
     "search_text",
     "web_search",
 ];
-
-/// Distinguishes agents with direct user access from sub-agents used as tools.
-/// Determines which system tools (e.g. AskQuestion) are available.
-pub enum AgenticAgentType {
-    /// Agent has direct access to the user (main chat).
-    Direct(Weak<EventChannel<PendingAction>>),
-    /// Agent runs as a sub-tool without user interaction.
-    Tool,
-}
 
 /// Streaming engine for agentic chat with tools, choreos, and multi-turn loops.
 /// Session-state interfaces (log handler, usage, cancel token, etc.) are injected per request.
@@ -58,6 +50,8 @@ pub struct AgenticStreamEngine {
     pub work_queue: Arc<RwLock<WorkQueue>>,
     pub log_handler: ChatLogHandler,
     pub system_tools: Vec<DynamicTool>,
+    /// Session state passed to tools each turn
+    pub tool_context: ToolContext,
 }
 
 impl AgenticStreamEngine {
@@ -66,11 +60,14 @@ impl AgenticStreamEngine {
         directive: Vec<Directive>,
         tool_names: Vec<String>,
         choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
-        agent_type: AgenticAgentType,
+        tool_context: ToolContext,
     ) -> Self {
         let work_queue = Arc::new(RwLock::new(WorkQueue::default()));
+        let log_handler = ChatLogHandler::new();
         let mut system_tools = vec![into_dynamic_tool(RecordThought)];
-        if let AgenticAgentType::Direct(event_channel) = agent_type {
+        if tool_context.contains::<Weak<EventChannel<PendingAction>>>() {
+            // TODO PushTasks and PopTask temporary stays in the AskQuestion tool context until we
+            // shift its work_queue to tool_context as well
             system_tools.insert(
                 0,
                 into_dynamic_tool(crate::tools::PushTasks {
@@ -83,9 +80,11 @@ impl AgenticStreamEngine {
                     work_queue: work_queue.clone(),
                 }),
             );
-            system_tools.insert(0, into_dynamic_tool(AskQuestion { event_channel }));
+            system_tools.insert(
+                0,
+                into_dynamic_tool(TenonTool::new(AskQuestion, log_handler.log_window.clone())),
+            );
         }
-        let log_handler = ChatLogHandler::new();
         let tools = resolve_tools(&tool_names, log_handler.log_window.clone());
         Self {
             model,
@@ -96,6 +95,7 @@ impl AgenticStreamEngine {
             work_queue,
             log_handler,
             system_tools,
+            tool_context,
         }
     }
 
@@ -208,7 +208,14 @@ impl AgenticStreamEngine {
             chat_history.extend(messages);
             message
         };
-        let mut stream = ChatStream::new(&agent, message, chat_history, max_turns).await;
+        let mut stream = ChatStream::new(
+            &agent,
+            message,
+            chat_history,
+            max_turns,
+            self.tool_context.clone(),
+        )
+        .await;
 
         let mut should_continue = false;
 
@@ -502,7 +509,7 @@ mod tests {
             vec![],
             vec!["read_file".to_string(), "edit_file".to_string()],
             vec![],
-            AgenticAgentType::Tool,
+            ToolContext::new(),
         );
         let names: Vec<String> = engine.tools.iter().map(|t| t.name().to_string()).collect();
         assert_eq!(names, vec!["read_file", "edit_file"]);
@@ -519,7 +526,7 @@ mod tests {
             vec![],
             vec!["read_file".to_string(), "edit_file".to_string()],
             vec![],
-            AgenticAgentType::Tool,
+            ToolContext::new(),
         );
 
         // Navigate to move 2

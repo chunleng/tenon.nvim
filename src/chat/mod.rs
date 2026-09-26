@@ -1,4 +1,4 @@
-use crate::agent::engine::{AgenticAgentType, AgenticStreamEngine};
+use crate::agent::engine::AgenticStreamEngine;
 use crate::chat::helpers::TitleHandler;
 use crate::chat::history::{SessionMetadata, save_to_history};
 use crate::get_application_config;
@@ -7,6 +7,7 @@ use crate::tools::ask_question::{AskQuestionOption, QuestionResult};
 use chrono::{DateTime, Local};
 use nvim_oxi::Result as OxiResult;
 use rig::completion::Usage;
+use rig::tool::ToolContext;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
@@ -130,12 +131,14 @@ impl ChatSession {
             .ok_or(nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("".into())))?
             .clone();
         let pending_actions_channel = Arc::new(EventChannel::new());
+        let mut tool_context = ToolContext::new();
+        tool_context.insert(Arc::downgrade(&pending_actions_channel));
         let engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
             agent.tool_names,
             agent.choreos,
-            AgenticAgentType::Direct(Arc::downgrade(&pending_actions_channel)),
+            tool_context,
         );
         let log_window = engine.log_handler.log_window.clone();
         Ok(Self {
@@ -173,12 +176,14 @@ impl ChatSession {
         let logs: Vec<TenonLog> = history.logs;
         let pending_actions_channel = Arc::new(EventChannel::new());
 
+        let mut tool_context = ToolContext::new();
+        tool_context.insert(Arc::downgrade(&pending_actions_channel));
         let mut engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
             agent.tool_names,
             agent.choreos,
-            AgenticAgentType::Direct(Arc::downgrade(&pending_actions_channel)),
+            tool_context,
         );
         engine.load(logs);
         if let Ok(mut queue) = engine.work_queue.write() {

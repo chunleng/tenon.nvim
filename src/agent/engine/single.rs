@@ -4,6 +4,7 @@ use crate::agent::provider::{ChatStream, StreamItem, get_agent};
 use crate::clients::SupportedModels;
 use crate::directive::Directive;
 use rig::agent::Agent;
+use rig::tool::ToolContext;
 
 /// Non-streaming engine: collects all text from a single-turn chat.
 /// Creates an agent with no tools - intended for lightweight sub-agent use
@@ -26,7 +27,8 @@ impl SingleTextResponseEngine {
         &self,
         message: impl Into<Message> + Send,
     ) -> Result<String, rig::agent::StreamingError> {
-        let mut stream = ChatStream::new(&self.agent, message, vec![], 100).await;
+        let mut stream =
+            ChatStream::new(&self.agent, message, vec![], 100, ToolContext::new()).await;
         let mut full_text = String::new();
         let mut was_text = false;
         while let Some(result) = stream.next().await {

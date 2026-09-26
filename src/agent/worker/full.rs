@@ -5,7 +5,7 @@ use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::agent::engine::{AgenticAgentType, AgenticStreamEngine};
+use crate::agent::engine::AgenticStreamEngine;
 use crate::tools::into_dynamic_tool;
 use crate::{chat::choreo::Choreo, clients::SupportedModels, directive::Directive};
 
@@ -124,7 +124,7 @@ impl GoalOrientedWorker {
         let result_slot: Arc<RwLock<Option<GoalResult>>> = Arc::new(RwLock::new(None));
 
         let mut engine =
-            AgenticStreamEngine::new(model, directive, tool_names, vec![], AgenticAgentType::Tool);
+            AgenticStreamEngine::new(model, directive, tool_names, vec![], ToolContext::new());
         engine.system_tools.push(into_dynamic_tool(AnswerTool {
             result: Arc::clone(&result_slot),
         }));

@@ -6,7 +6,7 @@ use crate::directive::Directive;
 use rig::agent::{Agent, MultiTurnStreamItem, StreamingResult};
 use rig::message::Message;
 use rig::streaming::{StreamedAssistantContent, StreamedUserContent, StreamingChat};
-use rig::tool::DynamicTool;
+use rig::tool::{DynamicTool, ToolContext};
 
 pub enum StreamItem {
     ToolResult {
@@ -71,12 +71,14 @@ impl ChatStream {
         message: impl Into<Message> + Send,
         history: Vec<Message>,
         max_turns: usize,
+        tool_context: ToolContext,
     ) -> Self {
         let tool_concurrency = 10;
         let inner = agent
             .stream_chat(message, history)
             .max_turns(max_turns)
             .tool_concurrency(tool_concurrency)
+            .tool_context(tool_context)
             .await;
         ChatStream { inner }
     }
