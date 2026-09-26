@@ -765,6 +765,12 @@ impl TenonLogData {
                     .unwrap_or_else(|_| log.tool_call.args.to_string());
                 lines.extend(plain(&format_yaml_block_scalars(&args_yaml)));
                 lines.push(String::new());
+                if !log.progress.is_empty() {
+                    lines.push("### Progress".to_string());
+                    lines.push(String::new());
+                    lines.extend(log.progress.iter().cloned());
+                    lines.push(String::new());
+                }
                 match &log.tool_result {
                     None => {
                         lines.push("### Result".to_string());

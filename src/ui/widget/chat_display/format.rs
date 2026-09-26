@@ -53,6 +53,9 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
                     None => format!("{} {}", prefix, log.tool_call.name),
                 };
                 let mut lines = vec![first_line];
+                if log.tool_result.is_none() {
+                    lines.extend(log.progress.iter().map(|p| format!("   > {}", p)));
+                }
                 if let Some(Err(err)) = &log.tool_result
                     && let Some(first_line) = err.display_message().lines().next()
                 {
@@ -298,6 +301,47 @@ mod tests {
         assert_eq!(data.sign(), "󰣖 ");
         assert_eq!(data.sign_hl_group(), "TenonSignTool");
         assert_eq!(data.line_hl_group(), "TenonLineTool");
+    }
+
+    #[test]
+    fn test_tool_progress_formatter() {
+        let tool_call = TenonToolCall {
+            id: "1".to_string(),
+            internal_call_id: "call_1".to_string(),
+            item_id: None,
+            name: "run_command".to_string(),
+            args: json!({"argv": ["ls"]}),
+        };
+
+        // Pending: progress lines are shown
+        let pending = TenonLogData::Tool(TenonToolLog {
+            tool_call: tool_call.clone(),
+            tool_result: None,
+            progress: vec!["compiling".to_string(), "linking".to_string()],
+        });
+        assert_eq!(
+            pending.lines(),
+            vec![
+                "\u{ea7c}  run_command | command: ls",
+                "   > compiling",
+                "   > linking",
+            ]
+        );
+        assert_eq!(pending.line_hl_group(), "TenonLineTool");
+
+        // Result arrived: progress is hidden
+        let completed = TenonLogData::Tool(TenonToolLog {
+            tool_call,
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                text: "done".to_string(),
+                ..Default::default()
+            }))),
+            progress: vec!["compiling".to_string(), "linking".to_string()],
+        });
+        assert_eq!(
+            completed.lines(),
+            vec!["\u{f49e}  run_command | command: ls"]
+        );
     }
 
     #[test]

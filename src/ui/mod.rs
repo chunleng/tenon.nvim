@@ -1242,6 +1242,41 @@ mod tests {
     }
 
     #[test]
+    fn test_format_log_detail_tool_shows_progress_section() {
+        let log = TenonLog::new(TenonLogData::Tool(TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                item_id: None,
+                name: "run_command".into(),
+                args: serde_json::json!({"argv": ["ls"]}),
+            },
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                text: "trimmed result".into(),
+                ..Default::default()
+            }))),
+            progress: vec!["compiling".into(), "linking".into()],
+        }));
+        let lines = format_log_detail(&log);
+        let content = lines.join("\n");
+        assert!(
+            content.contains("### Progress"),
+            "should render progress section even when result exists"
+        );
+        assert!(
+            content.contains("compiling"),
+            "should contain progress line"
+        );
+        assert!(content.contains("linking"), "should contain progress line");
+        let progress_pos = content.find("### Progress").expect("progress header");
+        let result_pos = content.find("### Result").expect("result header");
+        assert!(
+            progress_pos < result_pos,
+            "progress section should come before result"
+        );
+    }
+
+    #[test]
     fn test_format_log_detail_choreo() {
         let log = TenonLog::new(TenonLogData::Choreo(TenonChoreoLog::new(
             "my-choreo",
