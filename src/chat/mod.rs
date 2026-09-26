@@ -102,6 +102,8 @@ pub struct ChatSession {
     pub session_datetime: DateTime<Local>,
     pub title_handler: TitleHandler,
     pub pending_actions_channel: Arc<EventChannel<PendingAction>>,
+    /// The session's work queue
+    pub work_queue: Arc<RwLock<WorkQueue>>,
     /// Names of hooks active for this session; in-memory only, never persisted.
     pub active_hooks: Arc<RwLock<HashSet<String>>>,
     cancel_token: Arc<AtomicBool>,
@@ -131,8 +133,10 @@ impl ChatSession {
             .ok_or(nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("".into())))?
             .clone();
         let pending_actions_channel = Arc::new(EventChannel::new());
+        let work_queue = Arc::new(RwLock::new(WorkQueue::default()));
         let mut tool_context = ToolContext::new();
         tool_context.insert(Arc::downgrade(&pending_actions_channel));
+        tool_context.insert(Arc::clone(&work_queue));
         let engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
@@ -148,6 +152,7 @@ impl ChatSession {
             engine,
             session_datetime: Local::now(),
             pending_actions_channel,
+            work_queue,
             active_hooks: Arc::new(RwLock::new(Self::default_active_hooks())),
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
@@ -176,8 +181,10 @@ impl ChatSession {
         let logs: Vec<TenonLog> = history.logs;
         let pending_actions_channel = Arc::new(EventChannel::new());
 
+        let work_queue = Arc::new(RwLock::new(history.work_queue.clone()));
         let mut tool_context = ToolContext::new();
         tool_context.insert(Arc::downgrade(&pending_actions_channel));
+        tool_context.insert(Arc::clone(&work_queue));
         let mut engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
@@ -186,9 +193,6 @@ impl ChatSession {
             tool_context,
         );
         engine.load(logs);
-        if let Ok(mut queue) = engine.work_queue.write() {
-            *queue = history.work_queue.clone();
-        }
         let log_window = engine.log_handler.log_window.clone();
 
         let session = Self {
@@ -201,6 +205,7 @@ impl ChatSession {
             engine,
             session_datetime: history.session_datetime,
             pending_actions_channel,
+            work_queue,
             active_hooks: Arc::new(RwLock::new(Self::default_active_hooks())),
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
@@ -238,7 +243,7 @@ impl ChatSession {
 
         let mut engine = self.engine.clone();
         let usage_clone = Arc::clone(&self.usage);
-        let work_queue_clone = Arc::clone(&engine.work_queue);
+        let work_queue_clone = Arc::clone(&self.work_queue);
         let agent_name = self.active_agent_name.clone();
         let model_display = self.engine.model.display_name();
         let chat_id = self.id.clone();

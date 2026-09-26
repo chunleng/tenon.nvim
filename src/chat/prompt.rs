@@ -6,12 +6,11 @@ use std::sync::{Arc, RwLock};
 /// system messages, followed by the base prompt as a user message (if non-empty).
 pub async fn build_choreo_messages(
     active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>,
-    work_queue: &Arc<RwLock<WorkQueue>>,
+    work_queue: Option<&Arc<RwLock<WorkQueue>>>,
     base_prompt: String,
 ) -> Vec<Message> {
     let queue_section = work_queue
-        .read()
-        .ok()
+        .and_then(|queue| queue.read().ok())
         .and_then(|queue| queue.render_context());
 
     let mut messages: Vec<Message> = Vec::new();
@@ -144,10 +143,6 @@ mod tests {
     use rig::message::UserContent;
     use std::collections::HashMap;
 
-    fn empty_queue() -> Arc<RwLock<WorkQueue>> {
-        Arc::new(RwLock::new(WorkQueue::default()))
-    }
-
     fn message_text(message: &Message) -> String {
         match message {
             Message::System { content } => content.clone(),
@@ -198,8 +193,7 @@ mod tests {
             },
         })));
 
-        let messages =
-            build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, None, "user input".to_string()).await;
 
         assert_eq!(messages.len(), 2);
         assert_system(&messages[0], "<context type=\"choreo-state\">");
@@ -217,8 +211,7 @@ mod tests {
             .ok();
 
         let active = Arc::new(RwLock::new(None));
-        let messages =
-            build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, None, "user input".to_string()).await;
         assert_eq!(messages.len(), 1);
         assert_user(&messages[0], "user input");
     }
@@ -230,7 +223,7 @@ mod tests {
             .ok();
 
         let active = Arc::new(RwLock::new(None));
-        let messages = build_choreo_messages(&active, &empty_queue(), String::new()).await;
+        let messages = build_choreo_messages(&active, None, String::new()).await;
         assert!(messages.is_empty());
     }
 
@@ -248,7 +241,7 @@ mod tests {
             "long X".to_string(),
         );
 
-        let messages = build_choreo_messages(&active, &queue, "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, Some(&queue), "user input".to_string()).await;
 
         assert_eq!(messages.len(), 2);
         assert_system(&messages[0], "<context type=\"work_queue\">");
@@ -281,7 +274,7 @@ mod tests {
             "long X".to_string(),
         );
 
-        let messages = build_choreo_messages(&active, &queue, "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, Some(&queue), "user input".to_string()).await;
 
         assert_eq!(messages.len(), 3);
         // Work queue context first, then choreo context, then the user message
@@ -306,8 +299,7 @@ mod tests {
             memory: HashMap::new(),
         })));
 
-        let messages =
-            build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, None, "user input".to_string()).await;
 
         let choreo_text = message_text(&messages[0]);
         assert_eq!(
@@ -334,8 +326,7 @@ mod tests {
             memory: HashMap::new(),
         })));
 
-        let messages =
-            build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, None, "user input".to_string()).await;
 
         assert_system(&messages[0], "navigate_choreo move:6");
     }
@@ -355,8 +346,7 @@ mod tests {
             memory: HashMap::new(),
         })));
 
-        let messages =
-            build_choreo_messages(&active, &empty_queue(), "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, None, "user input".to_string()).await;
 
         assert_system(&messages[0], "end_choreo");
     }

@@ -76,7 +76,7 @@ pub fn rename_fn() -> Function<(), ()> {
                                 },
                                 &log_window,
                                 &session.usage,
-                                &session.engine.work_queue,
+                                &session.work_queue,
                                 &history_dir,
                             );
                         }

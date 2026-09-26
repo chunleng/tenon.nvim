@@ -30,6 +30,8 @@ const TENON_WRAPPED_TOOLS: &[&str] = &[
     "fetch_webpage",
     "list_files",
     "move_path",
+    "pop_task",
+    "push_tasks",
     "read_file",
     "remove_path",
     "run_command",
@@ -47,7 +49,6 @@ pub struct AgenticStreamEngine {
     pub tools: Vec<DynamicTool>,
     pub choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
     pub active_choreo: Arc<RwLock<Option<ActiveChoreo>>>,
-    pub work_queue: Arc<RwLock<WorkQueue>>,
     pub log_handler: ChatLogHandler,
     pub system_tools: Vec<DynamicTool>,
     /// Session state passed to tools each turn
@@ -62,24 +63,25 @@ impl AgenticStreamEngine {
         choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
         tool_context: ToolContext,
     ) -> Self {
-        let work_queue = Arc::new(RwLock::new(WorkQueue::default()));
         let log_handler = ChatLogHandler::new();
         let mut system_tools = vec![into_dynamic_tool(RecordThought)];
+        if tool_context.contains::<Arc<RwLock<WorkQueue>>>() {
+            system_tools.insert(
+                0,
+                into_dynamic_tool(TenonTool::new(
+                    crate::tools::PushTasks,
+                    log_handler.log_window.clone(),
+                )),
+            );
+            system_tools.insert(
+                0,
+                into_dynamic_tool(TenonTool::new(
+                    crate::tools::PopTask,
+                    log_handler.log_window.clone(),
+                )),
+            );
+        }
         if tool_context.contains::<Weak<EventChannel<PendingAction>>>() {
-            // TODO PushTasks and PopTask temporary stays in the AskQuestion tool context until we
-            // shift its work_queue to tool_context as well
-            system_tools.insert(
-                0,
-                into_dynamic_tool(crate::tools::PushTasks {
-                    work_queue: work_queue.clone(),
-                }),
-            );
-            system_tools.insert(
-                0,
-                into_dynamic_tool(crate::tools::PopTask {
-                    work_queue: work_queue.clone(),
-                }),
-            );
             system_tools.insert(
                 0,
                 into_dynamic_tool(TenonTool::new(AskQuestion, log_handler.log_window.clone())),
@@ -92,7 +94,6 @@ impl AgenticStreamEngine {
             tools,
             choreos,
             active_choreo: Arc::new(RwLock::new(None)),
-            work_queue,
             log_handler,
             system_tools,
             tool_context,
@@ -199,8 +200,12 @@ impl AgenticStreamEngine {
     ) -> bool {
         let agent = self.build_chat_adapter();
         let mut chat_history = self.log_handler.get_chat_history(&prompt);
-        let mut messages =
-            build_choreo_messages(&self.active_choreo, &self.work_queue, prompt).await;
+        let mut messages = build_choreo_messages(
+            &self.active_choreo,
+            self.tool_context.get::<Arc<RwLock<WorkQueue>>>(),
+            prompt,
+        )
+        .await;
         let message = if messages.is_empty() {
             Message::system("<context></context>")
         } else {

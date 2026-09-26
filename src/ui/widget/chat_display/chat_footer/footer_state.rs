@@ -80,7 +80,6 @@ impl From<Arc<RwLock<ChatDisplayData>>> for FooterValues {
                 .unwrap_or(0);
 
             let work_queue_count = session
-                .engine
                 .work_queue
                 .read()
                 .map(|queue| queue.entries.len())
