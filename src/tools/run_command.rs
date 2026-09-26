@@ -317,6 +317,7 @@ impl ToolCore for RunCommand {
     fn description(&self) -> String {
         "Run command (exec form). Tool outputs yaml with both stdout and stderr\n
          Use filter, head, or tail (mutually exclusive, stdout only) to reduce output\n
+         Unbuffer any command whose output can be unbuffered (e.g. env PYTHONUNBUFFERED=1 for python, `stdbuf -oL` for other commands)\n
          E.g.\n
          `git log` → argv=['git', 'log']\n
          `make 2>&1` → argv=['make'] (drop `2>&1`)\n
