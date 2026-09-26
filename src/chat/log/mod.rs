@@ -166,8 +166,22 @@ impl From<&TenonToolLog> for Vec<Message> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonThoughtLog {
-    pub thought: String,
     pub summary: Option<String>,
+    /// The original `record_thought` tool log
+    pub tool_log: TenonToolLog,
+}
+
+impl TenonThoughtLog {
+    /// The thought text, read from the embedded tool call args.
+    pub fn thought(&self) -> String {
+        self.tool_log
+            .tool_call
+            .args
+            .get("thought")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -475,13 +489,8 @@ mod tests {
     }
 
     #[test]
-    fn test_choreo_tools_and_record_thought_return_no_messages() {
-        for name in [
-            "record_thought",
-            "use_choreo",
-            "navigate_choreo",
-            "end_choreo",
-        ] {
+    fn test_choreo_tools_return_no_messages() {
+        for name in ["use_choreo", "navigate_choreo", "end_choreo"] {
             let log = TenonLog::new(TenonLogData::Tool(choreo_tool_log(
                 name,
                 serde_json::json!({}),
@@ -507,6 +516,40 @@ mod tests {
             !messages.is_empty(),
             "read_file should emit history messages"
         );
+    }
+
+    #[test]
+    fn test_refresh_recalculates_token_count_and_timestamp() {
+        let mut log = TenonLog::new(TenonLogData::Tool(choreo_tool_log(
+            "read_file",
+            serde_json::json!({"filepath": "./src/lib.rs"}),
+            "",
+        )));
+        let before = log.last_updated_at;
+        if let TenonLogData::Tool(tool_log) = &mut log.data {
+            tool_log.tool_result = Some(Ok(TenonToolResult::Text(rig::agent::Text {
+                text: "file contents".to_string(),
+                ..Default::default()
+            })));
+        }
+        log.refresh();
+
+        let expected = TenonLog::new(TenonLogData::Tool(choreo_tool_log(
+            "read_file",
+            serde_json::json!({"filepath": "./src/lib.rs"}),
+            "file contents",
+        )));
+        assert_eq!(log.token_count, expected.token_count);
+        assert_ne!(log.last_updated_at, before);
+    }
+
+    #[test]
+    fn test_thought_helper_falls_back_to_empty() {
+        let thought_log = TenonThoughtLog {
+            summary: None,
+            tool_log: choreo_tool_log("record_thought", serde_json::json!({}), ""),
+        };
+        assert_eq!(thought_log.thought(), "");
     }
 
     #[test]
@@ -555,8 +598,12 @@ mod tests {
 
         // Thought
         let log = TenonLog::new(TenonLogData::Thought(TenonThoughtLog {
-            thought: "thinking".to_string(),
             summary: None,
+            tool_log: choreo_tool_log(
+                "record_thought",
+                serde_json::json!({"thought": "thinking"}),
+                "",
+            ),
         }));
         assert_eq!(log.to_embeddable_text(), "thinking");
 
@@ -629,22 +676,25 @@ impl TenonLog {
                 }
                 text
             }
-            TenonLogData::Thought(thought_log) => thought_log.thought.clone(),
+            TenonLogData::Thought(thought_log) => thought_log.thought(),
             TenonLogData::Choreo(choreo_log) => choreo_log.id.clone(),
         }
+    }
+
+    /// Recalculates the token count and updates last_updated_at.
+    pub fn refresh(&mut self) {
+        self.token_count = self.data.count_tokens();
+        self.last_updated_at = Utc::now();
     }
 
     /// Updates the tool result and recalculates token count.
     /// Panics if this is not a Tool log.
     pub fn set_tool_result(&mut self, result: Option<Result<TenonToolResult, TenonToolError>>) {
         match &mut self.data {
-            TenonLogData::Tool(tool_log) => {
-                tool_log.tool_result = result;
-                self.token_count = self.data.count_tokens();
-                self.last_updated_at = Utc::now();
-            }
+            TenonLogData::Tool(tool_log) => tool_log.tool_result = result,
             _ => panic!("set_tool_result called on non-Tool TenonLog"),
         }
+        self.refresh();
     }
 
     /// Appends streaming progress text to a Tool log. As in-progress text is
@@ -713,8 +763,8 @@ impl TenonLogData {
         }
     }
 
-    /// Returns true if this log is a system tool that should be hidden from the chat display.
-    /// System tools with error results are shown so the user can see what went wrong.
+    /// Returns true if this log should be hidden from the chat display.
+    /// System tools are hidden; error results are shown so the user can see what went wrong.
     pub fn is_hidden_system_tool(&self) -> bool {
         match self {
             TenonLogData::Tool(tool_log) => {
@@ -797,7 +847,7 @@ impl TenonLogData {
             }
             TenonLogData::Thought(log) => {
                 let mut lines = vec!["### Thought".to_string(), String::new()];
-                lines.extend(plain(&log.thought));
+                lines.extend(plain(&log.thought()));
                 if let Some(summary) = &log.summary {
                     lines.push(String::new());
                     lines.push("### Summary".to_string());
@@ -878,7 +928,7 @@ impl TenonLogData {
             TenonLogData::Tool(log)
                 if matches!(
                     log.tool_call.name.as_str(),
-                    "record_thought" | "use_choreo" | "navigate_choreo" | "end_choreo"
+                    "use_choreo" | "navigate_choreo" | "end_choreo"
                 ) =>
             {
                 0
@@ -896,7 +946,7 @@ impl TenonLogData {
                 };
                 call_tokens + result_tokens
             }
-            TenonLogData::Thought(log) => estimate_tokens(&log.thought),
+            TenonLogData::Thought(log) => estimate_tokens(&log.thought()),
             TenonLogData::Choreo(log) => estimate_tokens(&log.system_content()),
         }
     }
@@ -912,13 +962,12 @@ impl From<&TenonLog> for Vec<Message> {
                     None => vec![],
                 }
             }
-            // Choreo tools and record_thought are replayed via Thought/Choreo logs
-            // or the choreo context prompt; keeping their raw results in history
-            // only confuses the agent.
+            // Choreo tools are replayed via Choreo logs (the choreo context prompt); keeping their
+            // raw results in history only confuses the agent.
             TenonLogData::Tool(tool_log)
                 if matches!(
                     tool_log.tool_call.name.as_str(),
-                    "record_thought" | "use_choreo" | "navigate_choreo" | "end_choreo"
+                    "use_choreo" | "navigate_choreo" | "end_choreo"
                 ) =>
             {
                 vec![]
@@ -929,7 +978,7 @@ impl From<&TenonLog> for Vec<Message> {
                     id: None,
                     content: vec![AssistantContent::text(format!(
                         "Thoughts: {}",
-                        thought_log.thought
+                        thought_log.thought()
                     ))],
                 }]
             }

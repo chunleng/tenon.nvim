@@ -27,8 +27,7 @@ pub use event_channel::EventChannel;
 pub use log::handler::ChatLogHandler;
 pub use log::{
     TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog, TenonLog, TenonLogData,
-    TenonThoughtLog, TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult,
-    TenonUserMessage,
+    TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage,
 };
 pub use usage::SessionUsage;
 pub use work_queue::WorkQueue;

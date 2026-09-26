@@ -11,8 +11,8 @@ use crate::agent::provider::{ChatStream, StreamItem, get_agent};
 use crate::chat::prompt::build_choreo_messages;
 use crate::chat::{
     ActiveChoreo, ChatLogHandler, EventChannel, PendingAction, TenonAssistantMessage,
-    TenonAssistantMessageContent, TenonChoreoLog, TenonLog, TenonLogData, TenonThoughtLog,
-    TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, WorkQueue,
+    TenonAssistantMessageContent, TenonChoreoLog, TenonLog, TenonLogData, TenonToolCall,
+    TenonToolError, TenonToolLog, TenonToolResult, WorkQueue,
 };
 use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource, PresetContent, directive_path};
@@ -33,6 +33,7 @@ const TENON_WRAPPED_TOOLS: &[&str] = &[
     "pop_task",
     "push_tasks",
     "read_file",
+    "record_thought",
     "remove_path",
     "run_command",
     "search_dependency_code",
@@ -64,7 +65,10 @@ impl AgenticStreamEngine {
         tool_context: ToolContext,
     ) -> Self {
         let log_handler = ChatLogHandler::new();
-        let mut system_tools = vec![into_dynamic_tool(RecordThought)];
+        let mut system_tools = vec![into_dynamic_tool(TenonTool::new(
+            RecordThought,
+            log_handler.log_window.clone(),
+        ))];
         if tool_context.contains::<Arc<RwLock<WorkQueue>>>() {
             system_tools.insert(
                 0,
@@ -275,8 +279,7 @@ impl AgenticStreamEngine {
                     tool_call,
                     internal_call_id,
                 }) => {
-                    if tool_call.function.name != "record_thought"
-                        && !TENON_WRAPPED_TOOLS.contains(&tool_call.function.name.as_str())
+                    if !TENON_WRAPPED_TOOLS.contains(&tool_call.function.name.as_str())
                         && let Ok(mut log_window) = self.log_handler.log_window.write()
                     {
                         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
@@ -409,69 +412,41 @@ impl AgenticStreamEngine {
                                 break;
                             }
                         } else {
-                            // No matching Tool log → record_thought result.
-                            // The tool returns JSON: {"thought": "...", "summary": null|"..."}
+                            // No matching Tool log → the tool call was invalid and skipped by
+                            // InvalidToolCallHook.
                             let content = tool_result.content.first();
-                            if let Some(ToolResultContent::Text(text)) = content {
-                                if text.text.starts_with("ToolCallError: ") {
-                                    // Invalid tool call was skipped by
-                                    // InvalidToolCallHook — no preceding ToolCall
-                                    // stream item arrived. Fake the tool call so the
-                                    // log is displayable and produces valid LLM
-                                    // history (matching tool_call.id + tool_result.id).
-                                    let tool_name = text
-                                        .text
-                                        .strip_prefix("ToolCallError: `")
-                                        .and_then(|s| s.split('`').next())
-                                        .unwrap_or("unknown")
-                                        .to_string();
-                                    log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                        log: Arc::new(RwLock::new(TenonLog::new(
-                                            TenonLogData::Tool(TenonToolLog {
-                                                tool_call: TenonToolCall {
-                                                    id: tool_result.call.to_string(),
-                                                    item_id: tool_result
-                                                        .provider
-                                                        .as_ref()
-                                                        .and_then(|p| p.item_id.clone()),
-                                                    internal_call_id: internal_call_id.clone(),
-                                                    name: tool_name,
-                                                    args: serde_json::Value::Null,
-                                                },
-                                                tool_result: Some(Err(TenonToolError(
-                                                    text.text.clone(),
-                                                ))),
-                                                progress: vec![],
-                                            }),
-                                        ))),
-                                        active: true,
-                                    });
-                                } else {
-                                    if let Ok(parsed) =
-                                        serde_json::from_str::<serde_json::Value>(&text.text)
-                                    {
-                                        let thought = parsed
-                                            .get("thought")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or_default()
-                                            .to_string();
-                                        let summary = parsed
-                                            .get("summary")
-                                            .and_then(|v| v.as_str())
-                                            .map(|s| s.to_string());
-                                        log_window.logs.push(
-                                            crate::chat::log::indexer::IndexedLog {
-                                                log: Arc::new(RwLock::new(TenonLog::new(
-                                                    TenonLogData::Thought(TenonThoughtLog {
-                                                        thought,
-                                                        summary,
-                                                    }),
-                                                ))),
-                                                active: true,
+                            if let Some(ToolResultContent::Text(text)) = content
+                                && text.text.starts_with("ToolCallError: ")
+                            {
+                                // Fake the tool call so the log is displayable and produces valid
+                                // LLM history (matching tool_call.id + tool_result.id).
+                                let tool_name = text
+                                    .text
+                                    .strip_prefix("ToolCallError: `")
+                                    .and_then(|s| s.split('`').next())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+                                log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                                    log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
+                                        TenonToolLog {
+                                            tool_call: TenonToolCall {
+                                                id: tool_result.call.to_string(),
+                                                item_id: tool_result
+                                                    .provider
+                                                    .as_ref()
+                                                    .and_then(|p| p.item_id.clone()),
+                                                internal_call_id: internal_call_id.clone(),
+                                                name: tool_name,
+                                                args: serde_json::Value::Null,
                                             },
-                                        );
-                                    }
-                                }
+                                            tool_result: Some(Err(TenonToolError(
+                                                text.text.clone(),
+                                            ))),
+                                            progress: vec![],
+                                        },
+                                    )))),
+                                    active: true,
+                                });
                             }
                         }
                     }

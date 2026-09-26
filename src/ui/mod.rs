@@ -1330,12 +1330,27 @@ mod tests {
         );
     }
 
+    fn thought_tool_log(thought: &str) -> TenonToolLog {
+        TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "call-1".to_string(),
+                internal_call_id: "call-1".to_string(),
+                item_id: None,
+                name: "record_thought".to_string(),
+                args: serde_json::json!({"thought": thought}),
+            },
+            tool_result: None,
+            progress: vec![],
+        }
+    }
+
     #[test]
     fn test_format_log_detail_thought_with_summary() {
         let log = TenonLog::new(TenonLogData::Thought(TenonThoughtLog {
-            thought: "I need to consider multiple approaches here.\nEach has tradeoffs."
-                .to_string(),
             summary: Some("Short summary of the thought".to_string()),
+            tool_log: thought_tool_log(
+                "I need to consider multiple approaches here.\nEach has tradeoffs.",
+            ),
         }));
         let lines = format_log_detail(&log);
         let content = lines.join("\n");
@@ -1361,9 +1376,10 @@ mod tests {
     #[test]
     fn test_format_log_detail_thought_without_summary() {
         let log = TenonLog::new(TenonLogData::Thought(TenonThoughtLog {
-            thought: "I need to consider multiple approaches here.\nEach has tradeoffs."
-                .to_string(),
             summary: None,
+            tool_log: thought_tool_log(
+                "I need to consider multiple approaches here.\nEach has tradeoffs.",
+            ),
         }));
         let lines = format_log_detail(&log);
         let content = lines.join("\n");

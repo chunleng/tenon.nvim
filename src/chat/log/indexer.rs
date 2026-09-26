@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn test_get_relevant_context_adds_role_attribute() {
-        use crate::chat::log::{TenonChoreoLog, TenonThoughtLog, TenonToolLog};
+        use crate::chat::log::{TenonChoreoLog, TenonThoughtLog, TenonToolCall, TenonToolLog};
 
         let make_choreo_log = || {
             TenonLog::new(TenonLogData::Choreo(TenonChoreoLog::new(
@@ -461,8 +461,18 @@ mod tests {
         };
         let make_thought_log = || {
             TenonLog::new(TenonLogData::Thought(TenonThoughtLog {
-                thought: "thinking".to_string(),
                 summary: None,
+                tool_log: TenonToolLog {
+                    tool_call: TenonToolCall {
+                        id: "call-1".to_string(),
+                        internal_call_id: "call-1".to_string(),
+                        item_id: None,
+                        name: "record_thought".to_string(),
+                        args: serde_json::json!({"thought": "thinking"}),
+                    },
+                    tool_result: None,
+                    progress: vec![],
+                },
             }))
         };
 

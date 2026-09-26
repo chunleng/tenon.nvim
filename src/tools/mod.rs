@@ -75,6 +75,16 @@ pub trait ToolCore: Send + Sync {
         context: &mut ToolContext,
         args: Self::Args,
     ) -> impl Future<Output = Result<Self::Call, Self::Error>> + Send;
+
+    /// Converts the tool's log entry after a successful result and returns the replacement output
+    /// to return to the model. `None` keeps the original output. The log's tool result is already
+    /// written when this runs. Errored results never reach this. Default: no conversion.
+    fn convert_log(
+        &self,
+        _log: Arc<RwLock<TenonLog>>,
+    ) -> impl Future<Output = Option<ToolOutput>> + Send {
+        std::future::ready(None)
+    }
 }
 
 pub trait ToolCoreCall: Send {
@@ -210,6 +220,12 @@ impl<T: ToolCore> Tool for TenonTool<T> {
         };
         if let Ok(mut log) = log.write() {
             log.set_tool_result(Some(log_result));
+        }
+
+        if result.is_ok()
+            && let Some(new_output) = self.inner.convert_log(log.clone()).await
+        {
+            return Ok(new_output);
         }
         result
     }
@@ -486,6 +502,10 @@ fn builtin_tools(log_window: Arc<RwLock<LogWindow>>) -> Vec<Option<(String, Dyna
             into_dynamic_tool(TenonTool::new(ReadFile, log_window.clone())),
         )),
         Some((
+            "record_thought".to_string(),
+            into_dynamic_tool(TenonTool::new(RecordThought, log_window.clone())),
+        )),
+        Some((
             "remove_path".to_string(),
             into_dynamic_tool(TenonTool::new(RemovePath, log_window.clone())),
         )),
@@ -617,6 +637,7 @@ mod tests {
 
     mod tenon_tool_tests {
         use super::*;
+        use crate::chat::log::TenonThoughtLog;
         use crate::chat::log::indexer::IndexedLog;
         use crate::chat::log::window::LogWindow;
         use crate::chat::{TenonLogData, TenonToolLog, TenonToolResult};
@@ -702,6 +723,47 @@ mod tests {
 
             async fn result(self, _context: &mut ToolContext) -> Result<String, MockError> {
                 Ok("done".to_string())
+            }
+        }
+
+        /// Converts its log to a Thought log with a replacement result.
+        struct MockConvertTool;
+
+        impl ToolCore for MockConvertTool {
+            const NAME: &'static str = "mock_convert_tool";
+            type Args = MockArgs;
+            type Output = String;
+            type Error = MockError;
+            type Call = MockStreamCall;
+
+            fn description(&self) -> String {
+                "mock convert tool".to_string()
+            }
+
+            fn parameters(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
+
+            async fn init_call(
+                &self,
+                _context: &mut ToolContext,
+                _args: MockArgs,
+            ) -> Result<MockStreamCall, MockError> {
+                Ok(MockStreamCall { items: vec![] })
+            }
+
+            async fn convert_log(&self, log: Arc<RwLock<TenonLog>>) -> Option<ToolOutput> {
+                let mut log = log.write().ok()?;
+                let TenonLogData::Tool(tool_log) = &log.data else {
+                    return None;
+                };
+                let tool_log = tool_log.clone();
+                log.data = TenonLogData::Thought(TenonThoughtLog {
+                    summary: None,
+                    tool_log,
+                });
+                log.refresh();
+                Some(ToolOutput::text("converted"))
             }
         }
 
@@ -800,6 +862,34 @@ mod tests {
             assert_eq!(logs.len(), 1);
             assert!(!logs[0].tool_call.id.is_empty());
             assert_eq!(logs[0].progress, vec!["chunk", "multi", "line", "text"]);
+        }
+
+        #[tokio::test]
+        async fn test_tenon_tool_returns_converted_result() {
+            let log_window = test_log_window();
+            let tool = TenonTool::new(MockConvertTool, log_window.clone());
+
+            let output = tool
+                .call(
+                    &mut ToolContext::new(),
+                    serde_json::json!({"input": "hello"}),
+                )
+                .await
+                .unwrap();
+            // The returned output is the converted result, not the original
+            assert_eq!(output.as_text(), Some("converted"));
+
+            // The log was swapped to a Thought log; its embedded result is the
+            // original one, written before the conversion
+            let window = log_window.read().unwrap();
+            let log = window.logs[0].log.read().unwrap();
+            let TenonLogData::Thought(thought_log) = log.data() else {
+                panic!("expected Thought log after convert_log");
+            };
+            let Some(Ok(TenonToolResult::Text(text))) = &thought_log.tool_log.tool_result else {
+                panic!("expected embedded Text tool result");
+            };
+            assert_eq!(text.text, "done");
         }
 
         #[tokio::test]

@@ -292,7 +292,8 @@ impl ChatLogCache {
 
             // Update check_from_index:
             // - If last rendered entry is assistant, keep it at check_from to allow re-rendering (streaming support)
-            // - If last rendered entry is tool, find first tool in the consecutive tool chain
+            // - If last rendered entry is tool/thought/choreo, find the first entry in the
+            //   consecutive chain.
             // - Otherwise, progress to current_count
             let new_check_from = self
                 .rendered_entries
@@ -302,15 +303,21 @@ impl ChatLogCache {
                         return current_count;
                     };
                     match &log.data {
-                        TenonLogData::Assistant(_) | TenonLogData::Thought(_) => current_count - 1,
-                        TenonLogData::Tool(_) => (0..current_count - 1)
+                        TenonLogData::Assistant(_) => current_count - 1,
+                        TenonLogData::Tool(_)
+                        | TenonLogData::Thought(_)
+                        | TenonLogData::Choreo(_) => (0..current_count - 1)
                             .rev()
                             .take_while(|&i| {
                                 self.rendered_entries.get(i).is_some_and(|e| {
-                                    e.log
-                                        .read()
-                                        .ok()
-                                        .is_some_and(|l| matches!(l.data, TenonLogData::Tool(_)))
+                                    e.log.read().ok().is_some_and(|l| {
+                                        matches!(
+                                            l.data,
+                                            TenonLogData::Tool(_)
+                                                | TenonLogData::Thought(_)
+                                                | TenonLogData::Choreo(_)
+                                        )
+                                    })
                                 })
                             })
                             .last()
@@ -402,8 +409,18 @@ mod tests {
         log_window.logs.push(crate::chat::log::indexer::IndexedLog {
             log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Thought(
                 crate::chat::log::TenonThoughtLog {
-                    thought: thought.to_string(),
                     summary: None,
+                    tool_log: crate::chat::log::TenonToolLog {
+                        tool_call: crate::chat::log::TenonToolCall {
+                            id: "thought".to_string(),
+                            internal_call_id: "thought".to_string(),
+                            item_id: None,
+                            name: "record_thought".to_string(),
+                            args: serde_json::json!({"thought": thought}),
+                        },
+                        tool_result: None,
+                        progress: vec![],
+                    },
                 },
             )))),
             active: true,
@@ -617,6 +634,23 @@ mod tests {
         );
         assert!(updates[2].line_separator_after);
 
+        assert_eq!(cache.check_from_index.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_check_from_index_chain_includes_thought() {
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Hello");
+        add_tool_log(&mut cache, "tool1", 1);
+        add_thought_log(&mut cache, "thinking");
+        add_tool_log(&mut cache, "tool2", 2);
+
+        let (updates, _) = cache.poll_render_update();
+        assert_eq!(updates.len(), 4);
+
+        // Backtrack must reach tool1 through the thought log so a mid-chain
+        // conversion (Tool -> Thought) stays re-renderable
         assert_eq!(cache.check_from_index.load(Ordering::SeqCst), 1);
     }
 
