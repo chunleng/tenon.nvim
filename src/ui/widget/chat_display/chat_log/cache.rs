@@ -49,10 +49,12 @@ pub struct ChatLogCache {
 use std::sync::atomic::Ordering;
 
 /// Updates an existing rendered entry or inserts a new one.
-/// Returns `(render_location, new_current_line)` where:
-/// - `render_location` is `Some(RenderedLocation { .. })` when entry changed/new (needs render)
+/// Returns `(render_location, new_current_line, line_count_changed)` where:
+/// - `render_location` is `Some(RenderedLocation { .. })` when entry changed/new/forced (needs render)
 /// - `render_location` is `None` when entry unchanged (skip render)
 /// - `new_current_line` is always provided for position tracking
+/// - `line_count_changed` is true when the rendered line count differs from the previously
+///   stored one; every subsequent entry's buffer position shifts as a result
 fn upsert_entry_if_changed(
     rendered_entries: &mut Vec<RenderedLogEntry>,
     log_index: usize,
@@ -60,7 +62,8 @@ fn upsert_entry_if_changed(
     render_type: RenderType,
     line_separator_after: bool,
     current_line: usize,
-) -> (Option<RenderedLocation>, usize) {
+    force_update: bool,
+) -> (Option<RenderedLocation>, usize, bool) {
     let Some((content_lines, last_updated_at)) = log.read().ok().map(|log| {
         (
             match render_type {
@@ -71,7 +74,7 @@ fn upsert_entry_if_changed(
         )
     }) else {
         // Lock failed: skip render, keep position tracking unchanged.
-        return (None, current_line);
+        return (None, current_line, force_update);
     };
     let total_lines = content_lines + line_separator_after as usize;
     if let Some(existing) = rendered_entries.get_mut(log_index) {
@@ -81,15 +84,17 @@ fn upsert_entry_if_changed(
         } = &existing.render_location;
         let (line_start, line_count) = (*line_start, *line_count);
 
-        // Check if separator changed (line count differs for Tool logs)
-        let separator_changed = line_count != total_lines;
+        // A line-count change (e.g. separator gained/lost, progress lines added)
+        // shifts the buffer position of every subsequent entry
+        let line_count_changed = line_count != total_lines;
 
         // Unchanged entry: return position for tracking, but no render needed
         if Arc::ptr_eq(log, &existing.log)
             && last_updated_at <= existing.last_updated_at
-            && !separator_changed
+            && !line_count_changed
+            && !force_update
         {
-            return (None, line_start + line_count);
+            return (None, line_start + line_count, force_update);
         }
 
         existing.log = log.clone();
@@ -102,12 +107,10 @@ fn upsert_entry_if_changed(
         return (
             Some(RenderedLocation {
                 line_start: current_line,
-                line_count: line_count.saturating_sub(current_line.saturating_sub(line_start)),
-                // This is to ensure that even if the line has shifted because previous
-                // rendered_entries changes, it will still replace the area that was once
-                // occupied by the previous render
+                line_count,
             }),
             current_line + total_lines,
+            force_update || line_count_changed,
         );
     }
 
@@ -127,6 +130,7 @@ fn upsert_entry_if_changed(
             line_count: 0, // For new entries, replace from start
         }),
         current_line + total_lines,
+        force_update,
     )
 }
 
@@ -175,6 +179,10 @@ impl ChatLogCache {
                 return (Vec::new(), 0);
             }
 
+            // Latched once any entry's line count changes: every subsequent entry's stored position
+            // is stale and must be re-emitted to repair the buffer shift
+            let mut force_update = false;
+
             let updates: Vec<StreamUpdate> = log_window.logs[check_from..current_count]
                 .iter()
                 .enumerate()
@@ -219,14 +227,17 @@ impl ChatLogCache {
                     let log_index = check_from + offset;
                     let log = &indexed_log.log;
 
-                    let (render_location, new_current_line) = upsert_entry_if_changed(
-                        &mut self.rendered_entries,
-                        log_index,
-                        log,
-                        render_type,
-                        line_separator_after,
-                        current_line,
-                    );
+                    let (render_location, new_current_line, line_count_changed) =
+                        upsert_entry_if_changed(
+                            &mut self.rendered_entries,
+                            log_index,
+                            log,
+                            render_type,
+                            line_separator_after,
+                            current_line,
+                            force_update,
+                        );
+                    force_update = line_count_changed;
 
                     current_line = new_current_line;
 
@@ -851,7 +862,92 @@ mod tests {
         );
         assert!(updates[1].line_separator_after);
         assert_eq!(updates[1].replace_line_start, 5);
-        assert_eq!(updates[1].replace_line_end, 6);
+        // Replaces tool3's full stale 2-line area, not just 1 line: the stored
+        // line_count is used at the shifted position so no stale line remains
+        assert_eq!(updates[1].replace_line_end, 7);
+    }
+
+    #[test]
+    fn test_line_count_change_forces_subsequent_entry_updates() {
+        // When an entry's rendered line count changes, every subsequent entry
+        // must be re-emitted with a refreshed position, even if its content is
+        // unchanged: the buffer lines after the resized entry shift.
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Hello");
+        add_tool_log(&mut cache, "tool1", 1);
+        add_tool_log(&mut cache, "tool2", 2);
+
+        let (updates, _) = cache.poll_render_update();
+        assert_eq!(updates.len(), 3);
+        // user [0,2), tool1 [2,3) (no separator), tool2 [3,5) (separator)
+
+        // Growth: tool1 gains progress lines
+        {
+            let session = cache.chat_session.write().unwrap();
+            let log_window = session.engine.log_handler.log_window.read().unwrap();
+            log_window.logs[1]
+                .log
+                .write()
+                .unwrap()
+                .append_tool_progress("step 1\nstep 2");
+        }
+
+        let (updates, current_line) = cache.poll_render_update();
+        assert_eq!(
+            updates.len(),
+            2,
+            "unchanged tool2 must be re-emitted after tool1 grew"
+        );
+        assert_eq!(updates[0].replace_line_start, 2);
+        assert_eq!(updates[0].replace_line_end, 3);
+        assert_eq!(
+            updates[1].replace_line_start, 5,
+            "tool2 position must shift by tool1's growth"
+        );
+        assert_eq!(updates[1].replace_line_end, 7);
+        assert_eq!(current_line, 7);
+        assert!(
+            matches!(cache.get_log_at_line(5), Some(log) if matches!(log.read().unwrap().data, TenonLogData::Tool(_))),
+            "get_log_at_line must reflect the shifted tool2 position"
+        );
+
+        // Shrink: tool1 completes, progress lines are hidden
+        {
+            let session = cache.chat_session.write().unwrap();
+            let log_window = session.engine.log_handler.log_window.read().unwrap();
+            log_window.logs[1]
+                .log
+                .write()
+                .unwrap()
+                .set_tool_result(Some(Ok(crate::chat::log::TenonToolResult::Text(
+                    rig::agent::Text {
+                        text: "done".into(),
+                        ..Default::default()
+                    },
+                ))));
+        }
+
+        let (updates, current_line) = cache.poll_render_update();
+        assert_eq!(
+            updates.len(),
+            2,
+            "unchanged tool2 must be re-emitted after tool1 shrank"
+        );
+        assert_eq!(updates[0].replace_line_start, 2);
+        assert_eq!(
+            updates[0].replace_line_end, 5,
+            "tool1 replaces its old 3-line area"
+        );
+        assert_eq!(
+            updates[1].replace_line_start, 3,
+            "tool2 position must shift back after tool1 shrank"
+        );
+        assert_eq!(updates[1].replace_line_end, 5);
+        assert_eq!(current_line, 5);
+        assert!(
+            matches!(cache.get_log_at_line(3), Some(log) if matches!(log.read().unwrap().data, TenonLogData::Tool(_)))
+        );
     }
 
     #[test]
@@ -869,8 +965,15 @@ mod tests {
             log_window.logs[0].log.clone()
         };
 
-        let (render_location, new_current_line) =
-            upsert_entry_if_changed(&mut rendered_entries, 0, &log, RenderType::Head(2), true, 0);
+        let (render_location, new_current_line, _) = upsert_entry_if_changed(
+            &mut rendered_entries,
+            0,
+            &log,
+            RenderType::Head(2),
+            true,
+            0,
+            false,
+        );
 
         let location = render_location.expect("new entry should need render");
         assert_eq!(location.line_count, 0, "new entries replace from start");
