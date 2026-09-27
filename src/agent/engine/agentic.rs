@@ -16,7 +16,7 @@ use crate::chat::{
 };
 use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource, PresetContent, directive_path};
-use crate::tools::{AskQuestion, RecordThought, TenonTool, into_dynamic_tool, resolve_tools};
+use crate::tools::{AskQuestion, RecordThought, TenonTool, resolve_tools};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use rig::agent::Agent;
 
@@ -74,10 +74,8 @@ impl AgenticStreamEngine {
         mut tool_context: ToolContext,
     ) -> Self {
         let log_handler = ChatLogHandler::new();
-        let mut system_tools = vec![into_dynamic_tool(TenonTool::new(
-            RecordThought,
-            log_handler.log_window.clone(),
-        ))];
+        let mut system_tools =
+            vec![TenonTool::new(RecordThought, log_handler.log_window.clone()).into()];
 
         // Allow tools to set this flag to indicate to chat to restart a new stream so that we can
         // inject context base on the new state. Useful for tools that changes chat session's state
@@ -87,24 +85,18 @@ impl AgenticStreamEngine {
         if tool_context.contains::<Arc<RwLock<WorkQueue>>>() {
             system_tools.insert(
                 0,
-                into_dynamic_tool(TenonTool::new(
-                    crate::tools::PushTasks,
-                    log_handler.log_window.clone(),
-                )),
+                TenonTool::new(crate::tools::PushTasks, log_handler.log_window.clone()).into(),
             );
             system_tools.insert(
                 0,
-                into_dynamic_tool(TenonTool::new(
-                    crate::tools::PopTask,
-                    log_handler.log_window.clone(),
-                )),
+                TenonTool::new(crate::tools::PopTask, log_handler.log_window.clone()).into(),
             );
         }
 
         if tool_context.contains::<Weak<EventChannel<PendingAction>>>() {
             system_tools.insert(
                 0,
-                into_dynamic_tool(TenonTool::new(AskQuestion, log_handler.log_window.clone())),
+                TenonTool::new(AskQuestion, log_handler.log_window.clone()).into(),
             );
         }
         let tools = resolve_tools(&tool_names, log_handler.log_window.clone());
@@ -181,33 +173,36 @@ impl AgenticStreamEngine {
             use crate::tools::navigate_choreo::NavigateChoreo;
             tools.insert(
                 0,
-                into_dynamic_tool(TenonTool::new(
+                TenonTool::new(
                     NavigateChoreo {
                         active_choreo: self.active_choreo.clone(),
                     },
                     self.log_handler.log_window.clone(),
-                )),
+                )
+                .into(),
             );
             tools.insert(
                 0,
-                into_dynamic_tool(TenonTool::new(
+                TenonTool::new(
                     EndChoreo {
                         active_choreo: self.active_choreo.clone(),
                     },
                     self.log_handler.log_window.clone(),
-                )),
+                )
+                .into(),
             );
         } else if !self.choreos.is_empty() {
             use crate::tools::use_choreo::UseChoreo;
             tools.insert(
                 0,
-                into_dynamic_tool(TenonTool::new(
+                TenonTool::new(
                     UseChoreo {
                         choreos: self.choreos.clone(),
                         active_choreo: self.active_choreo.clone(),
                     },
                     self.log_handler.log_window.clone(),
-                )),
+                )
+                .into(),
             );
         }
 

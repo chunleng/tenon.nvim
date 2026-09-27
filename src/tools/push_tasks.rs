@@ -28,7 +28,9 @@ pub struct PushTasksCall {
 }
 
 impl ToolCore for PushTasks {
-    const NAME: &'static str = "push_tasks";
+    fn name(&self) -> String {
+        "push_tasks".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = PushTasksArgs;
     type Output = String;

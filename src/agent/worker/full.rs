@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::agent::engine::AgenticStreamEngine;
-use crate::tools::{TenonTool, ToolCore, ToolCoreCall, into_dynamic_tool};
+use crate::tools::{TenonTool, ToolCore, ToolCoreCall};
 use crate::{chat::choreo::Choreo, clients::SupportedModels, directive::Directive};
 
 #[derive(Debug, Clone)]
@@ -56,7 +56,9 @@ struct AnswerTool {
 }
 
 impl ToolCore for AnswerTool {
-    const NAME: &'static str = "submit_answer";
+    fn name(&self) -> String {
+        "submit_answer".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = AnswerToolArgs;
     type Output = String;
@@ -143,12 +145,15 @@ impl GoalOrientedWorker {
 
         let mut engine =
             AgenticStreamEngine::new(model, directive, tool_names, vec![], ToolContext::new());
-        engine.system_tools.push(into_dynamic_tool(TenonTool::new(
-            AnswerTool {
-                result: Arc::clone(&result_slot),
-            },
-            engine.log_handler.log_window.clone(),
-        )));
+        engine.system_tools.push(
+            TenonTool::new(
+                AnswerTool {
+                    result: Arc::clone(&result_slot),
+                },
+                engine.log_handler.log_window.clone(),
+            )
+            .into(),
+        );
 
         Self {
             engine,

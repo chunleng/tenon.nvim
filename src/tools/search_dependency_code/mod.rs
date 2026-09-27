@@ -27,7 +27,9 @@ pub struct SearchDependencyCodeArgs {
 pub struct SearchDependencyCode;
 
 impl ToolCore for SearchDependencyCode {
-    const NAME: &'static str = "search_dependency_code";
+    fn name(&self) -> String {
+        "search_dependency_code".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = SearchDependencyCodeArgs;
     type Output = String;

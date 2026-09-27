@@ -31,7 +31,7 @@ pub use read_file::ReadFile;
 pub use record_thought::RecordThought;
 pub use remove_path::RemovePath;
 use rig::message::ToolResultContent;
-use rig::tool::{DynamicTool, IntoToolOutput, Tool, ToolContext, ToolExecutionError, ToolOutput};
+use rig::tool::{DynamicTool, IntoToolOutput, ToolContext, ToolExecutionError, ToolOutput};
 use std::sync::{Arc, RwLock};
 
 use crate::chat::log::indexer::IndexedLog;
@@ -53,7 +53,7 @@ use std::future::Future;
 /// Core tool logic
 pub trait ToolCore: Send + Sync {
     /// Unique registration and provider-facing name.
-    const NAME: &'static str;
+    fn name(&self) -> String;
     /// Typed JSON arguments.
     type Args: DeserializeOwned + Send + Sync;
     /// Output convertible into Rig's canonical model presentation.
@@ -136,7 +136,7 @@ impl<T: ToolCore> TenonTool<T> {
                     id: id.clone(),
                     internal_call_id: id,
                     item_id: None,
-                    name: T::NAME.to_string(),
+                    name: self.inner.name(),
                     args: args.clone(),
                 },
                 tool_result: None,
@@ -169,65 +169,61 @@ fn tenon_result_from_output(output: &ToolOutput) -> TenonToolResult {
     }
 }
 
-impl<T: ToolCore> Tool for TenonTool<T> {
-    const NAME: &'static str = T::NAME;
-    type Args = serde_json::Value;
-    type Output = ToolOutput;
-    type Error = ToolExecutionError;
+impl<T: ToolCore + 'static> From<TenonTool<T>> for DynamicTool {
+    fn from(tool: TenonTool<T>) -> Self {
+        let name = tool.inner.name();
+        let description = tool.inner.description();
+        let parameters = tool.inner.parameters();
+        let tool = Arc::new(tool);
 
-    fn description(&self) -> String {
-        self.inner.description()
-    }
+        DynamicTool::new(name, description, parameters, move |context, args| {
+            let tool = Arc::clone(&tool);
+            Box::pin(async move {
+                let log = tool.create_tool_log(&args)?;
 
-    fn parameters(&self) -> serde_json::Value {
-        self.inner.parameters()
-    }
-
-    async fn call(
-        &self,
-        context: &mut ToolContext,
-        args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
-        let log = self.create_tool_log(&args)?;
-
-        // Every failure path below must record its error in the log before
-        // returning, so the UI always shows the outcome.
-        let result = async {
-            let typed_args: T::Args = serde_json::from_value(args).map_err(|e| {
-                ToolExecutionError::invalid_args(format!("Failed to deserialize args: {}", e))
-            })?;
-            let mut call = self
-                .inner
-                .init_call(context, typed_args)
-                .await
-                .map_err(ToolExecutionError::from_error)?;
-            if let Some(mut stream) = call.stream(context) {
-                while let Some(item) = stream.next().await {
-                    if let Ok(mut log) = log.write() {
-                        log.append_tool_progress(&item);
+                // Every failure path below must record its error in the log
+                // before returning, so the UI always shows the outcome.
+                let result = async {
+                    let typed_args: T::Args = serde_json::from_value(args).map_err(|e| {
+                        ToolExecutionError::invalid_args(format!(
+                            "Failed to deserialize args: {}",
+                            e
+                        ))
+                    })?;
+                    let mut call = tool
+                        .inner
+                        .init_call(context, typed_args)
+                        .await
+                        .map_err(ToolExecutionError::from_error)?;
+                    if let Some(mut stream) = call.stream(context) {
+                        while let Some(item) = stream.next().await {
+                            if let Ok(mut log) = log.write() {
+                                log.append_tool_progress(&item);
+                            }
+                        }
                     }
+                    call.result(context)
+                        .await
+                        .map_err(ToolExecutionError::from_error)?
+                        .into_tool_output()
                 }
-            }
-            call.result(context)
-                .await
-                .map_err(ToolExecutionError::from_error)?
-                .into_tool_output()
-        }
-        .await;
-        let log_result = match &result {
-            Ok(output) => Ok(tenon_result_from_output(output)),
-            Err(e) => Err(TenonToolError(e.to_string())),
-        };
-        if let Ok(mut log) = log.write() {
-            log.set_tool_result(Some(log_result));
-        }
+                .await;
+                let log_result = match &result {
+                    Ok(output) => Ok(tenon_result_from_output(output)),
+                    Err(e) => Err(TenonToolError(e.to_string())),
+                };
+                if let Ok(mut log) = log.write() {
+                    log.set_tool_result(Some(log_result));
+                }
 
-        if result.is_ok()
-            && let Some(new_output) = self.inner.convert_log(log.clone()).await
-        {
-            return Ok(new_output);
-        }
-        result
+                if result.is_ok()
+                    && let Some(new_output) = tool.inner.convert_log(log.clone()).await
+                {
+                    return Ok(new_output);
+                }
+                result
+            })
+        })
     }
 }
 
@@ -451,75 +447,52 @@ fn select_in_order<T>(mut tools: Vec<Option<(String, T)>>, selectors: &[&str]) -
     result
 }
 
-/// Wrap a built-in `Tool` implementation into a `DynamicTool` for runtime
-/// registration.
-pub(crate) fn into_dynamic_tool<T: Tool + 'static>(tool: T) -> DynamicTool {
-    let name = T::NAME.to_string();
-    let description = tool.description();
-    let parameters = tool.parameters();
-    let tool = std::sync::Arc::new(tool);
-
-    DynamicTool::new(name, description, parameters, move |context, args| {
-        let tool = std::sync::Arc::clone(&tool);
-        Box::pin(async move {
-            let args: T::Args = serde_json::from_value(args).map_err(|e| {
-                ToolExecutionError::invalid_args(format!("Failed to deserialize args: {}", e))
-            })?;
-            let output = tool
-                .call(context, args)
-                .await
-                .map_err(ToolExecutionError::from_error)?;
-            output.into_tool_output()
-        })
-    })
-}
-
 /// Build the list of built-in tools (excluding MCP tools).
 fn builtin_tools(log_window: Arc<RwLock<LogWindow>>) -> Vec<Option<(String, DynamicTool)>> {
     let mut all_tools: Vec<Option<(String, DynamicTool)>> = vec![
         Some((
             "edit_file".to_string(),
-            into_dynamic_tool(TenonTool::new(EditFile, log_window.clone())),
+            TenonTool::new(EditFile, log_window.clone()).into(),
         )),
         Some((
             "fetch_webpage".to_string(),
-            into_dynamic_tool(TenonTool::new(FetchWebpage, log_window.clone())),
+            TenonTool::new(FetchWebpage, log_window.clone()).into(),
         )),
         Some((
             "analyze_image".to_string(),
-            into_dynamic_tool(TenonTool::new(AnalyzeImage, log_window.clone())),
+            TenonTool::new(AnalyzeImage, log_window.clone()).into(),
         )),
         Some((
             "list_files".to_string(),
-            into_dynamic_tool(TenonTool::new(ListFiles, log_window.clone())),
+            TenonTool::new(ListFiles, log_window.clone()).into(),
         )),
         Some((
             "move_path".to_string(),
-            into_dynamic_tool(TenonTool::new(MovePath, log_window.clone())),
+            TenonTool::new(MovePath, log_window.clone()).into(),
         )),
         Some((
             "read_file".to_string(),
-            into_dynamic_tool(TenonTool::new(ReadFile, log_window.clone())),
+            TenonTool::new(ReadFile, log_window.clone()).into(),
         )),
         Some((
             "record_thought".to_string(),
-            into_dynamic_tool(TenonTool::new(RecordThought, log_window.clone())),
+            TenonTool::new(RecordThought, log_window.clone()).into(),
         )),
         Some((
             "remove_path".to_string(),
-            into_dynamic_tool(TenonTool::new(RemovePath, log_window.clone())),
+            TenonTool::new(RemovePath, log_window.clone()).into(),
         )),
         Some((
             "run_command".to_string(),
-            into_dynamic_tool(TenonTool::new(RunCommand, log_window.clone())),
+            TenonTool::new(RunCommand, log_window.clone()).into(),
         )),
         Some((
             "search_dependency_code".to_string(),
-            into_dynamic_tool(TenonTool::new(SearchDependencyCode, log_window.clone())),
+            TenonTool::new(SearchDependencyCode, log_window.clone()).into(),
         )),
         Some((
             "search_text".to_string(),
-            into_dynamic_tool(TenonTool::new(SearchText, log_window.clone())),
+            TenonTool::new(SearchText, log_window.clone()).into(),
         )),
     ];
 
@@ -537,7 +510,7 @@ fn builtin_tools(log_window: Arc<RwLock<LogWindow>>) -> Vec<Option<(String, Dyna
         };
         all_tools.push(Some((
             "web_search".to_string(),
-            into_dynamic_tool(TenonTool::new(WebSearch { provider }, log_window)),
+            TenonTool::new(WebSearch { provider }, log_window).into(),
         )));
     }
 
@@ -641,8 +614,20 @@ mod tests {
         use crate::chat::log::indexer::IndexedLog;
         use crate::chat::log::window::LogWindow;
         use crate::chat::{TenonLogData, TenonToolLog, TenonToolResult};
-        use rig::tool::ToolContext;
+        use rig::tool::{ToolContext, ToolSet};
         use std::sync::{Arc, RwLock};
+
+        /// Executes a TenonTool through its DynamicTool registration, the same
+        /// path the engine uses after the `From<TenonTool<T>>` conversion.
+        async fn execute_tenon_tool<T: ToolCore + 'static>(
+            tool: TenonTool<T>,
+            args: &str,
+        ) -> rig::tool::ToolResult {
+            let name = tool.inner.name();
+            let dynamic: DynamicTool = tool.into();
+            let set = ToolSet::from_dynamic_tools(vec![dynamic]);
+            set.execute(&name, args, &mut ToolContext::new()).await
+        }
 
         fn test_log_window() -> Arc<RwLock<LogWindow>> {
             Arc::new(RwLock::new(LogWindow { logs: vec![] }))
@@ -687,7 +672,9 @@ mod tests {
         }
 
         impl ToolCore for MockStreamTool {
-            const NAME: &'static str = "mock_stream_tool";
+            fn name(&self) -> String {
+                "mock_stream_tool".to_string()
+            }
             type Args = MockArgs;
             type Output = String;
             type Error = MockError;
@@ -730,7 +717,9 @@ mod tests {
         struct MockConvertTool;
 
         impl ToolCore for MockConvertTool {
-            const NAME: &'static str = "mock_convert_tool";
+            fn name(&self) -> String {
+                "mock_convert_tool".to_string()
+            }
             type Args = MockArgs;
             type Output = String;
             type Error = MockError;
@@ -771,7 +760,9 @@ mod tests {
         struct MockFailingTool;
 
         impl ToolCore for MockFailingTool {
-            const NAME: &'static str = "mock_failing_tool";
+            fn name(&self) -> String {
+                "mock_failing_tool".to_string()
+            }
             type Args = MockArgs;
             type Output = String;
             type Error = MockError;
@@ -799,14 +790,9 @@ mod tests {
             let log_window = test_log_window();
             let tool = TenonTool::new(MockStreamTool, log_window.clone());
 
-            let output = tool
-                .call(
-                    &mut ToolContext::new(),
-                    serde_json::json!({"input": "hello"}),
-                )
-                .await
-                .unwrap();
-            assert_eq!(output.as_text(), Some("done"));
+            let result = execute_tenon_tool(tool, r#"{"input": "hello"}"#).await;
+            assert!(result.is_success());
+            assert_eq!(result.output().as_text(), Some("done"));
 
             let logs = tool_logs(&log_window);
             assert_eq!(logs.len(), 1);
@@ -828,12 +814,8 @@ mod tests {
             let log_window = test_log_window();
             let tool = TenonTool::new(MockStreamTool, log_window.clone());
 
-            tool.call(
-                &mut ToolContext::new(),
-                serde_json::json!({"input": "hello"}),
-            )
-            .await
-            .unwrap();
+            let result = execute_tenon_tool(tool, r#"{"input": "hello"}"#).await;
+            assert!(result.is_success());
 
             let logs = tool_logs(&log_window);
             assert_eq!(logs.len(), 1);
@@ -869,15 +851,10 @@ mod tests {
             let log_window = test_log_window();
             let tool = TenonTool::new(MockConvertTool, log_window.clone());
 
-            let output = tool
-                .call(
-                    &mut ToolContext::new(),
-                    serde_json::json!({"input": "hello"}),
-                )
-                .await
-                .unwrap();
+            let result = execute_tenon_tool(tool, r#"{"input": "hello"}"#).await;
+            assert!(result.is_success());
             // The returned output is the converted result, not the original
-            assert_eq!(output.as_text(), Some("converted"));
+            assert_eq!(result.output().as_text(), Some("converted"));
 
             // The log was swapped to a Thought log; its embedded result is the
             // original one, written before the conversion
@@ -897,10 +874,8 @@ mod tests {
             let log_window = test_log_window();
             let tool = TenonTool::new(MockFailingTool, log_window.clone());
 
-            let result = tool
-                .call(&mut ToolContext::new(), serde_json::json!({"input": "x"}))
-                .await;
-            assert!(result.is_err());
+            let result = execute_tenon_tool(tool, r#"{"input": "x"}"#).await;
+            assert!(!result.is_success());
 
             let logs = tool_logs(&log_window);
             assert_eq!(logs.len(), 1);
@@ -913,11 +888,10 @@ mod tests {
             let log_window = test_log_window();
             let tool = TenonTool::new(MockStreamTool, log_window.clone());
 
-            // Missing "input" field: deserialization fails inside call
-            let result = tool
-                .call(&mut ToolContext::new(), serde_json::json!({"wrong": 1}))
-                .await;
-            assert!(result.is_err());
+            // Missing "input" field: deserialization fails inside the
+            // DynamicTool callback
+            let result = execute_tenon_tool(tool, r#"{"wrong": 1}"#).await;
+            assert!(!result.is_success());
 
             let logs = tool_logs(&log_window);
             assert_eq!(logs.len(), 1);

@@ -27,7 +27,9 @@ pub struct UseChoreo {
 }
 
 impl ToolCore for UseChoreo {
-    const NAME: &'static str = "use_choreo";
+    fn name(&self) -> String {
+        "use_choreo".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = UseChoreoArgs;
     type Output = String;

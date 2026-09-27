@@ -183,7 +183,9 @@ impl ToolCoreCall for MovePathCall {
 }
 
 impl ToolCore for MovePath {
-    const NAME: &'static str = "move_path";
+    fn name(&self) -> String {
+        "move_path".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = MovePathArgs;
     type Output = String;

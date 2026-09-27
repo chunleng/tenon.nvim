@@ -102,7 +102,9 @@ impl ToolCoreCall for WebSearchCall {
 }
 
 impl ToolCore for WebSearch {
-    const NAME: &'static str = "web_search";
+    fn name(&self) -> String {
+        "web_search".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = WebSearchArgs;
     type Output = String;

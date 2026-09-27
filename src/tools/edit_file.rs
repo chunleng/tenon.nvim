@@ -280,7 +280,9 @@ impl ToolCoreCall for EditFileCall {
 }
 
 impl ToolCore for EditFile {
-    const NAME: &'static str = "edit_file";
+    fn name(&self) -> String {
+        "edit_file".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = EditFileArgs;
     type Output = String;

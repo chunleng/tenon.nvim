@@ -67,7 +67,9 @@ impl ToolCoreCall for ReadFileCall {
 }
 
 impl ToolCore for ReadFile {
-    const NAME: &'static str = "read_file";
+    fn name(&self) -> String {
+        "read_file".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = ReadFileArgs;
     type Output = String;

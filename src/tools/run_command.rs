@@ -308,7 +308,9 @@ fn truncate_output(output: &str) -> (String, bool) {
 }
 
 impl ToolCore for RunCommand {
-    const NAME: &'static str = "run_command";
+    fn name(&self) -> String {
+        "run_command".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = RunCommandArgs;
     type Output = String;

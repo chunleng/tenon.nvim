@@ -23,7 +23,9 @@ pub struct RecordThoughtArgs {
 pub struct RecordThought;
 
 impl ToolCore for RecordThought {
-    const NAME: &'static str = "record_thought";
+    fn name(&self) -> String {
+        "record_thought".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = RecordThoughtArgs;
     type Output = String;

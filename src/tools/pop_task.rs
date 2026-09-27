@@ -20,7 +20,9 @@ pub struct PopTaskCall {
 }
 
 impl ToolCore for PopTask {
-    const NAME: &'static str = "pop_task";
+    fn name(&self) -> String {
+        "pop_task".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = PopTaskArgs;
     type Output = String;

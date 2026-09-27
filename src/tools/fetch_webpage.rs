@@ -108,7 +108,9 @@ impl ToolCoreCall for FetchWebpageCall {
 }
 
 impl ToolCore for FetchWebpage {
-    const NAME: &'static str = "fetch_webpage";
+    fn name(&self) -> String {
+        "fetch_webpage".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = FetchWebpageArgs;
     type Output = String;

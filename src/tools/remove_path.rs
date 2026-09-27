@@ -56,7 +56,9 @@ impl ToolCoreCall for RemovePathCall {
 }
 
 impl ToolCore for RemovePath {
-    const NAME: &'static str = "remove_path";
+    fn name(&self) -> String {
+        "remove_path".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = RemovePathArgs;
     type Output = String;

@@ -26,7 +26,9 @@ pub struct NavigateChoreo {
 }
 
 impl ToolCore for NavigateChoreo {
-    const NAME: &'static str = "navigate_choreo";
+    fn name(&self) -> String {
+        "navigate_choreo".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = NavigateChoreoArgs;
     type Output = String;

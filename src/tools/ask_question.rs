@@ -39,7 +39,9 @@ pub struct AskQuestionCall {
 }
 
 impl ToolCore for AskQuestion {
-    const NAME: &'static str = "ask_question";
+    fn name(&self) -> String {
+        "ask_question".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = AskQuestionArgs;
     type Output = String;

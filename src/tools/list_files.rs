@@ -107,7 +107,9 @@ impl ToolCoreCall for ListFilesCall {
 }
 
 impl ToolCore for ListFiles {
-    const NAME: &'static str = "list_files";
+    fn name(&self) -> String {
+        "list_files".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = ListFilesArgs;
     type Output = String;

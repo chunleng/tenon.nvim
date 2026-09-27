@@ -125,7 +125,9 @@ impl ToolCoreCall for AnalyzeImageCall {
 }
 
 impl ToolCore for AnalyzeImage {
-    const NAME: &'static str = "analyze_image";
+    fn name(&self) -> String {
+        "analyze_image".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = AnalyzeImageArgs;
     type Output = String;

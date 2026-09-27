@@ -205,7 +205,9 @@ impl ToolCoreCall for SearchTextCall {
 }
 
 impl ToolCore for SearchText {
-    const NAME: &'static str = "search_text";
+    fn name(&self) -> String {
+        "search_text".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = SearchTextArgs;
     type Output = String;

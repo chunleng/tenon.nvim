@@ -25,7 +25,9 @@ pub struct EndChoreo {
 }
 
 impl ToolCore for EndChoreo {
-    const NAME: &'static str = "end_choreo";
+    fn name(&self) -> String {
+        "end_choreo".to_string()
+    }
     type Error = ToolExecutionError;
     type Args = EndChoreoArgs;
     type Output = String;
