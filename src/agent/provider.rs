@@ -19,6 +19,7 @@ pub enum StreamItem {
     Text {
         text: String,
     },
+    #[allow(dead_code)]
     ToolCall {
         tool_call: rig::message::ToolCall,
         internal_call_id: String,

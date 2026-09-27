@@ -4,6 +4,7 @@ pub mod edit_file;
 pub mod end_choreo;
 pub mod fetch_webpage;
 pub mod list_files;
+pub mod mcp_client;
 pub mod move_path;
 pub mod navigate_choreo;
 pub mod pop_task;
@@ -24,6 +25,7 @@ pub use ask_question::AskQuestion;
 pub use edit_file::EditFile;
 pub use fetch_webpage::FetchWebpage;
 pub use list_files::ListFiles;
+pub use mcp_client::McpClient;
 pub use move_path::MovePath;
 pub use pop_task::PopTask;
 pub use push_tasks::PushTasks;
@@ -383,7 +385,7 @@ pub fn all_tool_names() -> Vec<String> {
 
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {
         for tool in mcp_tools {
-            names.push(tool.tool_name());
+            names.push(tool.name());
         }
     }
 
@@ -530,11 +532,14 @@ pub fn resolve_tools(
 ) -> Vec<DynamicTool> {
     let name_refs: Vec<&str> = names.iter().map(|n| n.as_ref()).collect();
 
-    let mut all_tools = builtin_tools(log_window);
+    let mut all_tools = builtin_tools(log_window.clone());
 
     if let Ok(mcp_tools) = McpHubCaller::from_mcp_tools() {
         for tool in mcp_tools {
-            all_tools.push(Some((tool.tool_name(), tool.into_dynamic_tool())));
+            all_tools.push(Some((
+                tool.name(),
+                TenonTool::new(tool, log_window.clone()).into(),
+            )));
         }
     }
 

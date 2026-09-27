@@ -1,42 +1,16 @@
 use nvim_oxi::Result as OxiResult;
-use nvim_oxi::mlua::{LuaSerdeExt, lua};
+use nvim_oxi::mlua::lua;
 
-use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
 
+use crate::tools::McpClient;
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 
-#[derive(Clone)]
-// Fields are only read in `into_dynamic_tool`, which is compiled out in test builds.
-#[allow(dead_code)]
-pub struct McpHubCaller {
-    server_name: String,
-    tool_name: String,
-    description: String,
-    input_schema: Value,
-}
+/// Fetches MCP tools from the mcphub Lua runtime and wraps them as `McpClient`s.
+pub struct McpHubCaller;
 
 impl McpHubCaller {
-    fn new(
-        server_name: impl Into<String>,
-        tool_name: impl Into<String>,
-        description: impl Into<String>,
-        input_schema: Value,
-    ) -> Self {
-        Self {
-            server_name: server_name.into(),
-            tool_name: tool_name.into(),
-            description: description.into(),
-            input_schema,
-        }
-    }
-
-    /// Registration name used by the tool system: `server_name____tool_name`.
-    pub fn tool_name(&self) -> String {
-        format!("{}____{}", self.server_name, self.tool_name)
-    }
-
-    pub fn from_mcp_tools() -> OxiResult<Vec<Self>> {
+    pub fn from_mcp_tools() -> OxiResult<Vec<McpClient>> {
         let lua_code = r#"local mcphub = require('mcphub').get_hub_instance()
 if not mcphub then
     return {}
@@ -55,7 +29,7 @@ end
 return result"#;
 
         let result: Value = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(move || {
-            let val = nvim_oxi::mlua::lua()
+            let val = lua()
                 .load(lua_code)
                 .eval::<mlua::Value>()
                 .map_err(nvim_oxi::Error::Mlua)?;
@@ -95,7 +69,7 @@ return result"#;
                 )))?
                 .clone();
 
-            mcp_tools.push(McpHubCaller::new(
+            mcp_tools.push(McpClient::new(
                 server_name,
                 tool_name,
                 description,
@@ -104,104 +78,5 @@ return result"#;
         }
 
         Ok(mcp_tools)
-    }
-
-    // Only used by `resolve_tools`, which is compiled out in test builds.
-    #[allow(dead_code)]
-    pub fn into_dynamic_tool(self) -> DynamicTool {
-        let name = self.tool_name();
-        let description = self.description.clone();
-        let parameters = self.input_schema.clone();
-        let server_name = self.server_name.clone();
-        let tool_name = self.tool_name.clone();
-
-        DynamicTool::new(name, description, parameters, move |_context, args| {
-            let server_name = server_name.clone();
-            let tool_name = tool_name.clone();
-
-            Box::pin(async move {
-                let args_json = serde_json::to_string(&args)
-                    .map_err(|e| {
-                        ToolExecutionError::invalid_args(format!("Failed to serialize args: {}", e))
-                    })?
-                    .replace("\\", "\\\\")
-                    .replace("\"", "\\\"");
-
-                let lua_code = format!(
-                    r#"
-local mcphub = require('mcphub').get_hub_instance()
-if not mcphub then
-    resolve({{error = "MCPHub instance not available"}})
-    return
-end
-local args = vim.fn.json_decode("{}")
-local shared = require("mcphub.extensions.shared")
-local params = shared.parse_params({{server_name = "{}", tool_name = "{}", tool_input = args}}, "use_mcp_tool")
-if not params.is_auto_approved_in_server then
-    local args_str = vim.fn.json_encode(params.arguments)
-    local choice = vim.fn.confirm("Run " .. params.server_name .. "." .. params.tool_name .. "?\nArgs: " .. args_str, "&Yes\n&No", 1)
-    if choice ~= 1 then
-        resolve({{error = "User denied the tool run"}})
-        return
-    end
-end
-
-local opts = {{parse_response = true, callback = function(response, err)
-    if err and err ~= "" then
-        resolve({{error = err}})
-        return
-    end
-    resolve({{response = response}})
-end}}
-mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
-"#,
-                    args_json, server_name, tool_name
-                );
-
-                let result = GLOBAL_EXECUTION_HANDLER
-                    .execute_rust_on_main_thread_async(move |resolver| {
-                        let lua = lua();
-                        let resolver_clone = resolver.clone();
-
-                        let result: OxiResult<()> = (|| {
-                            let lua_clone = lua.clone();
-                            let resolve_fn =
-                                lua.create_function(move |_, value: mlua::Value| {
-                                    let json_val = lua_clone
-                                        .from_value::<Value>(value)
-                                        .map_err(nvim_oxi::Error::Mlua);
-                                    resolver.resolve(json_val);
-                                    Ok(())
-                                })?;
-
-                            let wrapped =
-                                format!("return (function(resolve)\n{}\nend)(...)", lua_code);
-                            lua.load(&wrapped).call::<()>(resolve_fn)?;
-
-                            Ok(())
-                        })();
-
-                        if let Err(e) = result {
-                            resolver_clone.resolve(Err(e));
-                        }
-                    })
-                    .map_err(|e| {
-                        ToolExecutionError::other(format!("Failed to execute Lua code: {}", e))
-                    })?;
-
-                if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
-                    return Err(ToolExecutionError::other(format!(
-                        "MCP tool {}:{} failed: {}",
-                        server_name, tool_name, error
-                    )));
-                }
-
-                let response = result.get("response").unwrap_or(&Value::Null).clone();
-
-                Ok(ToolOutput::text(
-                    serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string()),
-                ))
-            })
-        })
     }
 }
