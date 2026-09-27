@@ -243,7 +243,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                                     DeserializeError::Custom {
                                         msg: format!(
                                             "more than one default agents found: {} and {}",
-                                            agent, &k
+                                            agent, k
                                         ),
                                     },
                                 ));

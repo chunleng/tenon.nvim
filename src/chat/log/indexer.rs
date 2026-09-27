@@ -162,8 +162,7 @@ impl ChatLogIndexer {
         // === SOFT LIMIT: Phase 0 - failed tools from regions 1 & 2 ===
         // Failed tool results are noise, so every one is collected regardless
         // of how many tokens are saved (no cut-target check inside the phase).
-        for idx in 0..region2_end {
-            let indexed = &log_window.logs[idx];
+        for (idx, indexed) in log_window.logs.iter().enumerate().take(region2_end) {
             let log = match indexed.log.read() {
                 Ok(log) => log,
                 Err(_) => continue,
@@ -176,11 +175,10 @@ impl ChatLogIndexer {
 
         // === SOFT LIMIT: Phase 1 - idempotent tools from regions 1 & 2 ===
         // Region 1 idempotent tools
-        for idx in 0..region1_end {
+        for (idx, indexed) in log_window.logs.iter().enumerate().take(region1_end) {
             if simulated < Self::SOFT_CUT_TARGET {
                 break;
             }
-            let indexed = &log_window.logs[idx];
             let log = match indexed.log.read() {
                 Ok(log) => log,
                 Err(_) => continue,
@@ -191,11 +189,16 @@ impl ChatLogIndexer {
         }
 
         // Region 2 idempotent tools
-        for idx in region1_end..region2_end {
+        for (idx, indexed) in log_window
+            .logs
+            .iter()
+            .enumerate()
+            .take(region2_end)
+            .skip(region1_end)
+        {
             if simulated < Self::SOFT_CUT_TARGET {
                 break;
             }
-            let indexed = &log_window.logs[idx];
             let log = match indexed.log.read() {
                 Ok(log) => log,
                 Err(_) => continue,
@@ -206,11 +209,10 @@ impl ChatLogIndexer {
         }
 
         // === SOFT LIMIT: Phase 2 - non-idempotent tools from region 1 ===
-        for idx in 0..region1_end {
+        for (idx, indexed) in log_window.logs.iter().enumerate().take(region1_end) {
             if simulated < Self::SOFT_CUT_TARGET {
                 break;
             }
-            let indexed = &log_window.logs[idx];
             let log = match indexed.log.read() {
                 Ok(log) => log,
                 Err(_) => continue,
@@ -228,11 +230,10 @@ impl ChatLogIndexer {
         // is still above the cut target.
         if hard_regime && simulated > Self::HARD_LIMIT_ACTIVE_CONTEXT_TOKENS {
             // Phase 3 - chat logs (excluding first user) from region 1
-            for idx in 0..region1_end {
+            for (idx, indexed) in log_window.logs.iter().enumerate().take(region1_end) {
                 if simulated < Self::HARD_CUT_TARGET {
                     break;
                 }
-                let indexed = &log_window.logs[idx];
                 let log = match indexed.log.read() {
                     Ok(log) => log,
                     Err(_) => continue,
@@ -252,11 +253,10 @@ impl ChatLogIndexer {
             }
 
             // Phase 3 - system logs from region 1
-            for idx in 0..region1_end {
+            for (idx, indexed) in log_window.logs.iter().enumerate().take(region1_end) {
                 if simulated < Self::HARD_CUT_TARGET {
                     break;
                 }
-                let indexed = &log_window.logs[idx];
                 let log = match indexed.log.read() {
                     Ok(log) => log,
                     Err(_) => continue,
@@ -267,11 +267,16 @@ impl ChatLogIndexer {
             }
 
             // Phase 4 - non-idempotent tools from region 2
-            for idx in region1_end..region2_end {
+            for (idx, indexed) in log_window
+                .logs
+                .iter()
+                .enumerate()
+                .take(region2_end)
+                .skip(region1_end)
+            {
                 if simulated < Self::HARD_CUT_TARGET {
                     break;
                 }
-                let indexed = &log_window.logs[idx];
                 let log = match indexed.log.read() {
                     Ok(log) => log,
                     Err(_) => continue,
@@ -282,11 +287,10 @@ impl ChatLogIndexer {
             }
 
             // Phase 5 - idempotent tools from region 3
-            for idx in region2_end..log_window.logs.len() {
+            for (idx, indexed) in log_window.logs.iter().enumerate().skip(region2_end) {
                 if simulated < Self::HARD_CUT_TARGET {
                     break;
                 }
-                let indexed = &log_window.logs[idx];
                 let log = match indexed.log.read() {
                     Ok(log) => log,
                     Err(_) => continue,
