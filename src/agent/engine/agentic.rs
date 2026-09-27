@@ -45,6 +45,7 @@ const TENON_WRAPPED_TOOLS: &[&str] = &[
     "run_command",
     "search_dependency_code",
     "search_text",
+    "submit_answer",
     "use_choreo",
     "web_search",
 ];

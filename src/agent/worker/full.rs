@@ -1,12 +1,12 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::agent::engine::AgenticStreamEngine;
-use crate::tools::into_dynamic_tool;
+use crate::tools::{TenonTool, ToolCore, ToolCoreCall, into_dynamic_tool};
 use crate::{chat::choreo::Choreo, clients::SupportedModels, directive::Directive};
 
 #[derive(Debug, Clone)]
@@ -55,11 +55,12 @@ struct AnswerTool {
     result: Arc<RwLock<Option<GoalResult>>>,
 }
 
-impl Tool for AnswerTool {
+impl ToolCore for AnswerTool {
     const NAME: &'static str = "submit_answer";
     type Error = ToolExecutionError;
     type Args = AnswerToolArgs;
     type Output = String;
+    type Call = AnswerToolCall;
 
     fn description(&self) -> String {
         "Submit your final answer or indicate no answer was found. \
@@ -84,15 +85,32 @@ impl Tool for AnswerTool {
         })
     }
 
-    async fn call(
+    async fn init_call(
         &self,
         _context: &mut ToolContext,
         args: Self::Args,
-    ) -> Result<Self::Output, Self::Error> {
-        let result = if args.is_answer {
-            GoalResult::Answer(args.prompt.clone())
-        } else if !args.prompt.is_empty() {
-            GoalResult::NoAnswer(Some(args.prompt))
+    ) -> Result<Self::Call, Self::Error> {
+        Ok(AnswerToolCall {
+            result: Arc::clone(&self.result),
+            args,
+        })
+    }
+}
+
+pub struct AnswerToolCall {
+    result: Arc<RwLock<Option<GoalResult>>>,
+    args: AnswerToolArgs,
+}
+
+impl ToolCoreCall for AnswerToolCall {
+    type Output = String;
+    type Error = ToolExecutionError;
+
+    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let result = if self.args.is_answer {
+            GoalResult::Answer(self.args.prompt.clone())
+        } else if !self.args.prompt.is_empty() {
+            GoalResult::NoAnswer(Some(self.args.prompt))
         } else {
             GoalResult::NoAnswer(None)
         };
@@ -103,7 +121,7 @@ impl Tool for AnswerTool {
 
         Ok(json!({
             "submitted": true,
-            "is_answer": args.is_answer,
+            "is_answer": self.args.is_answer,
         })
         .to_string())
     }
@@ -125,9 +143,12 @@ impl GoalOrientedWorker {
 
         let mut engine =
             AgenticStreamEngine::new(model, directive, tool_names, vec![], ToolContext::new());
-        engine.system_tools.push(into_dynamic_tool(AnswerTool {
-            result: Arc::clone(&result_slot),
-        }));
+        engine.system_tools.push(into_dynamic_tool(TenonTool::new(
+            AnswerTool {
+                result: Arc::clone(&result_slot),
+            },
+            engine.log_handler.log_window.clone(),
+        )));
 
         Self {
             engine,
@@ -221,17 +242,28 @@ mod tests {
         let tool = AnswerTool {
             result: Arc::clone(&result_slot),
         };
+        let mut context = ToolContext::new();
 
-        tool.call(
-            &mut ToolContext::new(),
-            AnswerToolArgs {
-                prompt: "The answer is 42".to_string(),
-                is_answer: true,
-            },
-        )
-        .await
-        .unwrap();
+        let call = tool
+            .init_call(
+                &mut context,
+                AnswerToolArgs {
+                    prompt: "The answer is 42".to_string(),
+                    is_answer: true,
+                },
+            )
+            .await
+            .unwrap();
+        let output = call.result(&mut context).await.unwrap();
 
+        assert_eq!(
+            output,
+            json!({
+                "submitted": true,
+                "is_answer": true,
+            })
+            .to_string()
+        );
         let result = result_slot.read().unwrap().clone().unwrap();
         assert_eq!(result, GoalResult::Answer("The answer is 42".to_string()));
     }
@@ -242,17 +274,28 @@ mod tests {
         let tool = AnswerTool {
             result: Arc::clone(&result_slot),
         };
+        let mut context = ToolContext::new();
 
-        tool.call(
-            &mut ToolContext::new(),
-            AnswerToolArgs {
-                prompt: "Could not find the answer".to_string(),
-                is_answer: false,
-            },
-        )
-        .await
-        .unwrap();
+        let call = tool
+            .init_call(
+                &mut context,
+                AnswerToolArgs {
+                    prompt: "Could not find the answer".to_string(),
+                    is_answer: false,
+                },
+            )
+            .await
+            .unwrap();
+        let output = call.result(&mut context).await.unwrap();
 
+        assert_eq!(
+            output,
+            json!({
+                "submitted": true,
+                "is_answer": false,
+            })
+            .to_string()
+        );
         let result = result_slot.read().unwrap().clone().unwrap();
         assert_eq!(
             result,
@@ -266,17 +309,28 @@ mod tests {
         let tool = AnswerTool {
             result: Arc::clone(&result_slot),
         };
+        let mut context = ToolContext::new();
 
-        tool.call(
-            &mut ToolContext::new(),
-            AnswerToolArgs {
-                prompt: "".to_string(),
-                is_answer: false,
-            },
-        )
-        .await
-        .unwrap();
+        let call = tool
+            .init_call(
+                &mut context,
+                AnswerToolArgs {
+                    prompt: "".to_string(),
+                    is_answer: false,
+                },
+            )
+            .await
+            .unwrap();
+        let output = call.result(&mut context).await.unwrap();
 
+        assert_eq!(
+            output,
+            json!({
+                "submitted": true,
+                "is_answer": false,
+            })
+            .to_string()
+        );
         let result = result_slot.read().unwrap().clone().unwrap();
         assert_eq!(result, GoalResult::NoAnswer(None));
     }
