@@ -5,9 +5,16 @@ use chrono::{DateTime, Utc};
 use crate::chat::{ChatSession, TenonLog, TenonLogData};
 use crate::ui::widget::chat_display::format::DisplayChatFormatter;
 
+/// How much of a log to render.
+///
+/// Only bounded variants exist (Head/Tail); there is no `All`. The updater
+/// captures the log's line count at poll time and passes it as `Head(n)`, and
+/// the renderer truncates to the first `n` lines. An unbounded `All` would let
+/// the log grow past the line count tracked in `RenderedLocation` between poll
+/// and apply, desyncing the positions of all subsequent entries.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RenderType {
-    Normal,
+    Head(usize),
     Tail(usize),
 }
 
@@ -57,7 +64,7 @@ fn upsert_entry_if_changed(
     let Some((content_lines, last_updated_at)) = log.read().ok().map(|log| {
         (
             match render_type {
-                RenderType::Normal => log.data.lines().len(),
+                RenderType::Head(x) => log.data.lines().len().min(x),
                 RenderType::Tail(x) => log.data.lines().len().min(x),
             },
             log.last_updated_at,
@@ -184,6 +191,10 @@ impl ChatLogCache {
                     };
                     let current_log = &log.data;
 
+                    // Capture the line count at poll time: the log may grow before the update is
+                    // applied, and Head caps the render to what was calculated here
+                    let poll_line_count = log.data.lines().len();
+
                     let render_type = match current_log {
                         TenonLogData::Assistant(msg)
                             if msg.chat_is_empty() && msg.reasoning.is_some() =>
@@ -191,13 +202,13 @@ impl ChatLogCache {
                             if is_next_log_tool.is_some() {
                                 RenderType::Tail(1)
                             } else {
-                                RenderType::Normal
+                                RenderType::Head(poll_line_count)
                             }
                         }
                         TenonLogData::Thought(thought_log) if thought_log.summary.is_none() => {
                             RenderType::Tail(3)
                         }
-                        _ => RenderType::Normal,
+                        _ => RenderType::Head(poll_line_count),
                     };
 
                     // Add line separator unless both current and next are Tools
@@ -720,10 +731,10 @@ mod tests {
 
         let (updates, _) = cache.poll_render_update();
         assert_eq!(updates.len(), 1);
-        // With Normal, all 5 lines count toward content_lines (not truncated to 3)
+        // With Head, all 5 lines count toward content_lines (not truncated to 3)
         assert!(
-            matches!(updates[0].render_type, RenderType::Normal),
-            "assistant reasoning with no next log should be Normal"
+            matches!(updates[0].render_type, RenderType::Head(5)),
+            "assistant reasoning with no next log should be Head(5) (full line count at poll time)"
         );
         assert_eq!(
             updates[0].target_log.read().unwrap().data.lines().len(),
@@ -841,6 +852,38 @@ mod tests {
         assert!(updates[1].line_separator_after);
         assert_eq!(updates[1].replace_line_start, 5);
         assert_eq!(updates[1].replace_line_end, 6);
+    }
+
+    #[test]
+    fn test_head_render_type_truncates_line_count() {
+        // Head(x) must cap the tracked line count at x so a log that grows
+        // between poll and render cannot desync subsequent entry positions
+        let mut cache = init_test_cache();
+
+        add_user_log(&mut cache, "Line 1\nLine 2\nLine 3\nLine 4\nLine 5");
+
+        let mut rendered_entries: Vec<RenderedLogEntry> = Vec::new();
+        let log = {
+            let session = cache.chat_session.read().unwrap();
+            let log_window = session.engine.log_handler.log_window.read().unwrap();
+            log_window.logs[0].log.clone()
+        };
+
+        let (render_location, new_current_line) =
+            upsert_entry_if_changed(&mut rendered_entries, 0, &log, RenderType::Head(2), true, 0);
+
+        let location = render_location.expect("new entry should need render");
+        assert_eq!(location.line_count, 0, "new entries replace from start");
+        assert_eq!(
+            new_current_line, 3,
+            "position tracking must use Head(2) line count (2 lines + separator), not the full 5"
+        );
+
+        let stored = &rendered_entries[0].render_location;
+        assert_eq!(
+            stored.line_count, 3,
+            "stored line_count must be capped by Head(2) (2 lines + separator)"
+        );
     }
 
     #[test]

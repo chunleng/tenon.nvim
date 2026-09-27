@@ -85,14 +85,20 @@ impl ChatLogRenderer {
                                 };
                                 let data = &data_guard.data;
                                 let mut lines: Vec<String> = data.lines().into_iter().collect();
-                                if let RenderType::Tail(x) = update.render_type
-                                    && lines.len() > x
-                                {
-                                    let skip = lines.len() - x;
-                                    lines = lines.into_iter().skip(skip).collect();
-                                    if let Some(first) = lines.first_mut() {
-                                        *first = format!("... {}", first);
+                                match update.render_type {
+                                    RenderType::Head(x) if lines.len() > x => {
+                                        // Cap to the line count captured at poll
+                                        // time; the log may have grown since
+                                        lines.truncate(x);
                                     }
+                                    RenderType::Tail(x) if lines.len() > x => {
+                                        let skip = lines.len() - x;
+                                        lines = lines.into_iter().skip(skip).collect();
+                                        if let Some(first) = lines.first_mut() {
+                                            *first = format!("... {}", first);
+                                        }
+                                    }
+                                    _ => {}
                                 }
                                 let mut lines: Vec<&str> =
                                     lines.iter().map(|s| s.as_str()).collect();
