@@ -19,7 +19,21 @@ pub fn rename_fn() -> Function<(), ()> {
             })();
 
             std::thread::spawn(move || {
-                let result =
+                let rt = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                            format!("failed to build tokio runtime for rename: {}", e),
+                            nvim_oxi::api::types::LogLevel::Error,
+                        );
+                        return;
+                    }
+                };
+
+                let result = rt.block_on(
                     GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(move |resolver| {
                         let lua = lua();
 
@@ -46,7 +60,8 @@ pub fn rename_fn() -> Function<(), ()> {
                         if let Err(e) = result {
                             resolver.resolve(Err(e));
                         }
-                    });
+                    }),
+                );
 
                 if let Ok(Some(input)) = result {
                     let new_title: Option<String> = if input.trim().is_empty() {

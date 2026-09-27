@@ -134,6 +134,7 @@ mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
                     resolver_clone.resolve(Err(e));
                 }
             })
+            .await
             .map_err(|e| ToolExecutionError::other(format!("Failed to execute Lua code: {}", e)))?;
 
         if let Some(error) = result.get("error").and_then(|v| v.as_str()) {

@@ -359,13 +359,15 @@ impl NeovimExecutionHandler {
     ///
     /// # Example
     /// ```rust
-    /// let line: String = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(|resolver| {
-    ///     schedule(move |_| {
-    ///         resolver.resolve(api::get_current_line());
-    ///     });
-    /// })?;
+    /// let line: String = GLOBAL_EXECUTION_HANDLER
+    ///     .execute_rust_on_main_thread_async(|resolver| {
+    ///         schedule(move |_| {
+    ///             resolver.resolve(api::get_current_line());
+    ///         });
+    ///     })
+    ///     .await?;
     /// ```
-    pub fn execute_rust_on_main_thread_async<F, T>(&self, f: F) -> OxiResult<T>
+    pub async fn execute_rust_on_main_thread_async<F, T>(&self, f: F) -> OxiResult<T>
     where
         F: FnOnce(Resolver<T>) + Send + 'static,
         T: serde::Serialize + for<'de> serde::Deserialize<'de>,
@@ -377,7 +379,7 @@ impl NeovimExecutionHandler {
             )));
         }
 
-        let (tx, rx) = mpsc::channel::<Result<String, String>>();
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
 
         let closure = move || {
             let resolve: Box<dyn FnOnce(OxiResult<T>) + Send> =
@@ -400,7 +402,7 @@ impl NeovimExecutionHandler {
         self.rust_sender.send(Box::new(closure)).unwrap();
         self.rust_handle.send()?;
 
-        rx.recv()
+        rx.await
             .map_err(|e| nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(e.to_string())))
             .and_then(|result| {
                 result.map_err(|e| nvim_oxi::Error::Mlua(mlua::Error::RuntimeError(e)))

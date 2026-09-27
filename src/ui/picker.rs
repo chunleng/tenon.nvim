@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use nvim_oxi::{
     Result as OxiResult,
+    api::types::LogLevel,
     mlua::{LuaSerdeExt, lua},
 };
 
@@ -121,196 +122,198 @@ fn create_resolve_fn(
 /// Runs fzf-lua on the main thread asynchronously. Builds the fzf options
 /// table from `FzfOption` (prompt, fzf_opts, keymap, actions, winopts).
 /// Returns the selected items as a list of strings.
-fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
+async fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<()> {
     let callback = fzf_option.callback;
-    let result = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread_async(move |resolver| {
-        let lua = lua();
+    let result = GLOBAL_EXECUTION_HANDLER
+        .execute_rust_on_main_thread_async(move |resolver| {
+            let lua = lua();
 
-        let result: OxiResult<()> = (|| {
-            let resolve_fn = create_resolve_fn(&lua, &resolver)?;
-            let opts = lua.create_table()?;
+            let result: OxiResult<()> = (|| {
+                let resolve_fn = create_resolve_fn(&lua, &resolver)?;
+                let opts = lua.create_table()?;
 
-            opts.set("prompt", format!("{}> ", fzf_option.prompt))?;
+                opts.set("prompt", format!("{}> ", fzf_option.prompt))?;
 
-            let fzf_opts = lua.create_table()?;
-            if !fzf_option.sorting {
-                fzf_opts.set("--no-sort", "")?;
-            }
+                let fzf_opts = lua.create_table()?;
+                if !fzf_option.sorting {
+                    fzf_opts.set("--no-sort", "")?;
+                }
 
-            let actions = lua.create_table()?;
+                let actions = lua.create_table()?;
 
-            let mut fzf_keymap = None::<mlua::Table>;
-            let mut default_actions: HashMap<String, FzfAction> = HashMap::new();
-            default_actions.insert(
-                "default".to_string(),
-                FzfAction::Fn {
-                    builder: action(|lua, resolve_fn| {
-                        Ok(lua.create_function(move |_, sel: Vec<String>| {
-                            resolve_fn.call::<()>(sel)?;
-                            Ok(())
-                        })?)
-                    }),
-                    reload: false,
-                    description: "confirm".to_string(),
-                },
-            );
+                let mut fzf_keymap = None::<mlua::Table>;
+                let mut default_actions: HashMap<String, FzfAction> = HashMap::new();
+                default_actions.insert(
+                    "default".to_string(),
+                    FzfAction::Fn {
+                        builder: action(|lua, resolve_fn| {
+                            Ok(lua.create_function(move |_, sel: Vec<String>| {
+                                resolve_fn.call::<()>(sel)?;
+                                Ok(())
+                            })?)
+                        }),
+                        reload: false,
+                        description: "confirm".to_string(),
+                    },
+                );
 
-            // Display field 2 (marker+value), search field 1 (clean value).
-            // fzf returns the full line; extract_value recovers the clean value.
-            fzf_opts.set("--delimiter", DELIMITER.to_string())?;
-            fzf_opts.set("--with-nth", "2")?;
-            fzf_opts.set("--nth", "1")?;
+                // Display field 2 (marker+value), search field 1 (clean value).
+                // fzf returns the full line; extract_value recovers the clean value.
+                fzf_opts.set("--delimiter", DELIMITER.to_string())?;
+                fzf_opts.set("--with-nth", "2")?;
+                fzf_opts.set("--nth", "1")?;
 
-            // Description shown on the header (e.g. current value when excluded).
-            let mut header_description: Option<String> = None;
+                // Description shown on the header (e.g. current value when excluded).
+                let mut header_description: Option<String> = None;
 
-            match fzf_option.select_mode {
-                SelectMode::Multi { current_selected } => {
-                    fzf_opts.set("--multi", "")?;
-                    fzf_opts.set("--marker", fzf_option.marker)?;
+                match fzf_option.select_mode {
+                    SelectMode::Multi { current_selected } => {
+                        fzf_opts.set("--multi", "")?;
+                        fzf_opts.set("--marker", fzf_option.marker)?;
 
-                    // Sort: current selections first, then the rest.
-                    let mut sorted: Vec<String> = options
-                        .iter()
-                        .filter(|o| current_selected.contains(o))
-                        .cloned()
-                        .collect();
-                    sorted.extend(
-                        options
+                        // Sort: current selections first, then the rest.
+                        let mut sorted: Vec<String> = options
                             .iter()
-                            .filter(|o| !current_selected.contains(o))
-                            .cloned(),
-                    );
-                    options = sorted
-                        .into_iter()
-                        .map(|opt| format!("{}{}{}", opt, DELIMITER, opt))
-                        .collect();
+                            .filter(|o| current_selected.contains(o))
+                            .cloned()
+                            .collect();
+                        sorted.extend(
+                            options
+                                .iter()
+                                .filter(|o| !current_selected.contains(o))
+                                .cloned(),
+                        );
+                        options = sorted
+                            .into_iter()
+                            .map(|opt| format!("{}{}{}", opt, DELIMITER, opt))
+                            .collect();
 
-                    default_actions.insert(
-                        "tab".to_string(),
-                        FzfAction::FzfFn {
-                            fzf_fn: FzfBuiltin::ToggleDown,
-                            repeat: 1,
-                        },
-                    );
-                    if !current_selected.is_empty() {
                         default_actions.insert(
-                            "load".to_string(),
+                            "tab".to_string(),
                             FzfAction::FzfFn {
-                                fzf_fn: FzfBuiltin::SelectDown,
-                                repeat: current_selected.len(),
+                                fzf_fn: FzfBuiltin::ToggleDown,
+                                repeat: 1,
+                            },
+                        );
+                        if !current_selected.is_empty() {
+                            default_actions.insert(
+                                "load".to_string(),
+                                FzfAction::FzfFn {
+                                    fzf_fn: FzfBuiltin::SelectDown,
+                                    repeat: current_selected.len(),
+                                },
+                            );
+                        }
+                        default_actions.insert(
+                            "ctrl-x".to_string(),
+                            FzfAction::Fn {
+                                builder: action(|lua, resolve_fn| {
+                                    Ok(lua.create_function(move |_, ()| {
+                                        resolve_fn.call::<()>(Vec::<String>::new())?;
+                                        Ok(())
+                                    })?)
+                                }),
+                                reload: false,
+                                description: "clear all".to_string(),
                             },
                         );
                     }
-                    default_actions.insert(
-                        "ctrl-x".to_string(),
-                        FzfAction::Fn {
-                            builder: action(|lua, resolve_fn| {
-                                Ok(lua.create_function(move |_, ()| {
-                                    resolve_fn.call::<()>(Vec::<String>::new())?;
-                                    Ok(())
-                                })?)
-                            }),
-                            reload: false,
-                            description: "clear all".to_string(),
-                        },
-                    );
-                }
-                SelectMode::Single { current_selected } => {
-                    fzf_opts.set("--no-multi", "")?;
-                    if let Some(current) = current_selected {
-                        // Current is shown on the header, not as a choice.
-                        options.retain(|opt| current != opt.as_str());
-                        header_description = Some(format!("{}{}", fzf_option.marker, current));
+                    SelectMode::Single { current_selected } => {
+                        fzf_opts.set("--no-multi", "")?;
+                        if let Some(current) = current_selected {
+                            // Current is shown on the header, not as a choice.
+                            options.retain(|opt| current != opt.as_str());
+                            header_description = Some(format!("{}{}", fzf_option.marker, current));
+                        }
+                        options = options
+                            .into_iter()
+                            .map(|opt| format!("{}{}{}", opt, DELIMITER, opt))
+                            .collect();
                     }
-                    options = options
-                        .into_iter()
-                        .map(|opt| format!("{}{}{}", opt, DELIMITER, opt))
-                        .collect();
                 }
-            }
-            // User-provided actions override select_mode defaults.
-            default_actions.extend(fzf_option.actions);
+                // User-provided actions override select_mode defaults.
+                default_actions.extend(fzf_option.actions);
 
-            // Autogenerate --header from action keymap descriptions.
-            let keymap_header: String = {
-                let mut entries: Vec<(String, String)> = default_actions
-                    .iter()
-                    .filter(|(key, _)| key.as_str() != "default" && key.as_str() != "load")
-                    .map(|(key, action)| (key.clone(), action.description()))
-                    .collect();
-                entries.sort_by(|a, b| a.0.cmp(&b.0));
-                entries
-                    .iter()
-                    .map(|(key, desc)| format!("`{}`: {}", key, desc))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            };
-            let header = format_header(header_description.as_deref(), &keymap_header);
-            if !header.is_empty() {
-                fzf_opts.set("--header", header)?;
-            }
+                // Autogenerate --header from action keymap descriptions.
+                let keymap_header: String = {
+                    let mut entries: Vec<(String, String)> = default_actions
+                        .iter()
+                        .filter(|(key, _)| key.as_str() != "default" && key.as_str() != "load")
+                        .map(|(key, action)| (key.clone(), action.description()))
+                        .collect();
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    entries
+                        .iter()
+                        .map(|(key, desc)| format!("`{}`: {}", key, desc))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                let header = format_header(header_description.as_deref(), &keymap_header);
+                if !header.is_empty() {
+                    fzf_opts.set("--header", header)?;
+                }
 
-            opts.set("fzf_opts", fzf_opts)?;
+                opts.set("fzf_opts", fzf_opts)?;
 
-            for (key, action) in default_actions {
-                match action {
-                    FzfAction::Fn {
-                        builder,
-                        reload,
-                        description: _,
-                    } => {
-                        let action_fn = builder(&lua, resolve_fn.clone())?;
-                        if reload {
-                            let action_table = lua.create_table()?;
-                            action_table.set("fn", action_fn)?;
-                            action_table.set("reload", true)?;
-                            actions.set(key, action_table)?;
-                        } else {
-                            actions.set(key, action_fn)?;
+                for (key, action) in default_actions {
+                    match action {
+                        FzfAction::Fn {
+                            builder,
+                            reload,
+                            description: _,
+                        } => {
+                            let action_fn = builder(&lua, resolve_fn.clone())?;
+                            if reload {
+                                let action_table = lua.create_table()?;
+                                action_table.set("fn", action_fn)?;
+                                action_table.set("reload", true)?;
+                                actions.set(key, action_table)?;
+                            } else {
+                                actions.set(key, action_fn)?;
+                            }
+                        }
+                        FzfAction::FzfFn { fzf_fn, repeat } => {
+                            let keymap = match &fzf_keymap {
+                                Some(t) => t,
+                                None => {
+                                    let t = lua.create_table()?;
+                                    fzf_keymap = Some(t);
+                                    fzf_keymap.as_ref().unwrap()
+                                }
+                            };
+                            let base = fzf_fn.action_str();
+                            let keymap_str = format!("{}+", base)
+                                .repeat(repeat)
+                                .trim_end_matches('+')
+                                .to_string();
+                            keymap.set(key, keymap_str)?;
                         }
                     }
-                    FzfAction::FzfFn { fzf_fn, repeat } => {
-                        let keymap = match &fzf_keymap {
-                            Some(t) => t,
-                            None => {
-                                let t = lua.create_table()?;
-                                fzf_keymap = Some(t);
-                                fzf_keymap.as_ref().unwrap()
-                            }
-                        };
-                        let base = fzf_fn.action_str();
-                        let keymap_str = format!("{}+", base)
-                            .repeat(repeat)
-                            .trim_end_matches('+')
-                            .to_string();
-                        keymap.set(key, keymap_str)?;
-                    }
                 }
-            }
-            opts.set("actions", actions)?;
-            if let Some(fzf_keymap) = fzf_keymap {
-                let keymap = lua.create_table()?;
-                keymap.set("fzf", fzf_keymap)?;
-                opts.set("keymap", keymap)?;
-            }
+                opts.set("actions", actions)?;
+                if let Some(fzf_keymap) = fzf_keymap {
+                    let keymap = lua.create_table()?;
+                    keymap.set("fzf", fzf_keymap)?;
+                    opts.set("keymap", keymap)?;
+                }
 
-            let options_table = lua.create_table()?;
-            for (i, opt) in options.into_iter().enumerate() {
-                options_table.set(i + 1, opt)?;
+                let options_table = lua.create_table()?;
+                for (i, opt) in options.into_iter().enumerate() {
+                    options_table.set(i + 1, opt)?;
+                }
+
+                let fzf_exec = lua
+                    .load("return require('fzf-lua').fzf_exec")
+                    .eval::<mlua::Function>()?;
+                fzf_exec.call::<()>((options_table, opts))?;
+                Ok(())
+            })();
+
+            if let Err(e) = result {
+                resolver.resolve(Err(e));
             }
-
-            let fzf_exec = lua
-                .load("return require('fzf-lua').fzf_exec")
-                .eval::<mlua::Function>()?;
-            fzf_exec.call::<()>((options_table, opts))?;
-            Ok(())
-        })();
-
-        if let Err(e) = result {
-            resolver.resolve(Err(e));
-        }
-    });
+        })
+        .await;
 
     let result = result.map(|items| items.into_iter().map(|s| extract_value(&s)).collect());
 
@@ -330,7 +333,23 @@ const DELIMITER: char = '';
 pub fn pick(options: &[&str], fzf_option: FzfOption) -> OxiResult<()> {
     let options: Vec<String> = options.iter().map(|s| s.to_string()).collect();
     std::thread::spawn(move || {
-        let _ = run_fzf(options, fzf_option);
+        // Sync entry point (keymap handler): dedicated thread + local runtime
+        // to await the async main-thread bridge.
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                (fzf_option.callback)(None);
+                GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                    format!("failed to build tokio runtime for picker: {}", e),
+                    LogLevel::Error,
+                );
+                return;
+            }
+        };
+        let _ = rt.block_on(run_fzf(options, fzf_option));
     });
     Ok(())
 }
