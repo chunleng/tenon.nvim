@@ -19,12 +19,9 @@ pub struct StreamUpdate {
     pub line_separator_after: bool,
 }
 
-enum RenderedLocation {
-    Hidden,
-    Shown {
-        line_start: usize,
-        line_count: usize,
-    },
+struct RenderedLocation {
+    line_start: usize,
+    line_count: usize,
 }
 
 struct RenderedLogEntry {
@@ -46,8 +43,7 @@ use std::sync::atomic::Ordering;
 
 /// Updates an existing rendered entry or inserts a new one.
 /// Returns `(render_location, new_current_line)` where:
-/// - `render_location` is `Some(Shown { line_start, line_end })` when entry changed/new and not System tool (needs render)
-/// - `render_location` is `Some(Hidden)` when entry is System tool (no render)
+/// - `render_location` is `Some(RenderedLocation { .. })` when entry changed/new (needs render)
 /// - `render_location` is `None` when entry unchanged (skip render)
 /// - `new_current_line` is always provided for position tracking
 fn upsert_entry_if_changed(
@@ -58,48 +54,25 @@ fn upsert_entry_if_changed(
     line_separator_after: bool,
     current_line: usize,
 ) -> (Option<RenderedLocation>, usize) {
-    let Some((content_lines, is_hidden_system_tool, last_updated_at)) =
-        log.read().ok().map(|log| {
-            (
-                match render_type {
-                    RenderType::Normal => log.data.lines().len(),
-                    RenderType::Tail(x) => log.data.lines().len().min(x),
-                },
-                log.data.is_hidden_system_tool(),
-                log.last_updated_at,
-            )
-        })
-    else {
+    let Some((content_lines, last_updated_at)) = log.read().ok().map(|log| {
+        (
+            match render_type {
+                RenderType::Normal => log.data.lines().len(),
+                RenderType::Tail(x) => log.data.lines().len().min(x),
+            },
+            log.last_updated_at,
+        )
+    }) else {
         // Lock failed: skip render, keep position tracking unchanged.
         return (None, current_line);
     };
     let total_lines = content_lines + line_separator_after as usize;
     if let Some(existing) = rendered_entries.get_mut(log_index) {
-        // At this point, render_location is Shown
-        let (line_start, line_count) = match &existing.render_location {
-            RenderedLocation::Shown {
-                line_start,
-                line_count,
-            } => (*line_start, *line_count),
-            RenderedLocation::Hidden => {
-                if is_hidden_system_tool {
-                    return (None, current_line);
-                }
-                existing.log = log.clone();
-                existing.render_location = RenderedLocation::Shown {
-                    line_start: current_line,
-                    line_count: total_lines,
-                };
-                existing.last_updated_at = last_updated_at;
-                return (
-                    Some(RenderedLocation::Shown {
-                        line_start: current_line,
-                        line_count: 0,
-                    }),
-                    current_line + total_lines,
-                );
-            }
-        };
+        let RenderedLocation {
+            line_start,
+            line_count,
+        } = &existing.render_location;
+        let (line_start, line_count) = (*line_start, *line_count);
 
         // Check if separator changed (line count differs for Tool logs)
         let separator_changed = line_count != total_lines;
@@ -113,14 +86,14 @@ fn upsert_entry_if_changed(
         }
 
         existing.log = log.clone();
-        existing.render_location = RenderedLocation::Shown {
+        existing.render_location = RenderedLocation {
             line_start: current_line,
             line_count: total_lines,
         };
         existing.last_updated_at = last_updated_at;
 
         return (
-            Some(RenderedLocation::Shown {
+            Some(RenderedLocation {
                 line_start: current_line,
                 line_count: line_count.saturating_sub(current_line.saturating_sub(line_start)),
                 // This is to ensure that even if the line has shifted because previous
@@ -132,31 +105,22 @@ fn upsert_entry_if_changed(
     }
 
     // New entry
-    if is_hidden_system_tool {
-        rendered_entries.push(RenderedLogEntry {
-            log: log.clone(),
-            render_location: RenderedLocation::Hidden,
-            last_updated_at,
-        });
-        (Some(RenderedLocation::Hidden), current_line)
-    } else {
-        rendered_entries.push(RenderedLogEntry {
-            log: log.clone(),
-            render_location: RenderedLocation::Shown {
-                line_start: current_line,
-                line_count: total_lines,
-            },
-            last_updated_at,
-        });
+    rendered_entries.push(RenderedLogEntry {
+        log: log.clone(),
+        render_location: RenderedLocation {
+            line_start: current_line,
+            line_count: total_lines,
+        },
+        last_updated_at,
+    });
 
-        (
-            Some(RenderedLocation::Shown {
-                line_start: current_line,
-                line_count: 0, // For new entries, replace from start
-            }),
-            current_line + total_lines,
-        )
-    }
+    (
+        Some(RenderedLocation {
+            line_start: current_line,
+            line_count: 0, // For new entries, replace from start
+        }),
+        current_line + total_lines,
+    )
 }
 
 impl ChatLogCache {
@@ -169,20 +133,12 @@ impl ChatLogCache {
     }
 
     /// Returns the log entry that occupies the given 0-based buffer line, or
-    /// `None` if the line doesn't belong to any rendered entry. Hidden entries
-    /// are skipped.
+    /// `None` if the line doesn't belong to any rendered entry.
     pub fn get_log_at_line(&self, line: usize) -> Option<Arc<RwLock<TenonLog>>> {
-        self.rendered_entries
-            .iter()
-            .find_map(|entry| match &entry.render_location {
-                RenderedLocation::Shown {
-                    line_start,
-                    line_count,
-                } if *line_start <= line && line < *line_start + *line_count => {
-                    Some(entry.log.clone())
-                }
-                _ => None,
-            })
+        self.rendered_entries.iter().find_map(|entry| {
+            let r = &entry.render_location;
+            (r.line_start <= line && line < r.line_start + r.line_count).then(|| entry.log.clone())
+        })
     }
 
     pub fn poll_render_update(&mut self) -> (Vec<StreamUpdate>, usize) {
@@ -195,15 +151,10 @@ impl ChatLogCache {
             (0..check_from)
                 .rev()
                 .find_map(|i| {
-                    self.rendered_entries
-                        .get(i)
-                        .and_then(|entry| match &entry.render_location {
-                            RenderedLocation::Shown {
-                                line_start,
-                                line_count,
-                            } => Some(line_start + line_count),
-                            RenderedLocation::Hidden => None,
-                        })
+                    self.rendered_entries.get(i).map(|entry| {
+                        let r = &entry.render_location;
+                        r.line_start + r.line_count
+                    })
                 })
                 .unwrap_or(0)
         };
@@ -225,11 +176,7 @@ impl ChatLogCache {
                         .iter()
                         .find_map(|n| {
                             let log = n.log.read().ok()?;
-                            if log.data.is_hidden_system_tool() {
-                                None
-                            } else {
-                                Some(matches!(log.data, TenonLogData::Tool(_)))
-                            }
+                            Some(matches!(log.data, TenonLogData::Tool(_)))
                         });
 
                     let Ok(log) = indexed_log.log.read() else {
@@ -272,13 +219,10 @@ impl ChatLogCache {
 
                     current_line = new_current_line;
 
-                    let (line_start, line_count) = match render_location? {
-                        RenderedLocation::Shown {
-                            line_start,
-                            line_count,
-                        } => (line_start, line_count),
-                        RenderedLocation::Hidden => return None,
-                    };
+                    let RenderedLocation {
+                        line_start,
+                        line_count,
+                    } = render_location?;
 
                     Some(StreamUpdate {
                         replace_line_start: line_start,
@@ -815,7 +759,7 @@ mod tests {
     }
 
     #[test]
-    fn test_system_tools_excluded_from_render() {
+    fn test_choreo_tool_renders_like_any_tool() {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
@@ -826,15 +770,19 @@ mod tests {
 
         assert_eq!(
             updates.len(),
-            2,
-            "System tools should be excluded from render"
+            3,
+            "choreo tools should render like any other tool log"
         );
         assert_eq!(
             updates[0].target_log.read().unwrap().data.lines(),
             vec!["Hello"]
         );
         assert!(updates[0].line_separator_after);
-        assert!(updates[1].target_log.read().unwrap().data.lines()[0].contains("read_file"));
+        assert!(
+            updates[1].target_log.read().unwrap().data.lines()[0].contains("use_choreo"),
+            "pending choreo tool should be rendered"
+        );
+        assert!(updates[2].target_log.read().unwrap().data.lines()[0].contains("read_file"));
     }
 
     #[test]
@@ -1016,7 +964,7 @@ mod tests {
     }
 
     #[test]
-    fn test_system_tool_ok_hidden() {
+    fn test_choreo_tool_ok_renders() {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
@@ -1026,18 +974,17 @@ mod tests {
 
         assert_eq!(
             updates.len(),
-            1,
-            "System tool with Ok result should be hidden"
+            2,
+            "choreo tool with Ok result should render (successful ones are transient in practice)"
         );
-        assert_eq!(
-            updates[0].target_log.read().unwrap().data.lines(),
-            vec!["Hello"]
+        assert!(
+            updates[1].target_log.read().unwrap().data.lines()[0].contains("use_choreo"),
+            "ok choreo tool should be rendered"
         );
-        assert!(updates[0].line_separator_after);
     }
 
     #[test]
-    fn test_system_tool_pending_hidden() {
+    fn test_choreo_tool_pending_renders() {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
@@ -1047,25 +994,24 @@ mod tests {
 
         assert_eq!(
             updates.len(),
-            1,
-            "System tool with pending result should be hidden"
+            2,
+            "choreo tool with pending result should render"
         );
-        assert_eq!(
-            updates[0].target_log.read().unwrap().data.lines(),
-            vec!["Hello"]
+        assert!(
+            updates[1].target_log.read().unwrap().data.lines()[0].contains("use_choreo"),
+            "pending choreo tool should be rendered"
         );
-        assert!(updates[0].line_separator_after);
     }
 
     #[test]
-    fn test_system_tool_pending_to_error_transition() {
+    fn test_choreo_tool_pending_to_error_still_renders() {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
         add_tool_log(&mut cache, "use_choreo", 1);
 
         let (updates, _) = cache.poll_render_update();
-        assert_eq!(updates.len(), 1, "pending system tool should be hidden");
+        assert_eq!(updates.len(), 2, "pending choreo tool should render");
 
         update_tool_log_to_error(&mut cache, 1);
 
@@ -1073,16 +1019,16 @@ mod tests {
         assert_eq!(
             updates.len(),
             1,
-            "errored system tool should become visible"
+            "errored choreo tool should still render after transition"
         );
         assert!(
             updates[0].target_log.read().unwrap().data.lines()[0].contains("use_choreo"),
-            "transitioned system tool should be rendered"
+            "transitioned choreo tool should be rendered"
         );
     }
 
     #[test]
-    fn test_get_log_at_line_skips_hidden_system_tools() {
+    fn test_get_log_at_line_includes_choreo_tool() {
         let mut cache = init_test_cache();
 
         add_user_log(&mut cache, "Hello");
@@ -1090,12 +1036,15 @@ mod tests {
 
         cache.poll_render_update();
 
-        // System tool is Hidden; user log still occupies lines [0, 2)
+        // User log occupies lines [0, 2), choreo tool log occupies [2, 4)
         assert!(
             matches!(cache.get_log_at_line(0), Some(log) if matches!(log.read().unwrap().data, TenonLogData::User(_)))
         );
         assert!(
-            matches!(cache.get_log_at_line(1), Some(log) if matches!(log.read().unwrap().data, TenonLogData::User(_)))
+            matches!(cache.get_log_at_line(2), Some(log) if matches!(log.read().unwrap().data, TenonLogData::Tool(_)))
+        );
+        assert!(
+            matches!(cache.get_log_at_line(3), Some(log) if matches!(log.read().unwrap().data, TenonLogData::Tool(_)))
         );
     }
 }

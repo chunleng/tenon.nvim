@@ -489,19 +489,35 @@ mod tests {
     }
 
     #[test]
-    fn test_choreo_tools_return_no_messages() {
+    fn test_errored_choreo_tool_returns_messages() {
+        // Errored choreo results enter LLM history like any other tool error.
+        // Successful choreo ToolLogs are transient: TenonTool::call converts them
+        // into Choreo logs before the engine ever sees them.
         for name in ["use_choreo", "navigate_choreo", "end_choreo"] {
-            let log = TenonLog::new(TenonLogData::Tool(choreo_tool_log(
-                name,
-                serde_json::json!({}),
-                "some result",
+            let mut tool_log = choreo_tool_log(name, serde_json::json!({}), "");
+            tool_log.tool_result = Some(Err(TenonToolError(
+                "ToolCallError: Invalid navigation from move 1 to move 5".to_string(),
             )));
+            let log = TenonLog::new(TenonLogData::Tool(tool_log));
             let messages = Vec::<Message>::from(&log);
             assert!(
-                messages.is_empty(),
-                "{name} should not emit history messages, got: {messages:?}"
+                !messages.is_empty(),
+                "errored {name} should emit history messages"
             );
         }
+    }
+
+    #[test]
+    fn test_errored_choreo_tool_counts_tokens() {
+        let mut tool_log = choreo_tool_log("navigate_choreo", serde_json::json!({"move": 5}), "");
+        tool_log.tool_result = Some(Err(TenonToolError(
+            "ToolCallError: Invalid navigation from move 1 to move 5".to_string(),
+        )));
+        let log = TenonLog::new(TenonLogData::Tool(tool_log));
+        assert!(
+            log.token_count > 0,
+            "errored choreo tool log should count tokens like any tool log"
+        );
     }
 
     #[test]
@@ -763,19 +779,6 @@ impl TenonLogData {
         }
     }
 
-    /// Returns true if this log should be hidden from the chat display.
-    /// System tools are hidden; error results are shown so the user can see what went wrong.
-    pub fn is_hidden_system_tool(&self) -> bool {
-        match self {
-            TenonLogData::Tool(tool_log) => {
-                crate::tools::get_tool_classification(&tool_log.tool_call.name)
-                    == crate::tools::ToolClassification::System
-                    && !matches!(tool_log.tool_result, Some(Err(_)))
-            }
-            _ => false,
-        }
-    }
-
     /// Formats this log's content for detail display using level 3 markdown headers
     /// for categories and plain text for content.
     pub fn detail_lines(&self) -> Vec<String> {
@@ -924,15 +927,6 @@ impl TenonLogData {
                     })
                     .sum::<usize>()
             }
-            // Excluded tools emit no history messages, so they cost no tokens
-            TenonLogData::Tool(log)
-                if matches!(
-                    log.tool_call.name.as_str(),
-                    "use_choreo" | "navigate_choreo" | "end_choreo"
-                ) =>
-            {
-                0
-            }
             TenonLogData::Tool(log) => {
                 let call_tokens = estimate_tokens(&log.tool_call.name)
                     + estimate_tokens(&log.tool_call.args.to_string());
@@ -961,16 +955,6 @@ impl From<&TenonLog> for Vec<Message> {
                     Some(x) => vec![x],
                     None => vec![],
                 }
-            }
-            // Choreo tools are replayed via Choreo logs (the choreo context prompt); keeping their
-            // raw results in history only confuses the agent.
-            TenonLogData::Tool(tool_log)
-                if matches!(
-                    tool_log.tool_call.name.as_str(),
-                    "use_choreo" | "navigate_choreo" | "end_choreo"
-                ) =>
-            {
-                vec![]
             }
             TenonLogData::Tool(tool_log) => tool_log.into(),
             TenonLogData::Thought(thought_log) => {

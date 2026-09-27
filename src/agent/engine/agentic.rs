@@ -11,14 +11,19 @@ use crate::agent::provider::{ChatStream, StreamItem, get_agent};
 use crate::chat::prompt::build_choreo_messages;
 use crate::chat::{
     ActiveChoreo, ChatLogHandler, EventChannel, PendingAction, TenonAssistantMessage,
-    TenonAssistantMessageContent, TenonChoreoLog, TenonLog, TenonLogData, TenonToolCall,
-    TenonToolError, TenonToolLog, TenonToolResult, WorkQueue,
+    TenonAssistantMessageContent, TenonLog, TenonLogData, TenonToolCall, TenonToolError,
+    TenonToolLog, TenonToolResult, WorkQueue,
 };
 use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource, PresetContent, directive_path};
 use crate::tools::{AskQuestion, RecordThought, TenonTool, into_dynamic_tool, resolve_tools};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use rig::agent::Agent;
+
+/// Signals the engine to end the current stream and start a new request.
+/// Shared via `ToolContext` as `Arc<ContinueSignal>` so the flag survives
+/// context clones; setters write it, `process_turn` reads and resets it.
+pub struct ContinueSignal(pub AtomicBool);
 
 /// Tools whose call/result logging is handled by `TenonTool` itself.
 /// The engine skips its own log registration for these to avoid duplicates.
@@ -27,9 +32,11 @@ const TENON_WRAPPED_TOOLS: &[&str] = &[
     "analyze_image",
     "ask_question",
     "edit_file",
+    "end_choreo",
     "fetch_webpage",
     "list_files",
     "move_path",
+    "navigate_choreo",
     "pop_task",
     "push_tasks",
     "read_file",
@@ -38,6 +45,7 @@ const TENON_WRAPPED_TOOLS: &[&str] = &[
     "run_command",
     "search_dependency_code",
     "search_text",
+    "use_choreo",
     "web_search",
 ];
 
@@ -62,13 +70,19 @@ impl AgenticStreamEngine {
         directive: Vec<Directive>,
         tool_names: Vec<String>,
         choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
-        tool_context: ToolContext,
+        mut tool_context: ToolContext,
     ) -> Self {
         let log_handler = ChatLogHandler::new();
         let mut system_tools = vec![into_dynamic_tool(TenonTool::new(
             RecordThought,
             log_handler.log_window.clone(),
         ))];
+
+        // Allow tools to set this flag to indicate to chat to restart a new stream so that we can
+        // inject context base on the new state. Useful for tools that changes chat session's state
+        // (e.g. Choreo tools)
+        tool_context.insert(Arc::new(ContinueSignal(AtomicBool::new(false))));
+
         if tool_context.contains::<Arc<RwLock<WorkQueue>>>() {
             system_tools.insert(
                 0,
@@ -85,6 +99,7 @@ impl AgenticStreamEngine {
                 )),
             );
         }
+
         if tool_context.contains::<Weak<EventChannel<PendingAction>>>() {
             system_tools.insert(
                 0,
@@ -165,24 +180,33 @@ impl AgenticStreamEngine {
             use crate::tools::navigate_choreo::NavigateChoreo;
             tools.insert(
                 0,
-                into_dynamic_tool(NavigateChoreo {
-                    active_choreo: self.active_choreo.clone(),
-                }),
+                into_dynamic_tool(TenonTool::new(
+                    NavigateChoreo {
+                        active_choreo: self.active_choreo.clone(),
+                    },
+                    self.log_handler.log_window.clone(),
+                )),
             );
             tools.insert(
                 0,
-                into_dynamic_tool(EndChoreo {
-                    active_choreo: self.active_choreo.clone(),
-                }),
+                into_dynamic_tool(TenonTool::new(
+                    EndChoreo {
+                        active_choreo: self.active_choreo.clone(),
+                    },
+                    self.log_handler.log_window.clone(),
+                )),
             );
         } else if !self.choreos.is_empty() {
             use crate::tools::use_choreo::UseChoreo;
             tools.insert(
                 0,
-                into_dynamic_tool(UseChoreo {
-                    choreos: self.choreos.clone(),
-                    active_choreo: self.active_choreo.clone(),
-                }),
+                into_dynamic_tool(TenonTool::new(
+                    UseChoreo {
+                        choreos: self.choreos.clone(),
+                        active_choreo: self.active_choreo.clone(),
+                    },
+                    self.log_handler.log_window.clone(),
+                )),
             );
         }
 
@@ -225,8 +249,6 @@ impl AgenticStreamEngine {
             self.tool_context.clone(),
         )
         .await;
-
-        let mut should_continue = false;
 
         while let Some(result) = stream.next().await {
             if cancel_token.load(Ordering::SeqCst) {
@@ -307,6 +329,13 @@ impl AgenticStreamEngine {
                     tool_result,
                     internal_call_id,
                 }) => {
+                    // A choreo tool set the flag: end this stream, start a new request
+                    if let Some(signal) = self.tool_context.get::<Arc<ContinueSignal>>()
+                        && signal.0.load(Ordering::SeqCst)
+                    {
+                        break;
+                    }
+
                     // TenonTool-wrapped tools log themselves in TenonTool::call
                     if TENON_WRAPPED_TOOLS.contains(&tool_result.name.as_str()) {
                         continue;
@@ -349,67 +378,6 @@ impl AgenticStreamEngine {
 
                             if let Ok(mut log) = log.write() {
                                 log.set_tool_result(Some(result.clone()));
-                            }
-
-                            // Handle choreo tool results. Short-lived read
-                            // guard, dropped before the pushes below.
-                            let choreo_tool_log =
-                                log.read().ok().and_then(|log| match log.data() {
-                                    TenonLogData::Tool(tool_log)
-                                        if ["use_choreo", "navigate_choreo", "end_choreo"]
-                                            .contains(&tool_log.tool_call.name.as_str())
-                                            && result.is_ok() =>
-                                    {
-                                        Some(tool_log.clone())
-                                    }
-                                    _ => None,
-                                });
-
-                            if let Some(tool_log_clone) = choreo_tool_log {
-                                if tool_log_clone.tool_call.name == "end_choreo" {
-                                    let id = self
-                                        .active_choreo
-                                        .read()
-                                        .ok()
-                                        .and_then(|active| {
-                                            active.as_ref().map(|c| c.choreo.id.clone())
-                                        })
-                                        .unwrap_or_default();
-                                    if let Ok(mut active) = self.active_choreo.write() {
-                                        *active = None;
-                                    }
-                                    log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                        log: Arc::new(RwLock::new(TenonLog::new(
-                                            TenonLogData::Choreo(TenonChoreoLog::new(
-                                                id,
-                                                "Choreo ended",
-                                                None,
-                                                tool_log_clone,
-                                            )),
-                                        ))),
-                                        active: true,
-                                    });
-                                } else if let Ok(active) = self.active_choreo.read()
-                                    && let Some(active_choreo) = active.as_ref()
-                                {
-                                    let move_number = active_choreo.r#move;
-                                    if let Ok(choreo_log) = active_choreo
-                                        .choreo
-                                        .generate_log(move_number, tool_log_clone)
-                                    {
-                                        log_window.logs.push(
-                                            crate::chat::log::indexer::IndexedLog {
-                                                log: Arc::new(RwLock::new(TenonLog::new(
-                                                    TenonLogData::Choreo(choreo_log),
-                                                ))),
-                                                active: true,
-                                            },
-                                        );
-                                    }
-                                }
-
-                                should_continue = true;
-                                break;
                             }
                         } else {
                             // No matching Tool log → the tool call was invalid and skipped by
@@ -464,13 +432,16 @@ impl AgenticStreamEngine {
             }
         }
 
-        should_continue
+        self.tool_context
+            .get::<Arc<ContinueSignal>>()
+            .is_some_and(|signal| signal.0.swap(false, Ordering::SeqCst))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::TenonChoreoLog;
     use crate::clients::{OllamaProviderConfig, ProviderConfig, SupportedModels};
 
     fn test_model() -> SupportedModels {
