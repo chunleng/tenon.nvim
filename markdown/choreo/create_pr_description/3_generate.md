@@ -4,6 +4,7 @@ Generate PR title and description following the output format
 ## Process
 1. Generate a concise title
 2. Generate description with required and optional components
+3. If a tool to update the PR is available, update the PR with the generated title and description; otherwise print the title and description in chat and end the choreo
 
 ## Output Format
 
@@ -32,6 +33,3 @@ Note on work that was planned but not done to keep the scope clear
 - Content should be brief, explaining what the code is supposed to achieve instead of focusing on implementation details
 - Apart from the content for the Pull Request, reduce commentary such as summarizing thoughts and actions
 - Include optional components only when there is relevant content; omit them otherwise
-
-## Choreo Move Artifact
-PR title and description following the output format above
