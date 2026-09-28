@@ -129,7 +129,7 @@ impl<T: ToolCore> TenonTool<T> {
         &self,
         args: &serde_json::Value,
     ) -> Result<Arc<RwLock<TenonLog>>, ToolExecutionError> {
-        let id = rig::id::generate();
+        let id = uuid::Uuid::new_v4().to_string();
         let log = Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
             TenonToolLog {
                 tool_call: TenonToolCall {

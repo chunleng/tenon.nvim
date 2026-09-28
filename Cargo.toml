@@ -46,6 +46,7 @@ image = { version = "0.25", default-features = false, features = [
 ] }
 resvg = "0.48.1"
 rand = "0.9"
+uuid = { version = "1", features = ["v4"] }
 toml = "0.9"
 
 [profile.release]

@@ -4042,6 +4042,7 @@ dependencies = [
  "tokio",
  "toml",
  "unpdf",
+ "uuid",
 ]
 
 [[package]]
