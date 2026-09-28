@@ -31,6 +31,5 @@ pub fn get_bedrock_agent(
     agent
         .dynamic_tools(tools)
         .add_hook(crate::clients::InvalidToolCallHook)
-        .add_hook(crate::clients::ToolErrorHook)
         .build()
 }

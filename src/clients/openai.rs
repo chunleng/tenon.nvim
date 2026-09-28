@@ -52,7 +52,6 @@ pub fn get_openai_completion_api_agent(
     agent
         .dynamic_tools(tools)
         .add_hook(crate::clients::InvalidToolCallHook)
-        .add_hook(crate::clients::ToolErrorHook)
         .build()
 }
 
@@ -87,6 +86,5 @@ pub fn get_openai_response_api_agent(
     agent
         .dynamic_tools(tools)
         .add_hook(crate::clients::InvalidToolCallHook)
-        .add_hook(crate::clients::ToolErrorHook)
         .build()
 }

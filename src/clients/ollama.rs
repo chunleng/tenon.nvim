@@ -62,6 +62,5 @@ pub fn get_ollama_agent(
     agent
         .dynamic_tools(tools)
         .add_hook(crate::clients::InvalidToolCallHook)
-        .add_hook(crate::clients::ToolErrorHook)
         .build()
 }
