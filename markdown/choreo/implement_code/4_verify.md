@@ -5,9 +5,9 @@ Verify only what was just implemented this cycle (the `next` item from the plan)
   b. What assumptions does the implementation rely on?
   c. What existing behavior might this change have disrupted?
 2. Verify based on the weaknesses identified in process step 1
-  a. Prefer writing tests; a test that passes regardless of the code proves nothing, so target the failure modes
-  b. If untestable, run the build/lint/type-check and reason about whether the output covers the weaknesses
-  c. If neither applies, mark it as unverifiable
+  a. Write a test only if it has value per the Testing Basics directive; a test that proves nothing must not be written, so fall through to the next option
+  b. Otherwise, run the build/lint/type-check and reason about whether the output covers the weaknesses
+  c. If the output doesn't cover the weaknesses, mark it as unverifiable
 3. Run new verification plus existing checks in the areas you touched
 
 ## Choreo Move Artifact

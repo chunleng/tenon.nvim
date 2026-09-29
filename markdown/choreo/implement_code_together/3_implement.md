@@ -1,13 +1,15 @@
 ## Process
 1. If goal is to create a test, say "Test only goal, skipping implementation" and navigate to move 1
-2. Implement only what's needed to make the test pass:
-  - Follow project coding standards (check AGENTS.md or project instructions)
-  - Match existing code style
-  - No scope creep/extra features
+2. Implement:
+  - `tests` from previous move is empty → implement per goal directly
+  - Otherwise → implement only what's needed to make the test pass:
+    - Follow project coding standards (check AGENTS.md or project instructions)
+    - Match existing code style
+    - No scope creep/extra features
 3. Verify implementation:
   - Build project
-  - Run test (should pass now)
-  - Run tests in same module/feature area
+  - `tests` from previous move is empty → skip test run
+  - Otherwise → run test (should pass now), run tests in same module/feature area
 4. Summarize changes
 5. Ask user to confirm: "Please confirm the implementation"
   - Confirm → format code and navigate to move 1

@@ -30,7 +30,7 @@ pub fn choreo() -> Choreo {
                 },
                 goto_instructions: vec![MoveGotoInstruction {
                     to: GotoMove::Next,
-                    condition: Some("test edited (if needed) and confirmed with user, or test skipped per directive condition".to_string()),
+                    condition: Some("test(s) edited (if needed) and confirmed with user".to_string()),
                     output_to_choreo_memory: None,
                 }],
             },
