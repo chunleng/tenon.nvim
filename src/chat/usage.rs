@@ -21,7 +21,11 @@ impl Default for SessionUsage {
 
 impl SessionUsage {
     /// Add a new usage to the accumulated total and update last_exchange.
-    pub fn add(&mut self, usage: Usage) {
+    pub fn add(&mut self, mut usage: Usage) {
+        // Providers report input_tokens inconsistently (exclusive or inclusive
+        // of cache reads), while total_tokens and output_tokens are stable, so
+        // the inclusive input is derived as total - output.
+        usage.input_tokens = usage.total_tokens.saturating_sub(usage.output_tokens);
         self.accumulated += usage;
         self.last_exchange = usage;
     }
