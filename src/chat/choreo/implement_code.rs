@@ -63,13 +63,14 @@ pub fn choreo() -> Choreo {
                 instruction: Instruction::File {
                     file: choreo_path("implement_code/5_goal_check.md"),
                 },
-                goto_instructions: vec![
-                    MoveGotoInstruction {
-                        to: GotoMove::Move(2),
-                        condition: Some("goal not reached".to_string()),
-                        output_to_choreo_memory: None,
-                    },
-                ],
+                goto_instructions: vec![MoveGotoInstruction {
+                    to: GotoMove::Move(2),
+                    condition: Some(
+                        "unmet criteria exist that are not blocked by unverifiable dependencies"
+                            .to_string(),
+                    ),
+                    output_to_choreo_memory: None,
+                }],
             },
             Move {
                 title: "Finalize".to_string(),
