@@ -283,7 +283,9 @@ async fn check_command_safety(args: &RunCommandArgs) -> Result<(), ToolExecution
             Ok((allowed, reason)) => {
                 if !allowed {
                     return Err(ToolExecutionError::permission_denied(format!(
-                        "Command denied by safety check: {}",
+                        "Command denied by safety check: {}.\n\
+                        Do not rerun this command or a slight variation of it with run_command; \
+                        use other tools instead, or report to the user and follow their suggestion",
                         reason.unwrap_or_else(|| "Unknown reason".to_string())
                     )));
                 }
