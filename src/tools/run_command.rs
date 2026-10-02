@@ -17,7 +17,7 @@ use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 /// Hard cap on combined stdout+stderr output size (bytes).
 const OUTPUT_CAP: usize = 32 * 1024;
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunCommandArgs {
     pub argv: Vec<String>,
@@ -137,6 +137,14 @@ fn command_matches_whitelist(command_tokens: &[String], whitelist: &[String]) ->
     false
 }
 
+/// Context passed to the LLM safety check: only fields relevant to judging command safety
+#[derive(Serialize)]
+struct CommandSafetyContext<'a> {
+    argv: &'a [String],
+    path: String,
+    env: Option<&'a HashMap<String, String>>,
+}
+
 /// Response from LLM command safety check.
 #[derive(Debug, Deserialize)]
 struct CommandSafetyResponse {
@@ -147,12 +155,14 @@ struct CommandSafetyResponse {
 /// Check if a command is safe to execute using LLM.
 /// Returns Ok(true) if allowed, Ok(false) with reason if denied, or Err on failure.
 async fn check_command_safety_with_llm(
-    command: &str,
+    args_yaml: &str,
     model: &crate::clients::SupportedModels,
 ) -> Result<(bool, Option<String>), ToolExecutionError> {
     let worker = SimpleTenonWorkerAgent::new(
         Some(model.clone()),
         r#"Judge command safety. Output YAML only.
+
+Path context: `path` is relative to the current working directory; `.` means the current working directory itself.
 
 Step 1 - Shell gate: if the command invokes a shell interpreter with inline code (bash -c, sh -c, zsh -c, dash -c, ...), deny immediately. Do not extract a subject or continue further.
 
@@ -200,10 +210,8 @@ reason: ..."#,
         ToolExecutionError::from_error(e)
     })?;
 
-    let user_message = format!("Command: {}", command);
-
     let response = worker
-        .chat(user_message)
+        .chat(args_yaml.to_string())
         .await
         .map_err(|e| ToolExecutionError::other(format!("LLM safety check failed: {}", e)))?;
 
@@ -222,7 +230,7 @@ reason: ..."#,
 /// Check command safety using one LLM call per model in parallel.
 /// All models must allow for the command to proceed.
 /// Returns Ok(()) if allowed, or Err with the first denial reason.
-async fn check_command_safety(command: &str) -> Result<(), ToolExecutionError> {
+async fn check_command_safety(args: &RunCommandArgs) -> Result<(), ToolExecutionError> {
     let config = get_application_config();
 
     let models = &config.tools.run_command.check_models;
@@ -232,16 +240,31 @@ async fn check_command_safety(command: &str) -> Result<(), ToolExecutionError> {
         ));
     }
 
+    let path = match &args.path {
+        Some(p) => crate::utils::format_path_relative(p),
+        None => ".".to_string(),
+    };
+    let safety_context = CommandSafetyContext {
+        argv: &args.argv,
+        path,
+        env: args.env.as_ref(),
+    };
+
+    // Serialize once; reused across models and retries
+    let args_yaml = serde_yaml::to_string(&safety_context).map_err(|e| {
+        ToolExecutionError::other(format!("Failed to serialize command args: {}", e))
+    })?;
+
     // Run checks in parallel, process results as they arrive
     let checks: Vec<_> = models
         .iter()
         .map(|model| {
             let model = model.clone();
-            let command = command.to_string();
+            let args_yaml = args_yaml.clone();
             async move {
                 let mut last_error = None;
                 for _ in 0..3 {
-                    match check_command_safety_with_llm(&command, &model).await {
+                    match check_command_safety_with_llm(&args_yaml, &model).await {
                         Ok(result) => return Ok(result),
                         Err(e) => last_error = Some(e),
                     }
@@ -389,7 +412,6 @@ impl ToolCore for RunCommand {
         }
 
         let command_tokens = args.argv.clone();
-        let full_command = args.argv.join(" ");
 
         // Check whitelist
         let config = get_application_config();
@@ -397,7 +419,7 @@ impl ToolCore for RunCommand {
 
         if !command_matches_whitelist(&command_tokens, whitelist) {
             // Whitelist doesn't match - use LLM to check if command is safe
-            check_command_safety(&full_command).await?;
+            check_command_safety(&args).await?;
         }
 
         // Build the process
