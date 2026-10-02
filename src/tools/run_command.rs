@@ -187,7 +187,7 @@ ALLOW patterns:
 - Read files: cat, head, tail, grep (non-sensitive paths only)
 - List directory: ls, tree, find
 - VCS read-only: git status, git log, git diff
-- Build/test: make, cargo build, npm test
+- Project tooling: build, test, format, lint (make, cargo build, stylua, etc.; path args within cwd only)
 - Info: which, whereis, echo
 - Registry queries (read-only, hit fixed trusted registry endpoints): cargo search, cargo info, npm view, npm search
 - Pure utilities (no side effects): sleep, date, wc, sort, jq, stat, du, ps, basename, realpath, sha256sum, base64
