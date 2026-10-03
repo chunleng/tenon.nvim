@@ -2,13 +2,13 @@ use super::{Choreo, GotoMove, Instruction, Move, MoveGotoInstruction, choreo_pat
 
 pub fn choreo() -> Choreo {
     Choreo {
-        id: "analyze_software_change".to_string(),
-        title: "Analyze Software Change".to_string(),
+        id: "analyze_software_request".to_string(),
+        title: "Analyze Software Request".to_string(),
         moves: vec![
             Move {
                 title: "Scope".to_string(),
                 instruction: Instruction::File {
-                    file: choreo_path("analyze_software_change/1_scope.md"),
+                    file: choreo_path("analyze_software_request/1_scope.md"),
                 },
                 goto_instructions: vec![MoveGotoInstruction {
                     to: GotoMove::Next,
@@ -19,7 +19,7 @@ pub fn choreo() -> Choreo {
             Move {
                 title: "Plan".to_string(),
                 instruction: Instruction::File {
-                    file: choreo_path("analyze_software_change/2_plan.md"),
+                    file: choreo_path("analyze_software_request/2_plan.md"),
                 },
                 goto_instructions: vec![MoveGotoInstruction {
                     to: GotoMove::Next,
@@ -30,7 +30,7 @@ pub fn choreo() -> Choreo {
             Move {
                 title: "Validate".to_string(),
                 instruction: Instruction::File {
-                    file: choreo_path("analyze_software_change/3_validate.md"),
+                    file: choreo_path("analyze_software_request/3_validate.md"),
                 },
                 goto_instructions: vec![
                     MoveGotoInstruction {
@@ -46,6 +46,6 @@ pub fn choreo() -> Choreo {
                 ],
             },
         ],
-        description: "Scope a change request through codebase investigation and user interview, then plan an ordered sequence of non-breaking, user-visible milestone steps, and validate coverage against scope".to_string(),
+        description: "Analyze a software request, whether creating new software or editing existing software: scope the request through codebase investigation and user interview, then plan an ordered sequence of non-breaking, user-visible milestone steps, and validate coverage against scope".to_string(),
     }
 }

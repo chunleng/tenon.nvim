@@ -1,4 +1,4 @@
-mod analyze_software_change;
+mod analyze_software_request;
 mod assess_project_doc_needs;
 mod compact_prompt;
 mod create_pr_description;
@@ -79,7 +79,7 @@ pub fn load_system_choreos() -> Vec<Arc<Choreo>> {
         Arc::new(plan_refactoring::choreo()),
         Arc::new(compact_prompt::choreo()),
         Arc::new(implement_code_together::choreo()),
-        Arc::new(analyze_software_change::choreo()),
+        Arc::new(analyze_software_request::choreo()),
         Arc::new(assess_project_doc_needs::choreo()),
         Arc::new(edit_tutorial_document::choreo()),
         Arc::new(edit_reference_document::choreo()),
