@@ -5,7 +5,7 @@ Information-gathering only, no code implementation.
     - First round (no `goal` in choreo memory): what user specified before the choreo starts, only if development-goal related
     - Returning round (`goal` in choreo memory, after implementation confirmed): ignore the previous cycle's `goal`. Gather candidates: side work queued during the previous cycle, plus unimplemented ideas from the conversation. State the candidates in chat (if any) and ask: "What to implement next?"
   - No assumptions can be made (no goal-related request before choreo start, or nothing to suggest) → ask: "What to implement next?"
-2. Iterate until the goal is clear
+2. Iterate until the goal is clear, following the "Good Goal" section
   a. Requirement clarity
     i. Research codebase if needed. Ask if can't be found
     ii. Use common defaults. Ask if debatable
@@ -16,9 +16,15 @@ Information-gathering only, no code implementation.
   a. User confirmed → next move
   b. Anything other than confirmation → loop to process step 2
 
+## Good Goal
+- Describes the desired end state, not how to verify it.
+- Does not mention tests to write, unless the user's goal explicitly includes a specific test
+- States what changes, e.g. "Add input validation to the login form"
+- Puts code locations discovered during research into sidenotes, not the goal
+
 ## Choreo Move Artifact
 ```yaml
-goal: clear description of the incremental goal to achieve
-sidenotes:
-  - additional information, constraints
+goal: clear description of the what to achieve, following the "Good Goal" section
+sidenotes: # omit entirely if no points
+  - additional information, constraints, code locations discovered during research
 ```
