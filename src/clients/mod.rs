@@ -84,6 +84,8 @@ pub struct SupportedModels {
     pub config: ProviderConfig,
     pub model_name: String,
     pub default_parameters: serde_json::Map<String, serde_json::Value>,
+    /// Whether the model supports vision (image input).
+    pub vision: bool,
 }
 
 impl SupportedModels {

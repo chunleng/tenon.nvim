@@ -99,6 +99,7 @@ fn tenon() -> OxiResult<Dictionary> {
         .load(
             r#"
             vim.api.nvim_set_hl(0, 'TenonSignUser', { fg = '#6f95d8', ctermfg = 12 })
+            vim.api.nvim_set_hl(0, 'TenonSignImage', { fg = '#6f95d8', ctermfg = 12 })
             vim.api.nvim_set_hl(0, 'TenonSignAssistantReasoning', { fg = '#939393', ctermfg = 8 })
             vim.api.nvim_set_hl(0, 'TenonSignAssistantTalk', { fg = '#6d9c10', ctermfg = 2 })
             vim.api.nvim_set_hl(0, 'TenonSignTool', { fg = '#d0d0d0', ctermfg = 15 })

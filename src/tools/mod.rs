@@ -4,6 +4,7 @@ pub mod edit_file;
 pub mod end_choreo;
 pub mod fetch_webpage;
 pub mod list_files;
+pub mod load_image;
 pub mod mcp_client;
 pub mod move_path;
 pub mod navigate_choreo;
@@ -25,6 +26,7 @@ pub use ask_question::AskQuestion;
 pub use edit_file::EditFile;
 pub use fetch_webpage::FetchWebpage;
 pub use list_files::ListFiles;
+pub use load_image::LoadImage;
 pub use mcp_client::McpClient;
 pub use move_path::MovePath;
 pub use pop_task::PopTask;
@@ -271,7 +273,7 @@ pub fn get_tool_classification(name: &str) -> ToolClassification {
         // pop_task is NonMutating (not System) so its result stays in the
         // chat history for reference
         "web_search" | "fetch_webpage" | "record_thought" | "analyze_image" | "ask_question"
-        | "pop_task" => ToolClassification::NonMutating,
+        | "pop_task" | "load_image" => ToolClassification::NonMutating,
 
         // Mutating tools: modify state when run
         "edit_file" | "move_path" | "remove_path" | "run_command" => ToolClassification::Mutating,
@@ -336,7 +338,7 @@ pub fn tool_display_summary(
 
     let core_arg: &str = match name {
         "web_search" => "query",
-        "read_file" | "edit_file" | "remove_path" => "filepath",
+        "read_file" | "edit_file" | "remove_path" | "load_image" => "filepath",
         "move_path" => "source",
         "list_files" => "pattern",
         "search_dependency_code" => "dependency",

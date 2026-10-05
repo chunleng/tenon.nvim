@@ -74,6 +74,7 @@ impl AgenticStreamEngine {
                 TenonTool::new(AskQuestion, log_handler.log_window.clone()).into(),
             );
         }
+
         let tools = resolve_tools(&tool_names, log_handler.log_window.clone());
         Self {
             model,
@@ -135,6 +136,11 @@ impl AgenticStreamEngine {
 
         // System tools must be resolved first
         let mut tools = self.system_tools.clone();
+        if self.model.vision {
+            tools.push(
+                TenonTool::new(crate::tools::LoadImage, self.log_handler.log_window.clone()).into(),
+            );
+        }
         tools.extend(self.tools.clone());
 
         let has_active = self
@@ -348,6 +354,7 @@ mod tests {
             config: ProviderConfig::Ollama(OllamaProviderConfig::default()),
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
+            vision: false,
         }
     }
 
@@ -362,6 +369,74 @@ mod tests {
         );
         let names: Vec<String> = engine.tools.iter().map(|t| t.name().to_string()).collect();
         assert_eq!(names, vec!["read_file", "edit_file"]);
+    }
+
+    async fn agent_tool_names(engine: &AgenticStreamEngine) -> Vec<String> {
+        engine
+            .build_chat_adapter()
+            .tool_definitions(None)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|def| def.name)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn test_vision_model_auto_enables_load_image() {
+        let mut model = test_model();
+        model.vision = true;
+        let engine = AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+        assert!(
+            agent_tool_names(&engine)
+                .await
+                .contains(&"load_image".to_string()),
+            "vision model should have load_image as a system tool"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_non_vision_model_does_not_enable_load_image() {
+        let engine =
+            AgenticStreamEngine::new(test_model(), vec![], vec![], vec![], ToolContext::new());
+        assert!(
+            !agent_tool_names(&engine)
+                .await
+                .contains(&"load_image".to_string()),
+            "non-vision model should not have load_image"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_switching_model_updates_load_image_availability() {
+        let mut model = test_model();
+        model.vision = true;
+        let mut engine =
+            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+        assert!(
+            agent_tool_names(&engine)
+                .await
+                .contains(&"load_image".to_string()),
+            "vision model should have load_image as a system tool"
+        );
+
+        // Simulate a model switch to a non-vision model
+        engine.model = test_model();
+        assert!(
+            !agent_tool_names(&engine)
+                .await
+                .contains(&"load_image".to_string()),
+            "switching to a non-vision model should drop load_image"
+        );
+
+        // And back to a vision model
+        engine.model.vision = true;
+        assert!(
+            agent_tool_names(&engine)
+                .await
+                .contains(&"load_image".to_string()),
+            "switching back to a vision model should restore load_image"
+        );
     }
 
     #[test]

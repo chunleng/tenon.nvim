@@ -43,6 +43,83 @@ pub fn path_from_str(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+fn is_svg(bytes: &[u8]) -> bool {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_ascii_lowercase().contains("<svg"),
+        Err(_) => false,
+    }
+}
+
+/// Rasterize SVG to PNG at 1024px longest side, preserving aspect ratio.
+fn rasterize_svg(bytes: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    use resvg::tiny_skia;
+    use resvg::usvg;
+
+    let mut opt = usvg::Options::default();
+    opt.fontdb_mut().load_system_fonts();
+    let tree = usvg::Tree::from_data(bytes, &opt)?;
+
+    let size = tree.size().to_int_size();
+    let (svg_w, svg_h) = (size.width(), size.height());
+
+    let longest = svg_w.max(svg_h).max(1) as f32;
+    let scale = 1024.0 / longest;
+
+    let target_w = ((svg_w as f32 * scale).round() as u32).max(1);
+    let target_h = ((svg_h as f32 * scale).round() as u32).max(1);
+
+    let mut pixmap = tiny_skia::Pixmap::new(target_w, target_h).ok_or("Failed to create pixmap")?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+
+    Ok(pixmap.encode_png()?)
+}
+
+/// Rasterize SVG to PNG if input is SVG. Otherwise return bytes unchanged.
+/// Falls back to original bytes on rasterization failure.
+fn rasterize_if_svg(original_bytes: &[u8]) -> Vec<u8> {
+    if is_svg(original_bytes) {
+        match rasterize_svg(original_bytes) {
+            Ok(png_bytes) => png_bytes,
+            Err(_) => original_bytes.to_vec(),
+        }
+    } else {
+        original_bytes.to_vec()
+    }
+}
+
+/// Loads an image file into a base64 rig `Image`, rasterizing SVG to PNG first.
+/// The file is re-read on each call, so persisted logs only need the path.
+pub fn load_image_file(path: &str) -> Result<rig::message::Image, String> {
+    use base64::Engine;
+    use rig::message::MimeType;
+
+    let image_path = path_from_str(path);
+    let bytes = std::fs::read(&image_path)
+        .map_err(|e| format!("Failed to read image '{}': {}", path, e))?;
+    let processed = rasterize_if_svg(&bytes);
+    let base64_data = base64::engine::general_purpose::STANDARD.encode(&processed);
+
+    let mime = match image::guess_format(&processed) {
+        Ok(image::ImageFormat::Png) => "image/png",
+        Ok(image::ImageFormat::Jpeg) => "image/jpeg",
+        Ok(image::ImageFormat::Gif) => "image/gif",
+        Ok(image::ImageFormat::WebP) => "image/webp",
+        Ok(image::ImageFormat::Bmp) => "image/bmp",
+        _ => "image/png",
+    };
+    let media_type = rig::message::ImageMediaType::from_mime_type(mime)
+        .unwrap_or(rig::message::ImageMediaType::PNG);
+    Ok(rig::message::Image {
+        data: rig::message::DocumentSourceKind::Base64(base64_data),
+        media_type: Some(media_type),
+        ..Default::default()
+    })
+}
+
 /// Strip a leading `./` from a glob pattern so that e.g. `./**/*` matches the
 /// same files as `**/*`. Patterns that are just `.` or `./` are left as-is
 /// (they don't carry the same meaning as a `./` prefix on a real glob).
@@ -421,6 +498,90 @@ impl NeovimExecutionHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_svg_rasterization() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+            <rect width="200" height="100" fill="white"/>
+            <rect x="10" y="10" width="180" height="80" fill="black"/>
+        </svg>"#;
+
+        let result = rasterize_if_svg(svg);
+
+        let decoded = image::load_from_memory(&result);
+        assert!(
+            decoded.is_ok(),
+            "SVG should be rasterized to decodable PNG, got error: {:?}",
+            decoded.err()
+        );
+
+        // Output should not be the original SVG XML bytes
+        assert_ne!(
+            result.as_slice(),
+            svg.as_slice(),
+            "SVG should be rasterized, not passed through as raw XML"
+        );
+    }
+
+    #[test]
+    fn test_svg_aspect_ratio() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100">
+            <rect width="200" height="100" fill="blue"/>
+        </svg>"#;
+
+        let result = rasterize_if_svg(svg);
+        let decoded = image::load_from_memory(&result).unwrap();
+        let (w, h) = (decoded.width(), decoded.height());
+
+        let ratio = w as f64 / h as f64;
+        assert!(
+            (ratio - 2.0).abs() < 0.1,
+            "SVG with 2:1 viewBox should preserve aspect ratio, got {ratio:.3} ({w}x{h})"
+        );
+    }
+
+    #[test]
+    fn test_svg_fallback() {
+        let invalid_svg = b"<svg><this is not valid svg content>";
+        let result = rasterize_if_svg(invalid_svg);
+        assert_eq!(
+            result.as_slice(),
+            invalid_svg.as_slice(),
+            "Malformed SVG that fails rasterization should fall back to original bytes"
+        );
+    }
+
+    #[test]
+    fn test_load_image_file_missing_file() {
+        let result = load_image_file("/nonexistent/path/image.png");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_image_file_png() {
+        // 1x1 red PNG
+        let png: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xDD, 0x8D,
+            0xB0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let dir = std::env::temp_dir().join("tenon_test_load_image");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("red.png");
+        std::fs::write(&path, png).unwrap();
+
+        let image = load_image_file(path.to_str().unwrap()).unwrap();
+        assert!(matches!(
+            image.data,
+            rig::message::DocumentSourceKind::Base64(_)
+        ));
+        assert_eq!(image.media_type, Some(rig::message::ImageMediaType::PNG));
+
+        std::fs::remove_file(&path).ok();
+        std::fs::remove_dir(&dir).ok();
+    }
 
     #[test]
     fn test_format_token_count_small() {

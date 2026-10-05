@@ -176,9 +176,26 @@ mod tests {
     use crate::chat::{
         TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog,
         log::{
-            TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonToolResult, TenonUserMessage,
+            TenonImageLog, TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonToolResult,
+            TenonUserMessage,
         },
     };
+
+    fn image_tool_log(filepath: &str, tool_result: TenonToolResult) -> TenonToolLog {
+        TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "call-1".to_string(),
+                internal_call_id: "call-1".to_string(),
+                item_id: None,
+                name: "load_image".to_string(),
+                args: serde_json::json!({ "filepath": filepath }),
+            },
+            // convert_log only runs after set_tool_result, so an image log
+            // always carries a result
+            tool_result: Some(Ok(tool_result)),
+            progress: vec![],
+        }
+    }
 
     fn create_user_log(token_count: usize) -> TenonLog {
         let mut log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
@@ -420,6 +437,30 @@ mod tests {
         let log_window = create_log_window(vec![create_user_log(1), create_assistant_log(1)]);
         let history = log_window.active_history_log();
         assert_eq!(history.len(), 2);
+    }
+
+    #[test]
+    fn test_active_history_log_includes_last_image_log() {
+        // The image log is produced by swapping the last tool log in place, so
+        // it is the last log during the continuation request. It must be
+        // included in history, otherwise the model never sees the image and
+        // calls load_image again.
+        let logs = vec![
+            create_user_log(1),
+            create_assistant_log(1),
+            TenonLog::new(TenonLogData::Image(TenonImageLog::Tool(image_tool_log(
+                "./img/diagram.png",
+                TenonToolResult::Text(rig::agent::Text::default()),
+            )))),
+        ];
+        let log_window = create_log_window(logs);
+
+        let history = log_window.active_history_log();
+        assert_eq!(history.len(), 3);
+        assert!(matches!(
+            history[2].read().unwrap().data(),
+            TenonLogData::Image(_)
+        ));
     }
 
     #[test]

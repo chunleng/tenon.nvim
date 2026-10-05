@@ -262,6 +262,33 @@ impl TenonChoreoLog {
     }
 }
 
+/// Source of an image log entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TenonImageLog {
+    /// Image loaded via the `load_image` tool. Carries the original tool log
+    /// so history conversion can reuse the in-memory image from the tool
+    /// result instead of re-reading the file from disk.
+    Tool(TenonToolLog),
+}
+
+impl TenonImageLog {
+    /// Filepath of the image, extracted from the source log.
+    pub fn filepath(&self) -> Option<&str> {
+        match self {
+            TenonImageLog::Tool(tool_log) => tool_log
+                .tool_call
+                .args
+                .get("filepath")
+                .and_then(|v| v.as_str()),
+        }
+    }
+
+    /// Display text for a user image log entry.
+    pub fn loaded_text(&self) -> String {
+        format!("image loaded: {}", self.filepath().unwrap_or(""))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TenonLogData {
     User(TenonUserMessage),
@@ -269,6 +296,7 @@ pub enum TenonLogData {
     Tool(TenonToolLog),
     Thought(TenonThoughtLog),
     Choreo(TenonChoreoLog),
+    Image(TenonImageLog),
 }
 
 fn zero() -> usize {
@@ -471,6 +499,22 @@ mod tests {
         );
     }
 
+    fn image_tool_log(filepath: &str, tool_result: TenonToolResult) -> TenonToolLog {
+        TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "call-1".to_string(),
+                internal_call_id: "call-1".to_string(),
+                item_id: None,
+                name: "load_image".to_string(),
+                args: serde_json::json!({ "filepath": filepath }),
+            },
+            // convert_log only runs after set_tool_result, so an image log
+            // always carries a result
+            tool_result: Some(Ok(tool_result)),
+            progress: vec![],
+        }
+    }
+
     fn choreo_tool_log(name: &str, args: serde_json::Value, result_text: &str) -> TenonToolLog {
         TenonToolLog {
             tool_call: TenonToolCall {
@@ -598,12 +642,64 @@ mod tests {
     }
 
     #[test]
+    fn test_image_log_converts_to_message_with_image_content() {
+        // 1x1 PNG
+        let png: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xDD, 0x8D,
+            0xB0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let dir = std::env::temp_dir().join("tenon_test_image_log");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pixel.png");
+        std::fs::write(&path, png).unwrap();
+        let image = crate::utils::load_image_file(path.to_str().unwrap()).unwrap();
+        // The file is removed before conversion: history conversion must use
+        // the in-memory image from the tool result, not re-read the file.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(&dir).ok();
+
+        let tool_log = image_tool_log(path.to_str().unwrap(), TenonToolResult::Image(image));
+        let log = TenonLog::new(TenonLogData::Image(TenonImageLog::Tool(tool_log)));
+        let messages = Vec::<Message>::from(&log);
+        assert_eq!(messages.len(), 1, "expected single user message");
+        let message = messages[0].clone();
+        match message {
+            Message::User { content } => {
+                assert!(
+                    matches!(content.first(), Some(UserContent::Image(_))),
+                    "expected image content first, got {content:?}"
+                );
+                match content.get(1) {
+                    Some(UserContent::Text(text)) => {
+                        assert_eq!(text.text, format!("image loaded: {}", path.display()));
+                    }
+                    other => panic!("expected loaded text after image, got {other:?}"),
+                }
+            }
+            other => panic!("expected User message, got {other:?}"),
+        }
+
+        std::fs::remove_file(&path).ok();
+        std::fs::remove_dir(&dir).ok();
+    }
+
+    #[test]
     fn test_to_embeddable_text() {
         // User text
         let log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
             "hello".to_string(),
         )));
         assert_eq!(log.to_embeddable_text(), "hello");
+
+        // Image
+        let log = TenonLog::new(TenonLogData::Image(TenonImageLog::Tool(image_tool_log(
+            "./img/diagram.png",
+            TenonToolResult::Text(rig::agent::Text::default()),
+        ))));
+        assert_eq!(log.to_embeddable_text(), "./img/diagram.png");
 
         // Assistant text
         let log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
@@ -664,6 +760,7 @@ impl TenonLog {
             TenonLogData::User(msg) => match msg {
                 TenonUserMessage::Text(text) => text.clone(),
             },
+            TenonLogData::Image(image_log) => image_log.filepath().unwrap_or("").to_string(),
             TenonLogData::Assistant(msg) => msg
                 .content
                 .iter()
@@ -772,6 +869,7 @@ impl TenonLogData {
     pub fn role(&self) -> &'static str {
         match self {
             TenonLogData::User(_) => "user",
+            TenonLogData::Image(_) => "user",
             TenonLogData::Assistant(_) => "assistant",
             TenonLogData::Tool(_) => "tool",
             TenonLogData::Thought(_) => "thought",
@@ -788,6 +886,7 @@ impl TenonLogData {
 
         match self {
             TenonLogData::User(TenonUserMessage::Text(text)) => plain(text),
+            TenonLogData::Image(image_log) => plain(&image_log.loaded_text()),
             TenonLogData::Assistant(msg) => {
                 let mut lines = Vec::new();
                 if let Some(reasoning) = &msg.reasoning {
@@ -917,6 +1016,7 @@ impl TenonLogData {
             TenonLogData::User(msg) => match msg {
                 TenonUserMessage::Text(text) => estimate_tokens(text),
             },
+            TenonLogData::Image(image_log) => estimate_tokens(&image_log.loaded_text()),
             TenonLogData::Assistant(msg) => {
                 // Reasoning is not counted because it's not used for sending request
 
@@ -950,6 +1050,20 @@ impl From<&TenonLog> for Vec<Message> {
     fn from(value: &TenonLog) -> Self {
         match &value.data {
             TenonLogData::User(user_message) => vec![user_message.into()],
+            TenonLogData::Image(image_log) => {
+                // convert_log only runs after a successful result, and
+                // load_image's success output is always an image
+                let content = match image_log {
+                    TenonImageLog::Tool(tool_log) => match &tool_log.tool_result {
+                        Some(Ok(TenonToolResult::Image(image))) => vec![
+                            UserContent::Image(image.clone()),
+                            UserContent::text(image_log.loaded_text()),
+                        ],
+                        _ => vec![],
+                    },
+                };
+                vec![Message::User { content }]
+            }
             TenonLogData::Assistant(assistant_message) => {
                 match Option::<Message>::from(assistant_message) {
                     Some(x) => vec![x],

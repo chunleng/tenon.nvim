@@ -125,6 +125,8 @@ pub struct ModelConfig {
     name: String,
     #[serde(default)]
     default_parameters: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    vision: bool,
 }
 
 /// A named reference to a model in the models registry.
@@ -214,6 +216,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                                 config: provider_config.to_owned(),
                                 model_name: m.name,
                                 default_parameters: m.default_parameters,
+                                vision: m.vision,
                             },
                         ))
                     },
@@ -394,6 +397,7 @@ mod tests {
                 connector: "ollama".to_string(),
                 name: "llama3".to_string(),
                 default_parameters: params,
+                vision: false,
             },
         );
         models.insert(
@@ -402,6 +406,7 @@ mod tests {
                 connector: "ollama".to_string(),
                 name: "gpt-4".to_string(),
                 default_parameters: serde_json::Map::new(),
+                vision: false,
             },
         );
 
@@ -431,6 +436,47 @@ mod tests {
     }
 
     #[test]
+    fn try_from_models_propagates_vision_flag() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+        let mut connectors = HashMap::new();
+        connectors.insert(
+            "ollama".to_string(),
+            ProviderConfig::Ollama(Default::default()),
+        );
+
+        let mut models = HashMap::new();
+        models.insert(
+            "vision".to_string(),
+            ModelConfig {
+                connector: "ollama".to_string(),
+                name: "llama3-vision".to_string(),
+                default_parameters: serde_json::Map::new(),
+                vision: true,
+            },
+        );
+
+        let config = TenonUserConfig {
+            connectors: Some(connectors),
+            agents: None,
+            models: Some(models),
+            tools: None,
+            history: None,
+            title: None,
+            hooks: None,
+        };
+
+        let result = TenonConfig::try_from(config).unwrap();
+        assert!(result.models.get("vision").unwrap().vision);
+    }
+
+    #[test]
+    fn model_config_vision_defaults_to_false() {
+        let model: ModelConfig =
+            serde_json::from_str(r#"{"connector":"ollama","name":"llama3"}"#).unwrap();
+        assert!(!model.vision);
+    }
+
+    #[test]
     fn try_from_models_error_on_unknown_connector() {
         let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
 
@@ -441,6 +487,7 @@ mod tests {
                 connector: "nonexistent".to_string(),
                 name: "model".to_string(),
                 default_parameters: serde_json::Map::new(),
+                vision: false,
             },
         );
 
@@ -486,6 +533,7 @@ mod tests {
                 connector: "ollama".to_string(),
                 name: "llama3".to_string(),
                 default_parameters: serde_json::Map::new(),
+                vision: false,
             },
         );
 
@@ -563,6 +611,7 @@ mod tests {
                 connector: "ollama".to_string(),
                 name: "llama3".to_string(),
                 default_parameters: serde_json::Map::new(),
+                vision: false,
             },
         );
 

@@ -17,6 +17,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
                     text_msg.lines().map(|s| s.to_string()).collect()
                 }
             },
+            TenonLogData::Image(image_log) => vec![image_log.loaded_text()],
             TenonLogData::Assistant(msg) => {
                 // If content exists, show content; otherwise show reasoning
                 if msg.chat_is_empty() {
@@ -95,12 +96,14 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             TenonLogData::Tool(_) => "TenonLineTool".to_string(),
             TenonLogData::Thought(_) => "TenonLineThought".to_string(),
             TenonLogData::Choreo(_) => String::new(),
+            TenonLogData::Image { .. } => String::new(),
         }
     }
 
     fn sign(&self) -> String {
         use crate::chat::TenonLogData;
         match self {
+            TenonLogData::Image { .. } => " ".to_string(),
             TenonLogData::User(_) => " ".to_string(),
             TenonLogData::Assistant(msg) => {
                 if msg.chat_is_empty() {
@@ -118,6 +121,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
     fn sign_hl_group(&self) -> String {
         use crate::chat::TenonLogData;
         match self {
+            TenonLogData::Image { .. } => "TenonSignImage".to_string(),
             TenonLogData::User(_) => "TenonSignUser".to_string(),
             TenonLogData::Assistant(msg) => {
                 if msg.chat_is_empty() {
@@ -148,12 +152,28 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::log::TenonThoughtLog;
+    use crate::chat::log::{TenonImageLog, TenonThoughtLog};
     use crate::chat::{
         TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog, TenonLogData,
         TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage,
     };
     use serde_json::json;
+
+    fn image_tool_log(filepath: &str, tool_result: TenonToolResult) -> TenonToolLog {
+        TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "call-1".to_string(),
+                internal_call_id: "call-1".to_string(),
+                item_id: None,
+                name: "load_image".to_string(),
+                args: serde_json::json!({ "filepath": filepath }),
+            },
+            // convert_log only runs after set_tool_result, so an image log
+            // always carries a result
+            tool_result: Some(Ok(tool_result)),
+            progress: vec![],
+        }
+    }
 
     #[test]
     fn test_user_formatter() {
@@ -163,6 +183,19 @@ mod tests {
         assert_eq!(data.lines(), vec!["Hello", "World"]);
         assert_eq!(data.sign(), " ");
         assert_eq!(data.sign_hl_group(), "TenonSignUser");
+        assert_eq!(data.line_hl_group(), "");
+    }
+
+    #[test]
+    fn test_image_formatter() {
+        let data = TenonLogData::Image(TenonImageLog::Tool(image_tool_log(
+            "./img/diagram.png",
+            TenonToolResult::Text(rig::agent::Text::default()),
+        )));
+
+        assert_eq!(data.lines(), vec!["image loaded: ./img/diagram.png"]);
+        assert_eq!(data.sign(), " ");
+        assert_eq!(data.sign_hl_group(), "TenonSignImage");
         assert_eq!(data.line_hl_group(), "");
     }
 
