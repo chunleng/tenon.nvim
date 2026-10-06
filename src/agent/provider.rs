@@ -75,6 +75,13 @@ impl ChatStream {
         tool_context: ToolContext,
     ) -> Self {
         let tool_concurrency = 10;
+        // Anthropic rejects a request whose `messages` array has no user-role message;
+        // rig hoists system messages into the top-level `system` param, so send a
+        // system-only prompt as a user message instead.
+        let message = match message.into() {
+            Message::System { content } => Message::user(content),
+            other => other,
+        };
         let inner = agent
             .stream_chat(message, history)
             .max_turns(max_turns)
