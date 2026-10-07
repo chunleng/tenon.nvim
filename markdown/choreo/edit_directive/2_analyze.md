@@ -20,6 +20,7 @@
 6. Present the action, type, and target file to the user with your reasoning
   - If the user has a stated preference (e.g. "I want a new directive") that differs from your analysis, explain why your analysis suggests a different action and let the user decide
 7. Ask the user to confirm the analysis is correct:
+  - Skip this confirmation when the user obviously asked to change a directive and the analysis result agrees with what the user asked for; proceed directly to the next move
   - If the action is "update": output to chat "Confirm this is correct? Make sure this directive was actually active when the problem occurred."
     - If the user says it wasn't active, loop back to process step 2 to re-analyze and present a new proposal
   - If the action is "new": ask for confirmation directly
