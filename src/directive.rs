@@ -254,6 +254,17 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
     );
 
     map.insert(
+        "Respect Writing Intent".into(),
+        Directive {
+            condition: None,
+            source: DirectiveSource::Preset {
+                id: "Respect Writing Intent".into(),
+                content: PresetContent::File(directive_path("respect_writing_intent.md")),
+            },
+        },
+    );
+
+    map.insert(
         "Speak With Facts".into(),
         Directive {
             condition: None,
