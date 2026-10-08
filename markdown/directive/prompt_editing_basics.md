@@ -11,7 +11,7 @@ When the specific reference is incidental to the intent, use generic examples
 - Good: pseudocode
 
 ### Use Decision Test
-When a rule requires judgment, add a decision test — quick yes/no questions to apply it
+Add a decision test (quick yes/no questions to apply it) only when the rule can't cover every case on its own. If the rule is clear enough to apply directly, do not use the test.
 - Example: Rule "don't over-engineer" → test: "Who asked? What breaks? Real pain?"
 
 ## Don'ts
