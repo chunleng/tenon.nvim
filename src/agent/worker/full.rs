@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::agent::engine::AgenticStreamEngine;
+use crate::chat::log::window::LogWindow;
 use crate::tools::{TenonTool, ToolCore, ToolCoreCall};
 use crate::{chat::choreo::Choreo, clients::SupportedModels, directive::Directive};
 
@@ -162,6 +163,12 @@ impl GoalOrientedWorker {
             overtime_rounds: 3,
             max_turns: 5,
         }
+    }
+
+    /// The worker's log window, exposing its activity (tool calls, assistant
+    /// messages) for live observation while a task runs.
+    pub fn log_window(&self) -> Arc<RwLock<LogWindow>> {
+        self.engine.log_handler.log_window.clone()
     }
 
     #[allow(unused)]
