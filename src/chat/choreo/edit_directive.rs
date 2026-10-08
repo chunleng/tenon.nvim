@@ -39,7 +39,11 @@ pub fn choreo() -> Choreo {
                 instruction: Instruction::File {
                     file: choreo_path("edit_directive/3_draft.md"),
                 },
-                goto_instructions: vec![],
+                goto_instructions: vec![MoveGotoInstruction {
+                    to: GotoMove::EndChoreo,
+                    condition: Some("user confirms".to_string()),
+                    output_to_choreo_memory: None,
+                }],
             },
         ],
         description: "Create or update directives by investigating agent behavior problems, identifying root causes, and drafting targeted behavior-steering or knowledge-boosting rules".to_string(),
