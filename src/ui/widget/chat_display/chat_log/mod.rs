@@ -19,8 +19,11 @@ use crate::{
 };
 
 mod cache;
+mod spinner;
 
 pub use cache::{ChatLogCache, RenderType};
+
+use spinner::SpinnerRenderer;
 
 pub struct ChatLogRenderer {
     pub attached_buffer: Arc<NvimBuffer>,
@@ -47,6 +50,8 @@ impl ChatLogRenderer {
         let ns = api::create_namespace("TenonChatLog");
 
         spawn(move || {
+            let mut spinner =
+                SpinnerRenderer::new(chat_log_cache.clone(), attached_buffer.clone(), 2);
             loop {
                 if stop_signal.load(Ordering::SeqCst) || attached_buffer.get_buffer().is_none() {
                     break;
@@ -143,6 +148,8 @@ impl ChatLogRenderer {
                         Ok(())
                     });
                 }
+
+                spinner.tick(ns);
 
                 sleep(Duration::from_millis(20));
             }

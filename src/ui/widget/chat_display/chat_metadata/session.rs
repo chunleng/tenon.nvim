@@ -11,74 +11,6 @@ use crate::{
     utils::{GLOBAL_EXECUTION_HANDLER, format_token_count, format_token_with_delta},
 };
 
-/// Braille spinner frames; blank frames at both ends pause between cycles.
-/// Leading spaces position each frame within the animation area.
-const SPINNER_CHARS: [&str; 43] = [
-    "",
-    "",
-    "",
-    "⠄",
-    "⠠",
-    " ⠄",
-    " ⠠",
-    "⠄ ⠄",
-    "⠠ ⠠",
-    " ⠄ ⠄",
-    "⠄⠠ ⠠",
-    "⠠ ⠄ ⠄",
-    "⠄⠄⠠ ⠠",
-    "⠠⠠ ⠄⠠",
-    " ⠄⠄⠠⠠",
-    " ⠠⠠ ⠤",
-    "  ⠄⠄⠤",
-    "  ⠠⠠⠤",
-    "   ⠤⠤",
-    "   ⠤⠤",
-    "   ⠤⠤",
-    "   ⠤⠤",
-    "   ⠤⠄⠄",
-    "   ⠤⠄⠠",
-    "   ⠤⠄ ⠄",
-    "   ⠤⠄ ⠠",
-    "   ⠤⠠  ⠄",
-    "   ⠤ ⠄ ⠠",
-    "   ⠤ ⠠",
-    "   ⠄⠄ ⠄",
-    "   ⠄⠠ ⠠",
-    "   ⠠ ⠄ ⠄",
-    "    ⠄⠠ ⠠",
-    "    ⠠ ⠄",
-    "     ⠄⠠",
-    "     ⠠ ⠄",
-    "      ⠄⠠",
-    "      ⠠",
-    "       ⠄",
-    "       ⠠",
-    "",
-    "",
-    "",
-];
-
-pub struct SpinnerState {
-    frame: usize,
-}
-
-impl SpinnerState {
-    pub fn new() -> Self {
-        Self { frame: 0 }
-    }
-
-    /// Get current spinner character
-    pub fn get_char(&self) -> &'static str {
-        SPINNER_CHARS[self.frame % SPINNER_CHARS.len()]
-    }
-
-    /// Advance to next frame
-    pub fn advance(&mut self) {
-        self.frame = (self.frame + 1) % SPINNER_CHARS.len();
-    }
-}
-
 /// Session line parts for the input window winbar.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionLineParts {
@@ -119,15 +51,11 @@ impl SessionLineParts {
     }
 }
 
-/// Builds the input window winbar: spinner pinned to the left edge (while
-/// processing), gauge bars and session info right-aligned via `%=`. Active
-/// gauge bars and session info use the WinBar default highlight (`%*`); dim
-/// and critical bars use Tenon groups referenced inline via `%#Group#`.
-pub fn session_winbar_string(
-    parts: &SessionLineParts,
-    level: usize,
-    spinner: Option<&str>,
-) -> String {
+/// Builds the input window winbar: gauge bars and session info right-aligned
+/// via `%=`. Active gauge bars and session info use the WinBar default
+/// highlight (`%*`); dim and critical bars use Tenon groups referenced inline
+/// via `%#Group#`.
+pub fn session_winbar_string(parts: &SessionLineParts, level: usize) -> String {
     let active_hl = if level == 4 {
         "%#TenonGaugeBarCritical#"
     } else {
@@ -137,11 +65,6 @@ pub fn session_winbar_string(
     let (active, dim) = GAUGE_BARS.split_at(end_col.min(GAUGE_BARS.len()));
 
     let mut winbar = String::new();
-    if let Some(spinner) = spinner {
-        winbar.push_str("%#TenonSignProcessing#");
-        winbar.push_str(spinner);
-        winbar.push_str("%* ");
-    }
     winbar.push_str("%=");
     winbar.push_str(active_hl);
     winbar.push_str(active);
@@ -201,7 +124,6 @@ fn render_session_winbar(input_window: Arc<Mutex<Option<SwappableBufferPanel>>>,
 }
 
 pub struct MetadataSessionRenderer {
-    spinner: SpinnerState,
     input_window: Arc<Mutex<Option<SwappableBufferPanel>>>,
     chat_data: Arc<RwLock<ChatDisplayData>>,
 }
@@ -212,32 +134,17 @@ impl MetadataSessionRenderer {
         chat_data: Arc<RwLock<ChatDisplayData>>,
     ) -> Self {
         Self {
-            spinner: SpinnerState::new(),
             input_window,
             chat_data,
         }
     }
 
-    /// Rebuilds the session winbar every tick: the spinner frame changes
-    /// while processing, and the compare-before-set in render_session_winbar
-    /// skips redundant writes when idle
+    /// Rebuilds the session winbar every tick; the compare-before-set in
+    /// render_session_winbar skips redundant writes when unchanged
     pub(super) fn render(&mut self) {
         let values = MetadataValues::from(self.chat_data.clone());
-        let is_processing = if let Ok(data) = self.chat_data.read()
-            && let Ok(session) = data.chat_session.read()
-        {
-            session.is_processing()
-        } else {
-            false
-        };
-
-        let spinner_char = is_processing.then(|| self.spinner.get_char());
-        if is_processing {
-            self.spinner.advance();
-        }
         let parts = SessionLineParts::from_values(&values);
-        let winbar =
-            session_winbar_string(&parts, gauge_level(values.context_tokens), spinner_char);
+        let winbar = session_winbar_string(&parts, gauge_level(values.context_tokens));
         render_session_winbar(self.input_window.clone(), winbar);
     }
 }
@@ -289,18 +196,18 @@ mod tests {
     }
 
     #[test]
-    fn test_session_winbar_string_with_spinner_and_cache() {
-        let winbar = session_winbar_string(&session_parts(25), 2, Some("⠄⠠⠠"));
+    fn test_session_winbar_string_with_cache() {
+        let winbar = session_winbar_string(&session_parts(25), 2);
         assert_eq!(
             winbar,
-            "%#TenonSignProcessing#⠄⠠⠠%* %=%*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total%*"
+            "%=%*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total%*"
         );
     }
 
     #[test]
-    fn test_session_winbar_string_idle_no_cache() {
-        // No spinner while idle; cache segment hidden at 0%
-        let winbar = session_winbar_string(&session_parts(0), 0, None);
+    fn test_session_winbar_string_no_cache() {
+        // Cache segment hidden at 0%
+        let winbar = session_winbar_string(&session_parts(0), 0);
         assert_eq!(
             winbar,
             "%=%*▮%#TenonGaugeBar#▮▮▮▮%* 100 󰕒, 50 󰇚, 175 (+175) total%*"
@@ -310,7 +217,7 @@ mod tests {
     #[test]
     fn test_session_winbar_string_critical_level() {
         // Level 4: all bars active with the critical highlight, no dim bars
-        let winbar = session_winbar_string(&session_parts(0), 4, None);
+        let winbar = session_winbar_string(&session_parts(0), 4);
         assert_eq!(
             winbar,
             "%=%#TenonGaugeBarCritical#▮▮▮▮▮%#TenonGaugeBar#%* 100 󰕒, 50 󰇚, 175 (+175) total%*"
