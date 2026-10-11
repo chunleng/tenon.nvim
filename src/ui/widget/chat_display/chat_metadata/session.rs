@@ -86,7 +86,7 @@ impl SessionLineParts {
         }
     }
 
-    /// Left-aligned agent segment: "agent: {name}" plus the model/tool diff
+    /// Left-aligned agent segment: "\u{ed35} {name}" plus the model/tool diff
     /// meta. `include_model` drops the model display, used when the winbar
     /// is too narrow.
     pub fn agent_segment(&self, include_model: bool) -> String {
@@ -97,21 +97,21 @@ impl SessionLineParts {
         };
         match (!model.is_empty(), !self.tool_suffix.is_empty()) {
             (true, true) => format!(
-                "agent: {} (󰚩 {} | {})",
+                "\u{ed35} {} (󰚩 {} | {})",
                 self.agent_name, model, self.tool_suffix
             ),
-            (true, false) => format!("agent: {} (󰚩 {})", self.agent_name, model),
+            (true, false) => format!("\u{ed35} {} (󰚩 {})", self.agent_name, model),
             // Model dropped by truncation: robot sign and separator kept
             (false, true) if !self.model_display.is_empty() => {
-                format!("agent: {} (󰚩 | {})", self.agent_name, self.tool_suffix)
+                format!("\u{ed35} {} (󰚩 | {})", self.agent_name, self.tool_suffix)
             }
             // No model change: tool diff only, no robot sign
-            (false, true) => format!("agent: {} ({})", self.agent_name, self.tool_suffix),
+            (false, true) => format!("\u{ed35} {} ({})", self.agent_name, self.tool_suffix),
             // Model dropped by truncation: robot sign kept
             (false, false) if !self.model_display.is_empty() => {
-                format!("agent: {} (󰚩 )", self.agent_name)
+                format!("\u{ed35} {} (󰚩 )", self.agent_name)
             }
-            (false, false) => format!("agent: {}", self.agent_name),
+            (false, false) => format!("\u{ed35} {}", self.agent_name),
         }
     }
 
@@ -373,10 +373,10 @@ mod tests {
 
         assert_eq!(
             parts.agent_segment(true),
-            "agent: default (󰚩 claude-3-5-sonnet | 󰣖 -7)"
+            "\u{ed35} default (󰚩 claude-3-5-sonnet | 󰣖 -7)"
         );
         // Model dropped: robot sign and separator kept with the tool diff
-        assert_eq!(parts.agent_segment(false), "agent: default (󰚩 | 󰣖 -7)");
+        assert_eq!(parts.agent_segment(false), "\u{ed35} default (󰚩 | 󰣖 -7)");
         assert_eq!(parts.join(), "100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total");
     }
 
@@ -393,7 +393,7 @@ mod tests {
         let parts = state.session_line_parts(&values);
 
         // No model change: tool diff only, no robot sign
-        assert_eq!(parts.agent_segment(true), "agent: default (󰣖 -8)");
+        assert_eq!(parts.agent_segment(true), "\u{ed35} default (󰣖 -8)");
         assert_eq!(parts.join(), "0 󰕒, 0 󰇚, 0 total");
     }
 
@@ -419,7 +419,7 @@ mod tests {
 
         let parts = state.session_line_parts(&values);
 
-        assert_eq!(parts.agent_segment(true), "agent: default");
+        assert_eq!(parts.agent_segment(true), "\u{ed35} default");
     }
 
     #[test]
@@ -440,7 +440,7 @@ mod tests {
         let parts = state.session_line_parts(&values);
 
         // No model change: tool diff only, no robot sign
-        assert_eq!(parts.agent_segment(true), "agent: default (󰣖 +1/-7)");
+        assert_eq!(parts.agent_segment(true), "\u{ed35} default (󰣖 +1/-7)");
     }
 
     #[test]
@@ -448,7 +448,7 @@ mod tests {
         let winbar = session_winbar_string(&session_parts(25), 2, 200);
         assert_eq!(
             winbar,
-            "agent: default%=%*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total%*"
+            "\u{ed35} default%=%*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total%*"
         );
     }
 
@@ -458,7 +458,7 @@ mod tests {
         let winbar = session_winbar_string(&session_parts(0), 0, 200);
         assert_eq!(
             winbar,
-            "agent: default%=%*▮%#TenonGaugeBar#▮▮▮▮%* 100 󰕒, 50 󰇚, 175 (+175) total%*"
+            "\u{ed35} default%=%*▮%#TenonGaugeBar#▮▮▮▮%* 100 󰕒, 50 󰇚, 175 (+175) total%*"
         );
     }
 
@@ -468,7 +468,7 @@ mod tests {
         let winbar = session_winbar_string(&session_parts(0), 4, 200);
         assert_eq!(
             winbar,
-            "agent: default%=%#TenonGaugeBarCritical#▮▮▮▮▮%#TenonGaugeBar#%* 100 󰕒, 50 󰇚, 175 (+175) total%*"
+            "\u{ed35} default%=%#TenonGaugeBarCritical#▮▮▮▮▮%#TenonGaugeBar#%* 100 󰕒, 50 󰇚, 175 (+175) total%*"
         );
     }
 
@@ -478,7 +478,7 @@ mod tests {
         parts.model_display = "claude-3-5-sonnet".to_string();
 
         // Model-only change, truncated: robot sign kept, no separator
-        assert_eq!(parts.agent_segment(false), "agent: default (󰚩 )");
+        assert_eq!(parts.agent_segment(false), "\u{ed35} default (󰚩 )");
     }
 
     #[test]
@@ -489,13 +489,13 @@ mod tests {
 
         // Fits: full agent segment kept
         let winbar = session_winbar_string(&parts, 0, 200);
-        assert!(winbar.starts_with("agent: default (󰚩 claude-3-5-sonnet | 󰣖 -7)%="));
+        assert!(winbar.starts_with("\u{ed35} default (󰚩 claude-3-5-sonnet | 󰣖 -7)%="));
 
         // Exactly fits without the model: model display dropped
         let right_width = GAUGE_BARS.width() + 1 + parts.join().width();
         let max_width = parts.agent_segment(false).width() + right_width;
         let winbar = session_winbar_string(&parts, 0, max_width);
-        assert!(winbar.starts_with("agent: default (󰚩 | 󰣖 -7)%="));
+        assert!(winbar.starts_with("\u{ed35} default (󰚩 | 󰣖 -7)%="));
         assert!(winbar.ends_with("100 󰕒, 50 󰇚, 175 (+175) total%*"));
 
         // One column short even without the model: token count dropped,
@@ -504,7 +504,7 @@ mod tests {
         let winbar = session_winbar_string(&parts, 0, max_width);
         assert_eq!(
             winbar,
-            "agent: default (󰚩 | 󰣖 -7)%=%*▮%#TenonGaugeBar#▮▮▮▮%*%*"
+            "\u{ed35} default (󰚩 | 󰣖 -7)%=%*▮%#TenonGaugeBar#▮▮▮▮%*%*"
         );
     }
 
