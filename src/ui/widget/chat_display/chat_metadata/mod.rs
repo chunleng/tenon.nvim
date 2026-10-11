@@ -33,6 +33,8 @@ pub struct MetadataValues {
     pub work_queue_count: usize,
     // Delta values for last exchange
     pub total_tokens_delta: u64,
+    /// (choreo title, 1-indexed move) when a choreo is active
+    pub choreo: Option<(String, usize)>,
 }
 
 impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
@@ -81,6 +83,13 @@ impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
                 .map(|queue| queue.entries.len())
                 .unwrap_or(0);
 
+            let choreo = session
+                .engine
+                .active_choreo
+                .read()
+                .ok()
+                .and_then(|active| active.as_ref().map(|c| (c.choreo.title.clone(), c.r#move)));
+
             return Self {
                 title,
                 chat_index,
@@ -95,6 +104,7 @@ impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
                 context_tokens: context_tokens as u64,
                 work_queue_count,
                 total_tokens_delta,
+                choreo,
             };
         }
 
@@ -112,6 +122,7 @@ impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
             context_tokens: 0,
             work_queue_count: 0,
             total_tokens_delta: 0,
+            choreo: None,
         }
     }
 }
@@ -133,6 +144,7 @@ impl MetadataValues {
             context_tokens: 0,
             work_queue_count: 0,
             total_tokens_delta: 0,
+            choreo: None,
         }
     }
 }
