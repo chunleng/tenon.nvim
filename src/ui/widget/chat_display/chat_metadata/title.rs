@@ -20,7 +20,7 @@ pub struct TitleSegments {
     pub choreo: String,
     /// Icon + chat title
     pub head: String,
-    /// " {n} of {m}"
+    /// " ({n}/{m})"
     pub index: String,
     /// ", queue: N" (empty when queue is empty)
     pub queue: String,
@@ -75,7 +75,7 @@ impl MetadataState {
         TitleSegments {
             choreo,
             head: values.title.clone().unwrap_or_default(),
-            index: format!(" {} of {}", values.chat_index + 1, values.total_count),
+            index: format!(" ({}/{})", values.chat_index + 1, values.total_count),
             queue,
         }
     }
@@ -278,7 +278,7 @@ mod tests {
 
         assert_eq!(
             state.title_segments(&values).join(),
-            "Test Chat 1 of 1, queue: 2"
+            "Test Chat (1/1), queue: 2"
         );
     }
 
@@ -296,7 +296,7 @@ mod tests {
         assert_eq!(segments.choreo, "\u{ef0d}  implement_code \u{f292} 2");
         assert_eq!(
             segments.join(),
-            "\u{ef0d}  implement_code \u{f292} 2Test Chat 1 of 1"
+            "\u{ef0d}  implement_code \u{f292} 2Test Chat (1/1)"
         );
 
         // No active choreo: empty segment
@@ -309,7 +309,7 @@ mod tests {
         let segments = TitleSegments {
             choreo: String::new(),
             head: "Test".to_string(),
-            index: " 1 of 2".to_string(),
+            index: " (1/2)".to_string(),
             queue: ", queue: 3".to_string(),
         };
         let full = segments.join();
@@ -321,7 +321,7 @@ mod tests {
         let segments = TitleSegments {
             choreo: String::new(),
             head: "Test".to_string(),
-            index: " 1 of 2".to_string(),
+            index: " (1/2)".to_string(),
             queue: ", queue: 3".to_string(),
         };
         let full_width = segments.join().width();
@@ -329,13 +329,13 @@ mod tests {
         // One column short: queue dropped
         assert_eq!(
             truncate_title_segments(&segments, full_width - 1),
-            "%=Test 1 of 2"
+            "%=Test (1/2)"
         );
 
         // Queue no longer fits
         assert_eq!(
-            truncate_title_segments(&segments, "Test 1 of 2".width()),
-            "%=Test 1 of 2"
+            truncate_title_segments(&segments, "Test (1/2)".width()),
+            "%=Test (1/2)"
         );
     }
 
@@ -344,7 +344,7 @@ mod tests {
         let segments = TitleSegments {
             choreo: "\u{ef0d}  implement_code \u{f292} 2".to_string(),
             head: "Test".to_string(),
-            index: " 1 of 2".to_string(),
+            index: " (1/2)".to_string(),
             queue: ", queue: 3".to_string(),
         };
         let full_width = segments.join().width();
@@ -352,19 +352,19 @@ mod tests {
         // Exactly full: choreo left-aligned, title right-aligned
         assert_eq!(
             truncate_title_segments(&segments, full_width),
-            "\u{ef0d}  implement_code \u{f292} 2%=Test 1 of 2, queue: 3"
+            "\u{ef0d}  implement_code \u{f292} 2%=Test (1/2), queue: 3"
         );
 
         // One column short: choreo dropped, queue kept
         assert_eq!(
             truncate_title_segments(&segments, full_width - 1),
-            "%=Test 1 of 2, queue: 3"
+            "%=Test (1/2), queue: 3"
         );
 
         // Narrower: queue dropped too
         assert_eq!(
-            truncate_title_segments(&segments, "Test 1 of 2".width()),
-            "%=Test 1 of 2"
+            truncate_title_segments(&segments, "Test (1/2)".width()),
+            "%=Test (1/2)"
         );
     }
 
@@ -393,11 +393,11 @@ mod tests {
         let segments = TitleSegments {
             choreo: String::new(),
             head: "A very long chat title".to_string(),
-            index: " 3 of 9".to_string(),
+            index: " (3/9)".to_string(),
             queue: String::new(),
         };
 
         let truncated = truncate_title_segments(&segments, 10);
-        assert_eq!(truncated, "%=A … 3 of 9");
+        assert_eq!(truncated, "%=A v… (3/9)");
     }
 }
