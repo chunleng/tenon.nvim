@@ -31,7 +31,7 @@ pub fn select_chat_fn() -> Function<(), ()> {
                     return;
                 }
 
-                // Build display options: "Chat N | Title"
+                // Build display options: "Chat N | Title", with a spinner icon for chats still processing
                 let options: Vec<String> = sessions
                     .iter()
                     .enumerate()
@@ -41,7 +41,12 @@ pub fn select_chat_fn() -> Function<(), ()> {
                             .title_handler
                             .title()
                             .unwrap_or("Untitled".to_string());
-                        format!("Chat {} | {}", i + 1, title)
+                        let processing = if guard.is_processing() {
+                            " \u{F0110}"
+                        } else {
+                            ""
+                        };
+                        format!("Chat {}{} | {}", i + 1, processing, title)
                     })
                     .collect();
 
