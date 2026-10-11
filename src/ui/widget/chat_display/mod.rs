@@ -1,10 +1,10 @@
-mod chat_footer;
 mod chat_log;
+mod chat_metadata;
 mod format;
 
 use std::{
     sync::{
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     thread::JoinHandle,
@@ -16,13 +16,13 @@ use crate::{
     chat::{ChatSession, TenonLog},
     ui::{
         nvim_primitives::{buffer::NvimBuffer, window::NvimWindow},
+        panels::swappable::SwappableBufferPanel,
         widget::Widget,
     },
-    utils::GLOBAL_EXECUTION_HANDLER,
 };
 
-use chat_footer::ChatFooterRenderer;
 use chat_log::{ChatLogCache, ChatLogRenderer};
+use chat_metadata::ChatMetadataRenderer;
 
 #[derive(Clone)]
 pub struct ChatDisplayData {
@@ -40,15 +40,21 @@ struct SharedState {
 pub struct ChatDisplay {
     pub inner: Arc<NvimBuffer>,
     attached_window: Option<Arc<NvimWindow>>,
+    input_window: Arc<Mutex<Option<SwappableBufferPanel>>>,
     attached_chat: Arc<RwLock<ChatDisplayData>>,
     shared: Arc<RwLock<SharedState>>,
 }
 
 impl ChatDisplay {
-    pub fn new(buffer: NvimBuffer, chat: ChatDisplayData) -> Self {
+    pub fn new(
+        buffer: NvimBuffer,
+        chat: ChatDisplayData,
+        input_window: Arc<Mutex<Option<SwappableBufferPanel>>>,
+    ) -> Self {
         Self {
             inner: Arc::new(buffer),
             attached_window: None,
+            input_window,
             attached_chat: Arc::new(RwLock::new(chat)),
             shared: Arc::new(RwLock::new(SharedState {
                 running_threads: Vec::new(),
@@ -106,37 +112,25 @@ impl ChatDisplay {
                 shared.chat_log_cache = Some(chat_log_cache.clone());
             }
 
-            // Initialize footer space before renderer threads start: wipes the buffer to 2 empty
-            // lines so log/footer rendering begins from a clean state
-            {
-                let buffer = self.inner.clone();
-                let _ = GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(move || {
-                    if let Some(mut buffer) = buffer.get_buffer() {
-                        let buf_opts = OptionOpts::builder().buf(buffer.clone()).build();
-                        let _ = nvim_oxi::api::set_option_value("modifiable", true, &buf_opts);
-                        let _ = buffer.set_lines(0.., false, vec!["", ""]);
-                        let _ = nvim_oxi::api::set_option_value("modifiable", false, &buf_opts);
-                    }
-                    Ok(())
-                });
-            }
-
             let log_renderer =
                 ChatLogRenderer::new(self.inner.clone(), attached_window.clone(), chat_log_cache);
 
-            let footer_renderer =
-                ChatFooterRenderer::new(self.inner.clone(), self.attached_chat.clone());
+            let metadata_renderer = ChatMetadataRenderer::new(
+                attached_window.clone(),
+                self.input_window.clone(),
+                self.attached_chat.clone(),
+            );
 
             let stop_signal = {
                 let shared = self.shared.read().unwrap();
                 shared.stop_signal.clone()
             };
             let log_handle = log_renderer.spawn_renderer_thread(stop_signal.clone());
-            let footer_handle = footer_renderer.spawn_renderer_thread(stop_signal.clone());
+            let metadata_handle = metadata_renderer.spawn_renderer_thread(stop_signal.clone());
             {
                 let mut shared = self.shared.write().unwrap();
                 shared.running_threads.push(Arc::new(log_handle));
-                shared.running_threads.push(Arc::new(footer_handle));
+                shared.running_threads.push(Arc::new(metadata_handle));
             }
         }
 
@@ -159,10 +153,6 @@ impl ChatDisplay {
             // Clear signs and highlights placed by renderer
             let ns = nvim_oxi::api::create_namespace("TenonChatLog");
             let _ = buffer.clear_namespace(ns, 0..line_count);
-            let ns_footer = nvim_oxi::api::create_namespace("TenonChatFooter");
-            let _ = buffer.clear_namespace(ns_footer, 0..line_count);
-            let ns_spinner = nvim_oxi::api::create_namespace("TenonChatFooterSpinner");
-            let _ = buffer.clear_namespace(ns_spinner, 0..line_count);
             nvim_oxi::api::set_option_value("modifiable", false, &buf_opts)?;
         }
 

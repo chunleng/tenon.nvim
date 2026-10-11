@@ -42,7 +42,7 @@ pub fn select_chat_fn() -> Function<(), ()> {
                             .title()
                             .unwrap_or("Untitled".to_string());
                         let processing = if guard.is_processing() {
-                            " \u{F0110}"
+                            " \u{F110}"
                         } else {
                             ""
                         };

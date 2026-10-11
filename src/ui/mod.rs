@@ -607,7 +607,10 @@ impl ChatWindow {
                 Self::setup_input_height_autocmd(buffer)?;
             }
 
-            self.input_window = Arc::new(Mutex::new(Some(input_win.clone())));
+            // Update in place because the Arc is shared with ChatDisplay's metadata renderer
+            if let Ok(mut input_window) = self.input_window.lock() {
+                *input_window = Some(input_win.clone());
+            }
             Ok(input_win)
         }
     }
@@ -641,6 +644,7 @@ impl ChatWindow {
                         .clone(),
                     chat_index: self.loaded_chat_index.load(Ordering::SeqCst),
                 },
+                self.input_window.clone(),
             );
             let mut chat_display_clone = chat_display.clone();
 

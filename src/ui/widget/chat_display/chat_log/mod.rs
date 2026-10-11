@@ -121,9 +121,8 @@ impl ChatLogRenderer {
                             // Remove excess lines at end of buffer
                             // This can happen when we remove logs from the session (i.e. from
                             // `prune_incomplete_messages`)
-                            // buffer_line_count - 2 (footer) - current_line = excess lines to remove
                             let line_count = buffer.line_count().unwrap_or(0) as i64;
-                            let excess_lines = line_count - 2 - current_line as i64;
+                            let excess_lines = line_count - current_line as i64;
                             if excess_lines > 0 {
                                 let remove_start = current_line;
                                 let remove_end = current_line + excess_lines as usize;
