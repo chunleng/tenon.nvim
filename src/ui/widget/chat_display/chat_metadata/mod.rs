@@ -32,9 +32,6 @@ pub struct MetadataValues {
     pub context_tokens: u64,
     pub work_queue_count: usize,
     // Delta values for last exchange
-    pub input_tokens_delta: u64,
-    pub output_tokens_delta: u64,
-    pub cached_tokens_delta: u64,
     pub total_tokens_delta: u64,
 }
 
@@ -55,30 +52,19 @@ impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
                 .map(|t| t.name().to_string())
                 .collect();
 
-            let (
-                input_tokens,
-                output_tokens,
-                cached_tokens,
-                total_tokens,
-                input_tokens_delta,
-                output_tokens_delta,
-                cached_tokens_delta,
-                total_tokens_delta,
-            ) = if let Ok(usage_lock) = session.usage.read() {
-                let session_usage = &*usage_lock;
-                (
-                    session_usage.accumulated.input_tokens,
-                    session_usage.accumulated.output_tokens,
-                    session_usage.accumulated.cached_input_tokens,
-                    session_usage.accumulated.total_tokens,
-                    session_usage.last_exchange.input_tokens,
-                    session_usage.last_exchange.output_tokens,
-                    session_usage.last_exchange.cached_input_tokens,
-                    session_usage.last_exchange.total_tokens,
-                )
-            } else {
-                (0, 0, 0, 0, 0, 0, 0, 0)
-            };
+            let (input_tokens, output_tokens, cached_tokens, total_tokens, total_tokens_delta) =
+                if let Ok(usage_lock) = session.usage.read() {
+                    let session_usage = &*usage_lock;
+                    (
+                        session_usage.accumulated.input_tokens,
+                        session_usage.accumulated.output_tokens,
+                        session_usage.accumulated.cached_input_tokens,
+                        session_usage.accumulated.total_tokens,
+                        session_usage.last_exchange.total_tokens,
+                    )
+                } else {
+                    (0, 0, 0, 0, 0)
+                };
 
             let context_tokens = session
                 .engine
@@ -108,9 +94,6 @@ impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
                 total_tokens,
                 context_tokens: context_tokens as u64,
                 work_queue_count,
-                input_tokens_delta,
-                output_tokens_delta,
-                cached_tokens_delta,
                 total_tokens_delta,
             };
         }
@@ -128,9 +111,6 @@ impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
             total_tokens: 0,
             context_tokens: 0,
             work_queue_count: 0,
-            input_tokens_delta: 0,
-            output_tokens_delta: 0,
-            cached_tokens_delta: 0,
             total_tokens_delta: 0,
         }
     }
@@ -152,9 +132,6 @@ impl MetadataValues {
             total_tokens: 0,
             context_tokens: 0,
             work_queue_count: 0,
-            input_tokens_delta: 0,
-            output_tokens_delta: 0,
-            cached_tokens_delta: 0,
             total_tokens_delta: 0,
         }
     }
