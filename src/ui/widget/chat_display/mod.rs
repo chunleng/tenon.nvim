@@ -36,6 +36,15 @@ struct SharedState {
     chat_log_cache: Option<Arc<RwLock<ChatLogCache>>>,
 }
 
+impl Drop for SharedState {
+    // Signal only, never join: renderer threads call Neovim APIs through
+    // GLOBAL_EXECUTION_HANDLER on the main thread, and joining from the main
+    // thread could deadlock.
+    fn drop(&mut self) {
+        self.stop_signal.store(true, Ordering::SeqCst);
+    }
+}
+
 #[derive(Clone)]
 pub struct ChatDisplay {
     pub inner: Arc<NvimBuffer>,
@@ -171,5 +180,24 @@ impl Widget for ChatDisplay {
 
     fn set_window(&mut self, window: NvimWindow) {
         self.attached_window = Some(Arc::new(window));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropping_shared_state_sets_stop_signal() {
+        let stop_signal = Arc::new(AtomicBool::new(false));
+        let shared = Arc::new(RwLock::new(SharedState {
+            running_threads: Vec::new(),
+            stop_signal: stop_signal.clone(),
+            chat_log_cache: None,
+        }));
+
+        drop(shared);
+
+        assert!(stop_signal.load(Ordering::SeqCst));
     }
 }
