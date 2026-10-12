@@ -38,6 +38,7 @@ use crate::{
         },
         panels::swappable::{SwappableBufferPanel, SwappablePanelOption},
         widget::chat_display::{ChatDisplay, ChatDisplayData},
+        widget::select::approval::ApprovalWidget,
         widget::select::question::QuestionWidget,
     },
     utils::{GLOBAL_EXECUTION_HANDLER, notify},
@@ -1037,14 +1038,21 @@ fn chat_window_loop(
                 }
 
                 let base_keymaps = input_buffer_keymaps();
-                let widget = QuestionWidget::new(event, completion_tx, base_keymaps)?;
+                let widget: Box<dyn Widget> = match event {
+                    PendingAction::Question(question) => {
+                        Box::new(QuestionWidget::new(question, completion_tx, base_keymaps)?)
+                    }
+                    PendingAction::Approval(approval) => {
+                        Box::new(ApprovalWidget::new(approval, completion_tx, base_keymaps)?)
+                    }
+                };
 
                 let chat_window = get_chat_window();
                 if let Ok(win) = chat_window.lock()
                     && let Ok(mut input_panel) = win.input_window.lock()
                     && let Some(panel) = input_panel.as_mut()
                 {
-                    panel.push_widget(&chat_key_for_push, Box::new(widget))?;
+                    panel.push_widget(&chat_key_for_push, widget)?;
                     // Hide line numbers and widen the sign column while the
                     // question widget is on top.
                     panel.window.set_line_numbers(false);

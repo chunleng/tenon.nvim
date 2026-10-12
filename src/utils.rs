@@ -1,3 +1,5 @@
+pub mod approval;
+
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, LazyLock, Mutex, OnceLock,
@@ -41,6 +43,17 @@ pub fn path_from_str(path: &str) -> PathBuf {
         return PathBuf::from(home).join(rest);
     }
     PathBuf::from(path)
+}
+
+/// Check whether a path contains a hidden component: a `Normal` component
+/// starting with `.` (e.g. `.env`, `.git`). `.` and `..` are separate
+/// component variants and never count as hidden. Cross-platform: handles
+/// Unix `/` and Windows `\` separators and drive prefixes via
+/// `Path::components()`.
+pub fn has_hidden_component(path: &Path) -> bool {
+    path.components().any(|c| {
+        matches!(c, std::path::Component::Normal(name) if name.to_string_lossy().starts_with('.'))
+    })
 }
 
 fn is_svg(bytes: &[u8]) -> bool {
@@ -711,6 +724,55 @@ count: 5"#;
             Some(h) => unsafe { std::env::set_var("HOME", h) },
             None => {}
         }
+    }
+
+    #[test]
+    fn test_has_hidden_component_dot_prefixed() {
+        assert!(has_hidden_component(Path::new("./.env")));
+        assert!(has_hidden_component(Path::new(".env")));
+        assert!(has_hidden_component(Path::new("./.git/config")));
+        assert!(has_hidden_component(Path::new("../.git/config")));
+        assert!(has_hidden_component(Path::new("/home/user/.ssh/id_rsa")));
+        assert!(has_hidden_component(Path::new("src/.hidden/file.rs")));
+    }
+
+    #[test]
+    fn test_has_hidden_component_not_hidden() {
+        assert!(!has_hidden_component(Path::new("./src/main.rs")));
+        assert!(!has_hidden_component(Path::new("src/main.rs")));
+        assert!(!has_hidden_component(Path::new("../src/main.rs")));
+        assert!(!has_hidden_component(Path::new("/home/user/file.txt")));
+        // `.` and `..` are not hidden components themselves
+        assert!(!has_hidden_component(Path::new("./file.txt")));
+        assert!(!has_hidden_component(Path::new("../file.txt")));
+        assert!(!has_hidden_component(Path::new(".")));
+        assert!(!has_hidden_component(Path::new("..")));
+        // edge cases: empty path, trailing separators, bare drive prefix,
+        // interior `.` normalized away by components()
+        assert!(!has_hidden_component(Path::new("")));
+        assert!(!has_hidden_component(Path::new("./")));
+        assert!(!has_hidden_component(Path::new("C:")));
+        assert!(!has_hidden_component(Path::new("src/./file.txt")));
+    }
+
+    #[test]
+    fn test_has_hidden_component_drive_prefix() {
+        // `/` is a valid separator on both Unix and Windows, so
+        // drive-prefixed paths with `/` separators parse into components on
+        // either platform
+        assert!(has_hidden_component(Path::new("C:/Users/me/.gitconfig")));
+        assert!(!has_hidden_component(Path::new("C:/Users/me/file.txt")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_has_hidden_component_windows_backslash() {
+        // `\` separators only parse as such on Windows; on Unix they are
+        // ordinary filename characters, so platform-specific parsing is the
+        // correct behavior
+        assert!(has_hidden_component(Path::new(r"C:\Users\me\.gitconfig")));
+        assert!(has_hidden_component(Path::new(r"..\.env")));
+        assert!(!has_hidden_component(Path::new(r"C:\Users\me\file.txt")));
     }
 
     #[test]

@@ -4,8 +4,7 @@ use nvim_oxi::Result as OxiResult;
 use tokio::sync::oneshot;
 
 use super::SelectWidget;
-use crate::chat::PendingAction;
-use crate::tools::ask_question::{ANSWER_BY_CHAT, AskQuestionOption, QuestionResult};
+use crate::tools::ask_question::{ANSWER_BY_CHAT, AskQuestionOption, Question, QuestionResult};
 use crate::ui::{
     nvim_primitives::buffer::{NvimBuffer, NvimKeymap},
     widget::Widget,
@@ -45,11 +44,11 @@ pub struct QuestionWidget {
 
 impl QuestionWidget {
     pub fn new(
-        action: PendingAction,
+        action: Question,
         completion_tx: oneshot::Sender<()>,
         base_keymaps: Vec<NvimKeymap>,
     ) -> OxiResult<Self> {
-        let PendingAction::Question {
+        let Question {
             question,
             options,
             response_tx,

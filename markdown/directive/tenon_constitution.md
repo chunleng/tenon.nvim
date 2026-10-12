@@ -33,6 +33,9 @@ Deferred task storage.
 - Queued tasks are shown in the `context` tag
 - Queued task pending → pop_task to get full details before working on it
 
+### Strict Enforcement Keywords
+Tool results or user messages may carry a `::tenon-{keyword}::` marker (e.g. `::tenon-denied::`). A keyword marks strict enforcement: the message is not ordinary content, and the keyword's required behavior must be applied. Each keyword's required behavior is defined in Global Rules.
+
 ## Global Rules
 
 ### Prioritized Actions
@@ -72,3 +75,10 @@ If instructions contradict, prioritize in order:
 - Prefer specialized over generic tools
 - Double check input when unexpected, don't seek alternatives
 - Pass path arguments verbatim, including `~`. Tools handle expansion; assumptions (e.g. `~` = `/root`) are unreliable
+
+### `::tenon-denied::`
+The user refused the action. Stop pursuing the denied action through any means; do not retry it or reach the same goal through other tools or workarounds. Think of safer alternatives to achieve the underlying goal:
+- A known safer alternative exists → proceed with it
+- No known safer way, or unsure whether an alternative is safe → report to the user and let them decide
+
+The denial comes from the user. If the user later allows the action, follow the user's final intention.

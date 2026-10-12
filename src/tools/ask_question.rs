@@ -16,6 +16,14 @@ pub struct QuestionResult {
     pub response: Option<String>,
 }
 
+/// A question asking the user to pick an option or answer by chat.
+#[derive(Clone)]
+pub struct Question {
+    pub question: String,
+    pub options: Vec<AskQuestionOption>,
+    pub response_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<QuestionResult>>>>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AskQuestionArgs {
@@ -100,11 +108,11 @@ impl ToolCore for AskQuestion {
         let (tx, rx) = tokio::sync::oneshot::channel::<QuestionResult>();
 
         if let Some(event_channel) = event_channel.upgrade() {
-            event_channel.push(PendingAction::Question {
+            event_channel.push(PendingAction::Question(Question {
                 question: args.question,
                 options: args.options,
                 response_tx: Arc::new(Mutex::new(Some(tx))),
-            });
+            }));
             Ok(AskQuestionCall {
                 response_rx: Some(rx),
             })
@@ -163,9 +171,16 @@ mod tests {
 
     /// Responds to the front pending question with the given result.
     fn respond(channel: &EventChannel<PendingAction>, response: Option<String>) {
-        let pending = channel.peek().expect("question should be pushed");
-        let PendingAction::Question { response_tx, .. } = pending;
-        let tx = response_tx.lock().unwrap().take().expect("tx available");
+        let PendingAction::Question(question) = channel.peek().expect("question should be pushed")
+        else {
+            panic!("front pending action should be a question");
+        };
+        let tx = question
+            .response_tx
+            .lock()
+            .unwrap()
+            .take()
+            .expect("tx available");
         assert!(tx.send(QuestionResult { response }).is_ok());
     }
 
@@ -197,15 +212,13 @@ mod tests {
             .await
             .expect("init_call should succeed");
 
-        match channel.peek().expect("question should be pushed") {
-            PendingAction::Question {
-                question, options, ..
-            } => {
-                assert_eq!(question, "Pick one");
-                assert_eq!(options.len(), 2);
-                assert_eq!(options[0].text, "a");
-            }
-        }
+        let PendingAction::Question(question) = channel.peek().expect("question should be pushed")
+        else {
+            panic!("front pending action should be a question");
+        };
+        assert_eq!(question.question, "Pick one");
+        assert_eq!(question.options.len(), 2);
+        assert_eq!(question.options[0].text, "a");
 
         respond(&channel, Some("a".to_string()));
         let output = call

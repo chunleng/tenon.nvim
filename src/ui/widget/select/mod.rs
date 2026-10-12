@@ -15,6 +15,7 @@ use crate::ui::{
     widget::Widget,
 };
 
+pub mod approval;
 pub mod question;
 
 /// A selection widget that displays a title followed by a list of options.

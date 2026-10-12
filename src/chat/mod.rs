@@ -3,7 +3,8 @@ use crate::chat::helpers::TitleHandler;
 use crate::chat::history::{SessionMetadata, save_to_history};
 use crate::get_application_config;
 use crate::hooks::run_needs_attention_hooks;
-use crate::tools::ask_question::{AskQuestionOption, QuestionResult};
+use crate::tools::ask_question::Question;
+use crate::utils::approval::Approval;
 use chrono::{DateTime, Local};
 use nvim_oxi::Result as OxiResult;
 use rig::completion::Usage;
@@ -86,11 +87,8 @@ impl ActiveChoreo {
 /// Pending actions that require user interaction, stored per chat session.
 #[derive(Clone)]
 pub enum PendingAction {
-    Question {
-        question: String,
-        options: Vec<AskQuestionOption>,
-        response_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<QuestionResult>>>>,
-    },
+    Question(Question),
+    Approval(Approval),
 }
 
 pub struct ChatSession {
