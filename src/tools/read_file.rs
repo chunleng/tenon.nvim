@@ -48,13 +48,15 @@ impl ToolCoreCall for ReadFileCall {
             }
         }
 
+        // Output contract: successful reads start with a `-` line followed by the content. Failures
+        // stay on the error channel (ToolExecutionError).
         match fs::read_to_string(path) {
             Ok(content) => {
                 let lines: Vec<&str> = content.lines().collect();
                 let total_lines = lines.len();
 
                 if total_lines == 0 {
-                    return Ok(String::new());
+                    return Ok("-".to_string());
                 }
 
                 let (start_line, end_line) = match (args.start_line, args.end_line) {
@@ -75,7 +77,7 @@ impl ToolCoreCall for ReadFileCall {
 
                 let selected_lines = lines[start..end].join("\n");
 
-                Ok(selected_lines)
+                Ok(format!("-\n{selected_lines}"))
             }
             Err(e) => Err(ToolExecutionError::other(format!(
                 "read_file '{}': {}",
@@ -95,7 +97,7 @@ impl ToolCore for ReadFile {
     type Call = ReadFileCall;
 
     fn description(&self) -> String {
-        "Read file contents. Supports line ranges (1-based, inclusive; default: full file). Empty string is returned if and only if the file exists and is empty. A missing file returns `Toolset error: ...`".to_string()
+        "Read file contents. Supports line ranges (1-based, inclusive; default: full file). Successful reads start with a `-` line followed by the file content".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -231,7 +233,7 @@ mod tests {
 
         std::fs::remove_file(&path).ok();
         let output = result.expect("should swap and return lines, not error");
-        assert_eq!(output, "line2\nline3\nline4\nline5");
+        assert_eq!(output, "-\nline2\nline3\nline4\nline5");
     }
 
     #[tokio::test]
@@ -256,7 +258,82 @@ mod tests {
 
         std::fs::remove_file(&path).ok();
         let output = result.expect("equal start/end is a valid single-line read");
-        assert_eq!(output, "line2");
+        assert_eq!(output, "-\nline2");
+    }
+
+    #[tokio::test]
+    async fn test_empty_file_returns_success_marker() {
+        let path = write_temp_file("empty", "");
+        let filepath = path.to_string_lossy().to_string();
+
+        let mut context = ToolContext::new();
+        let call = ReadFile
+            .init_call(
+                &mut context,
+                ReadFileArgs {
+                    filepath,
+                    start_line: None,
+                    end_line: None,
+                },
+            )
+            .await
+            .expect("init_call should succeed");
+        let result = call.result(&mut context).await;
+
+        std::fs::remove_file(&path).ok();
+        let output = result.expect("empty file read should succeed");
+        assert_eq!(output, "-");
+    }
+
+    #[tokio::test]
+    async fn test_failures_return_tool_execution_error() {
+        // Missing file: a real error, not in-band output
+        let mut context = ToolContext::new();
+        let call = ReadFile
+            .init_call(
+                &mut context,
+                ReadFileArgs {
+                    filepath: "/nonexistent/tenon_read_file_missing".to_string(),
+                    start_line: None,
+                    end_line: None,
+                },
+            )
+            .await
+            .expect("init_call should succeed");
+        let err = call
+            .result(&mut context)
+            .await
+            .expect_err("missing file should return ToolExecutionError");
+        assert!(
+            err.to_string()
+                .contains("/nonexistent/tenon_read_file_missing"),
+            "error should name the filepath, got: {err}"
+        );
+
+        // Out-of-range start_line: same error contract
+        let content = "line1\nline2\nline3";
+        let path = write_temp_file("out_of_range", content);
+        let filepath = path.to_string_lossy().to_string();
+        let call = ReadFile
+            .init_call(
+                &mut context,
+                ReadFileArgs {
+                    filepath,
+                    start_line: Some(10),
+                    end_line: None,
+                },
+            )
+            .await
+            .expect("init_call should succeed");
+        let err = call
+            .result(&mut context)
+            .await
+            .expect_err("out-of-range start_line should return ToolExecutionError");
+        std::fs::remove_file(&path).ok();
+        assert!(
+            err.to_string().contains("start_line"),
+            "error should mention start_line, got: {err}"
+        );
     }
 
     #[tokio::test]
@@ -290,7 +367,7 @@ mod tests {
         let output = task.await.expect("task should not panic");
         assert_eq!(
             output.expect("approved read should succeed"),
-            "secret content"
+            "-\nsecret content"
         );
         channel.mark_done();
 
@@ -316,7 +393,7 @@ mod tests {
         let output = task.await.expect("task should not panic");
         assert_eq!(
             output.expect("non-hidden read should succeed"),
-            "normal content"
+            "-\nnormal content"
         );
         assert!(
             channel.peek().is_none(),
