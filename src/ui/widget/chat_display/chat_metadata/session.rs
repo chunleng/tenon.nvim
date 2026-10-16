@@ -225,7 +225,8 @@ pub fn session_winbar_string(parts: &SessionLineParts, level: usize, max_width: 
     winbar.push_str("%*");
     if include_session_info {
         winbar.push(' ');
-        winbar.push_str(&session_info);
+        // `%` starts a winbar format item; escape so literal percents (cache hit rate) render
+        winbar.push_str(&session_info.replace('%', "%%"));
     }
     winbar.push_str("%*");
     winbar
@@ -450,7 +451,7 @@ mod tests {
         let winbar = session_winbar_string(&session_parts(25), 2, 200);
         assert_eq!(
             winbar,
-            "%=\u{ed35}  default %*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total%*"
+            "%=\u{ed35}  default %*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%%), 50 󰇚, 175 (+175) total%*"
         );
     }
 
