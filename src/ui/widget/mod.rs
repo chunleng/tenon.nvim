@@ -4,7 +4,7 @@ use nvim_oxi::Result as OxiResult;
 use crate::ui::nvim_primitives::{buffer::NvimBuffer, window::NvimWindow};
 
 pub mod chat_display;
-
+pub mod free_text;
 pub mod select;
 
 pub trait Widget: DynClone + Send + Sync {

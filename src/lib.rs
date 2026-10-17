@@ -113,7 +113,7 @@ fn tenon() -> OxiResult<Dictionary> {
             vim.api.nvim_set_hl(0, 'TenonLineProcessing', { fg = '#939393', ctermfg = 8 })
             vim.api.nvim_set_hl(0, 'TenonSignSelectRecommended', { fg = '#6f95d8', ctermfg = 12 })
             vim.api.nvim_set_hl(0, 'TenonSignSelectBullet', { fg = '#939393', ctermfg = 8 })
-            vim.api.nvim_set_hl(0, 'TenonLineSelectTitle', { fg = '#939393', ctermfg = 8, bold = true })
+            vim.api.nvim_set_hl(0, 'TenonLineInputTitle', { fg = '#939393', ctermfg = 8, bold = true })
             vim.api.nvim_set_hl(0, 'TenonGaugeBar', { fg = '#00afaf', ctermfg = 37 })
             vim.api.nvim_set_hl(0, 'TenonGaugeBarCritical', { fg = '#ff7964', ctermfg = 9 })
             "#,

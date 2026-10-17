@@ -94,7 +94,7 @@ impl SelectWidget {
             let title_ns = api::create_namespace("TenonSelectTitle");
             let opts = SetExtmarkOpts::builder()
                 .end_row(title_line_count - 1)
-                .line_hl_group("TenonLineSelectTitle")
+                .line_hl_group("TenonLineInputTitle")
                 .hl_eol(true)
                 .build();
             let _ = buffer.inner.set_extmark(title_ns, 0, 0, &opts);
