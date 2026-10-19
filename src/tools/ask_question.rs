@@ -106,9 +106,12 @@ impl ToolCore for AskQuestion {
         let (tx, rx) = tokio::sync::oneshot::channel::<QuestionResult>();
 
         if let Some(event_channel) = event_channel.upgrade() {
+            let mut options = args.options.unwrap_or_default();
+            // Stable sort: recommended options first, original order preserved otherwise
+            options.sort_by_key(|option| std::cmp::Reverse(option.recommended));
             event_channel.push(PendingAction::Question(Question {
                 question: args.question,
-                options: args.options.unwrap_or_default(),
+                options,
                 response_tx: Arc::new(Mutex::new(Some(tx))),
             }));
             Ok(AskQuestionCall {
@@ -231,6 +234,29 @@ mod tests {
             .await
             .expect("result should succeed");
         assert_eq!(output, "a");
+    }
+
+    #[tokio::test]
+    async fn test_recommended_options_sorted_to_top_stably() {
+        let channel = new_channel();
+        let tool = AskQuestion;
+        let mut context = ToolContext::new();
+        context.insert(Arc::downgrade(&channel));
+
+        let mut args = args("Pick one", &["a", "b", "c", "d"]);
+        args.options.as_mut().unwrap()[1].recommended = true;
+        args.options.as_mut().unwrap()[3].recommended = true;
+
+        tool.init_call(&mut context, args)
+            .await
+            .expect("init_call should succeed");
+
+        let PendingAction::Question(question) = channel.peek().expect("question should be pushed")
+        else {
+            panic!("front pending action should be a question");
+        };
+        let texts: Vec<&str> = question.options.iter().map(|o| o.text.as_str()).collect();
+        assert_eq!(texts, vec!["b", "d", "a", "c"]);
     }
 
     #[tokio::test]
