@@ -12,7 +12,7 @@
      - For each question, provide your recommended answer
      - If a fact can be found by searching the codebase, look it up rather than asking the user
      - The decisions are the user's; put each one to them and wait for their answer
-2. Ask the user directly in chat (do not use the `ask_question` tool): "Anything else I should be aware of?" Wait for the answer:
+2. Ask the user free text question: "Anything else I should be aware of?" Wait for the answer:
    - If the user adds new scope, go back to step 1 and re-run the interview loop to make sure everything is covered, then ask again
    - If the user confirms there is nothing more, provide the artifact
 
