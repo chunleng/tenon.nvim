@@ -180,6 +180,31 @@ impl SwappableBufferPanel {
         Ok(popped)
     }
 
+    /// Pops every widget above the base from the stack for `key`.
+    ///
+    /// Restores the base widget (swaps buffer) if `key` is active.
+    /// Returns `None` if the key doesn't exist or the stack has only one
+    /// widget (the base, which cannot be popped).
+    pub fn pop_all_widget(&mut self, key: &str) -> OxiResult<Option<Vec<Arc<dyn Widget>>>> {
+        let stack = match self.widgets.get_mut(key) {
+            Some(s) if s.len() > 1 => s,
+            _ => return Ok(None),
+        };
+        let popped = stack.split_off(1);
+        let base = Arc::clone(&stack[0]);
+        if self.active_key == key {
+            self.swap_buffer(&base)?;
+        }
+
+        for widget in &popped {
+            if let Some(buffer) = widget.buffer().get_buffer() {
+                let _ = buffer.delete(&BufDeleteOpts::default());
+            }
+        }
+
+        Ok(Some(popped))
+    }
+
     /// Removes an entire widget stack from the panel by key.
     pub fn remove_widget(&mut self, key: impl Into<String>) -> Option<Vec<Arc<dyn Widget>>> {
         self.widgets.remove(&key.into())

@@ -1141,7 +1141,7 @@ fn chat_window_loop(
                     if let Ok(mut input_panel) = win.input_window.lock()
                         && let Some(panel) = input_panel.as_mut()
                     {
-                        let _ = panel.pop_widget(&chat_key.clone());
+                        let _ = panel.pop_all_widget(&chat_key.clone());
                         // Restore line numbers and sign column for the chat
                         // input below.
                         panel.window.set_line_numbers(true);
