@@ -84,7 +84,7 @@ impl ApprovalWidget {
         let select_resp_tx = Arc::clone(&response_tx);
         let select_comp = Arc::clone(&shared_completion);
         let select_reject = reject_message.clone();
-        let on_select: Option<Box<dyn FnOnce(usize) + Send + Sync>> = Some(Box::new(move |idx| {
+        let on_select: Option<Box<dyn FnMut(usize) + Send + Sync>> = Some(Box::new(move |idx| {
             send_result(&select_resp_tx, idx == 0, &select_reject);
             signal_completion(&select_comp);
         }));

@@ -62,16 +62,16 @@ impl QuestionWidget {
             recommended: false,
         });
 
-        let handlers: Vec<Option<Box<dyn FnOnce() + Send + Sync>>> = all_options
+        let handlers: Vec<Option<Box<dyn Fn() + Send + Sync>>> = all_options
             .iter()
             .map(|opt| {
                 let resp_tx = Arc::clone(&response_tx);
                 let comp = Arc::clone(&shared_completion);
                 let text = opt.text.clone();
                 Some(Box::new(move || {
-                    send_result(&resp_tx, Some(text));
+                    send_result(&resp_tx, Some(text.clone()));
                     signal_completion(&comp);
-                }) as Box<dyn FnOnce() + Send + Sync>)
+                }) as Box<dyn Fn() + Send + Sync>)
             })
             .collect();
 
@@ -82,8 +82,8 @@ impl QuestionWidget {
             signal_completion(&cancel_comp);
         }));
 
-        let on_select: Option<Box<dyn FnOnce(usize) + Send + Sync>> = Some(Box::new(move |idx| {
-            if let Some(handler) = handlers.into_iter().nth(idx).flatten() {
+        let on_select: Option<Box<dyn FnMut(usize) + Send + Sync>> = Some(Box::new(move |idx| {
+            if let Some(Some(handler)) = handlers.get(idx) {
                 handler();
             }
         }));

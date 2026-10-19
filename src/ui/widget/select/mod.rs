@@ -31,7 +31,9 @@ impl SelectWidget {
     pub fn new(
         title: &str,
         options: &[AskQuestionOption],
-        on_select: Option<Box<dyn FnOnce(usize) + Send + Sync>>,
+        // Using FnMut, instead of FnOnce, for allowing reusability in case of multi-layer
+        // input requiring current input to be reused again
+        on_select: Option<Box<dyn FnMut(usize) + Send + Sync>>,
         on_cancel: Option<Box<dyn FnOnce() + Send + Sync>>,
         base_keymaps: Vec<NvimKeymap>,
     ) -> OxiResult<Self> {
@@ -155,7 +157,7 @@ impl SelectWidget {
                     .position(|(start, end, _)| row >= *start && row <= *end);
                 if let Some(idx) = idx
                     && let Some(mut guard) = cr_on_select.lock().ok()
-                    && let Some(handler) = guard.take()
+                    && let Some(handler) = guard.as_mut()
                 {
                     handler(idx);
                 }
