@@ -5,18 +5,13 @@ use std::sync::{Arc, Mutex, Weak};
 use crate::chat::{EventChannel, PendingAction};
 use crate::tools::{ToolCore, ToolCoreCall};
 
-/// Label for the option that lets the user defer the question back to chat
-/// instead of answering inline. Selecting it returns an empty string, which
-/// the chat loop interprets as a signal to stop the current chat.
-pub const ANSWER_BY_CHAT: &str = "Answer by Chat..";
-
 /// Result of a question action.
 /// `Some(text)` = user selected/typed an answer, `None` = cancelled.
 pub struct QuestionResult {
     pub response: Option<String>,
 }
 
-/// A question asking the user to pick an option or answer by chat.
+/// A question asking the user to pick an option or type a free text answer.
 #[derive(Clone)]
 pub struct Question {
     pub question: String,
@@ -28,7 +23,8 @@ pub struct Question {
 #[serde(deny_unknown_fields)]
 pub struct AskQuestionArgs {
     pub question: String,
-    pub options: Vec<AskQuestionOption>,
+    #[serde(default)]
+    pub options: Option<Vec<AskQuestionOption>>,
 }
 
 /// An answer choice.
@@ -60,7 +56,8 @@ impl ToolCore for AskQuestion {
          Single answer only (no multi-select); call multiple times for more questions. \
          Use when you can either enumerate options that cover the likely answers, \
          or offer options you can strongly recommend. \
-         If neither holds, ask an open-ended question in chat instead."
+         Open-ended questions also work: a \"Type your answer..\" option is always appended \
+         automatically."
             .to_string()
     }
 
@@ -87,12 +84,13 @@ impl ToolCore for AskQuestion {
                         "required": ["text"]
                     },
                     "description": "Answer choices. Every option must be a genuine, distinct choice. \
-                        An \"Answer by Chat..\" option is appended automatically, so the user \
-                        can always answer in chat. Never add an option that just leads back \
-                        to typing (e.g. \"Something else\", \"Others\")"
+                        Omit (or pass an empty list) to ask free-form: the user types the answer \
+                        directly. When provided, a \"Type your answer..\" option is appended \
+                        automatically. Never add an option that just leads back to typing \
+                        (e.g. \"Something else\", \"Others\")"
                 }
             },
-            "required": ["question", "options"]
+            "required": ["question"]
         })
     }
 
@@ -110,7 +108,7 @@ impl ToolCore for AskQuestion {
         if let Some(event_channel) = event_channel.upgrade() {
             event_channel.push(PendingAction::Question(Question {
                 question: args.question,
-                options: args.options,
+                options: args.options.unwrap_or_default(),
                 response_tx: Arc::new(Mutex::new(Some(tx))),
             }));
             Ok(AskQuestionCall {
@@ -133,12 +131,6 @@ impl ToolCoreCall for AskQuestionCall {
 
         match rx.await {
             Ok(result) => match result.response {
-                Some(text) if text == ANSWER_BY_CHAT => Ok(
-                    "<context>The user chose to answer via chat instead of selecting an option. \
-                     Stop your response with \"I am listening\" and wait for the user's \
-                     message. Do not call ask_question again.</context>"
-                        .to_string(),
-                ),
                 Some(text) => Ok(text),
                 None => Ok("User dismissed the question".to_string()),
             },
@@ -155,13 +147,15 @@ mod tests {
     fn args(question: &str, options: &[&str]) -> AskQuestionArgs {
         AskQuestionArgs {
             question: question.to_string(),
-            options: options
-                .iter()
-                .map(|text| AskQuestionOption {
-                    text: (*text).to_string(),
-                    recommended: false,
-                })
-                .collect(),
+            options: Some(
+                options
+                    .iter()
+                    .map(|text| AskQuestionOption {
+                        text: (*text).to_string(),
+                        recommended: false,
+                    })
+                    .collect(),
+            ),
         }
     }
 
@@ -182,6 +176,17 @@ mod tests {
             .take()
             .expect("tx available");
         assert!(tx.send(QuestionResult { response }).is_ok());
+    }
+
+    #[test]
+    fn test_options_omitted_or_null_deserializes_to_empty() {
+        let missing: AskQuestionArgs =
+            serde_json::from_str(r#"{"question": "Q?"}"#).expect("missing options should parse");
+        assert!(missing.options.is_none());
+
+        let null: AskQuestionArgs = serde_json::from_str(r#"{"question": "Q?", "options": null}"#)
+            .expect("null options should parse");
+        assert!(null.options.is_none());
     }
 
     #[tokio::test]
@@ -226,29 +231,6 @@ mod tests {
             .await
             .expect("result should succeed");
         assert_eq!(output, "a");
-    }
-
-    #[tokio::test]
-    async fn test_answer_by_chat_returns_context_message() {
-        let channel = new_channel();
-        let tool = AskQuestion;
-        let mut context = ToolContext::new();
-        context.insert(Arc::downgrade(&channel));
-
-        let call = tool
-            .init_call(&mut context, args("Q?", &["a"]))
-            .await
-            .expect("init_call should succeed");
-
-        respond(&channel, Some(ANSWER_BY_CHAT.to_string()));
-        let output = call
-            .result(&mut context)
-            .await
-            .expect("result should succeed");
-        assert!(
-            output.contains("answer via chat"),
-            "unexpected output: {output}"
-        );
     }
 
     #[tokio::test]

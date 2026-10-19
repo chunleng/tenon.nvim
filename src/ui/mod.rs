@@ -90,6 +90,28 @@ impl ChatWindow {
         Ok(())
     }
 
+    /// Pushes a widget on top of the input panel's widget stack for `key`.
+    pub fn push_input_widget(&self, key: &str, widget: Box<dyn Widget>) -> OxiResult<()> {
+        let mut input_panel = self.input_window.lock().map_err(|_| {
+            nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("poisoned lock".into()))
+        })?;
+        let panel = input_panel.as_mut().ok_or_else(|| {
+            nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("input window missing".into()))
+        })?;
+        panel.push_widget(key, widget)
+    }
+
+    /// Pops the top widget from the input panel's widget stack for `key`.
+    pub fn pop_input_widget(&self, key: &str) -> OxiResult<Option<Arc<dyn Widget>>> {
+        let mut input_panel = self.input_window.lock().map_err(|_| {
+            nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("poisoned lock".into()))
+        })?;
+        let panel = input_panel.as_mut().ok_or_else(|| {
+            nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("input window missing".into()))
+        })?;
+        panel.pop_widget(key)
+    }
+
     pub fn toggle_focus(&mut self) -> OxiResult<()> {
         // Determine target first, then drop locks before switching
         // to avoid deadlock (focus methods also acquire the same mutexes).
@@ -843,7 +865,7 @@ fn push_hooks_keymap(keymaps: &mut Vec<NvimKeymap>) {
 }
 
 /// Returns the standard keymaps shared by the input buffer and question widgets.
-fn input_buffer_keymaps() -> Vec<NvimKeymap> {
+pub fn input_buffer_keymaps() -> Vec<NvimKeymap> {
     let mut keymaps = vec![
         NvimKeymap {
             modes: vec![Mode::Insert, Mode::Normal],
@@ -1039,9 +1061,12 @@ fn chat_window_loop(
 
                 let base_keymaps = input_buffer_keymaps();
                 let widget: Box<dyn Widget> = match event {
-                    PendingAction::Question(question) => {
-                        Box::new(QuestionWidget::new(question, completion_tx, base_keymaps)?)
-                    }
+                    PendingAction::Question(question) => Box::new(QuestionWidget::new(
+                        question,
+                        &chat_key_for_push,
+                        completion_tx,
+                        base_keymaps,
+                    )?),
                     PendingAction::Approval(approval) => {
                         Box::new(ApprovalWidget::new(approval, completion_tx, base_keymaps)?)
                     }
