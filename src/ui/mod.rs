@@ -13,7 +13,7 @@ use nvim_oxi::{
     api::{
         self,
         opts::{CreateAugroupOpts, CreateAutocmdOpts, SetKeymapOpts},
-        types::{LogLevel, Mode},
+        types::{AutocmdCallbackArgs, LogLevel, Mode},
     },
 };
 
@@ -98,7 +98,12 @@ impl ChatWindow {
         let panel = input_panel.as_mut().ok_or_else(|| {
             nvim_oxi::Error::Mlua(mlua::Error::RuntimeError("input window missing".into()))
         })?;
-        panel.push_widget(key, widget)
+        panel.push_widget(key, widget)?;
+
+        if let Some(buffer) = panel.widget(key).and_then(|w| w.buffer().get_buffer()) {
+            Self::setup_input_height_buffer_autocmd(buffer)?;
+        }
+        Ok(())
     }
 
     /// Pops the top widget from the input panel's widget stack for `key`.
@@ -331,12 +336,27 @@ impl ChatWindow {
             api::get_option_value::<u32>("lines", &api::opts::OptionOpts::default())?;
         let max_height = (editor_height as f32 * 0.3) as u32;
 
-        // TODO: There's a malloc error with text_height (Error on nvim-oxi side), to fix and reactivate this function
-        // let text_height = window
-        //     .text_height(&api::opts::WinTextHeightOpts::default())?
-        //     .all;
-        // let target_height = text_height.max(3).min(max_height);
-        let target_height = max_height;
+        // nvim-oxi's Rust binding for text_height passes a NULL arena and frees the returned
+        // Dictionary with libc::free, which triggers malloc errors. Call the same API through Lua
+        // instead to bypass the FFI conversion.
+        let win_id = window.handle();
+        let text_height: u32 = nvim_oxi::mlua::lua()
+            .load(format!(
+                "return vim.api.nvim_win_text_height({win_id}, {{}}).all"
+            ))
+            .eval()
+            .map_err(nvim_oxi::Error::Mlua)?;
+
+        // text_height counts only text rows, but set_height sizes the whole window
+        // including the winbar row, so add 1 when the winbar is set.
+        let win_opts = api::opts::OptionOpts::builder().win(window.clone()).build();
+        let winbar_height: u32 = if api::get_option_value::<String>("winbar", &win_opts)?.is_empty()
+        {
+            0
+        } else {
+            1
+        };
+        let target_height = text_height.max(3).min(max_height) + winbar_height;
 
         let mut win = window.clone();
         win.set_height(target_height)?;
@@ -344,7 +364,7 @@ impl ChatWindow {
     }
 
     /// Registers buffer-local autocmds to adjust input window height on text changes.
-    fn setup_input_height_autocmd(buffer: api::Buffer) -> OxiResult<()> {
+    fn setup_input_height_buffer_autocmd(buffer: api::Buffer) -> OxiResult<()> {
         api::create_autocmd(
             ["TextChanged", "TextChangedI"],
             &CreateAutocmdOpts::builder()
@@ -355,6 +375,54 @@ impl ChatWindow {
                         let _ = Self::adjust_input_window_height(&win);
                     }
                     false
+                })
+                .build(),
+        )?;
+        Ok(())
+    }
+
+    /// Registers window-scoped autocmds to adjust input window height when event happens
+    fn setup_input_height_window_autocmd(
+        input_win: &SwappableBufferPanel,
+        augroup: u32,
+    ) -> OxiResult<()> {
+        api::create_autocmd(
+            ["OptionSet"],
+            &CreateAutocmdOpts::builder()
+                .group(augroup)
+                .patterns(["winbar"])
+                .callback({
+                    let input_win = input_win.clone();
+                    move |_| {
+                        if let Some(win) = input_win.window.get_window()
+                            && win.is_valid()
+                        {
+                            let _ = Self::adjust_input_window_height(&win);
+                        }
+                        false
+                    }
+                })
+                .build(),
+        )?;
+
+        // Compare the event's buffer against the window's live displayed buffer
+        // (not a panel snapshot, which goes stale after push/pop/swap) so the
+        // height re-adjusts on every buffer swap or focus change in this window,
+        // while events from other windows are ignored.
+        api::create_autocmd(
+            ["BufWinEnter", "BufEnter"],
+            &CreateAutocmdOpts::builder()
+                .group(augroup)
+                .callback({
+                    let input_window = input_win.window.clone();
+                    move |args: AutocmdCallbackArgs| {
+                        if let Some(win) = input_window.get_window()
+                            && win.get_buf().is_ok_and(|buf| buf == args.buffer)
+                        {
+                            let _ = Self::adjust_input_window_height(&win);
+                        }
+                        false
+                    }
                 })
                 .build(),
         )?;
@@ -414,7 +482,7 @@ impl ChatWindow {
                 let buffer = self.create_input_buffer()?;
                 let widget = BasicWidget::new(buffer.clone());
                 panel.add_widget(&chat_key, Box::new(widget))?;
-                Self::setup_input_height_autocmd(buffer.inner)?;
+                Self::setup_input_height_buffer_autocmd(buffer.inner)?;
             }
             panel.swap_to(chat_key)?;
 
@@ -623,6 +691,8 @@ impl ChatWindow {
                     .build(),
             )?;
 
+            Self::setup_input_height_window_autocmd(&input_win, augroup)?;
+
             // Set initial window height and register autocmd for dynamic height adjustment
             if let Some(win) = input_win.window.get_window() {
                 Self::adjust_input_window_height(&win)?;
@@ -631,7 +701,7 @@ impl ChatWindow {
                 .widget(&input_win.active_key)
                 .and_then(|w| w.buffer().get_buffer())
             {
-                Self::setup_input_height_autocmd(buffer)?;
+                Self::setup_input_height_buffer_autocmd(buffer)?;
             }
 
             // Update in place because the Arc is shared with ChatDisplay's metadata renderer
