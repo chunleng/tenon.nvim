@@ -141,6 +141,10 @@ impl ChatWindow {
     }
 
     pub fn open(&mut self) -> OxiResult<()> {
+        if self.is_open() {
+            return Ok(());
+        }
+
         self.get_or_create_output_window()?;
         self.get_or_create_input_window()?;
         self.switch_subscription()?;
