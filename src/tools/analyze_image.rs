@@ -90,6 +90,13 @@ impl ToolCore for AnalyzeImage {
         })
     }
 
+    fn properties(&self, _args: &AnalyzeImageArgs) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties {
+            idempotent: true,
+            important: false,
+        }
+    }
+
     async fn init_call(
         &self,
         _context: &mut ToolContext,

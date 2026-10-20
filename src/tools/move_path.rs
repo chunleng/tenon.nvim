@@ -212,6 +212,13 @@ impl ToolCore for MovePath {
         })
     }
 
+    fn properties(&self, _args: &MovePathArgs) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties {
+            idempotent: false,
+            important: false,
+        }
+    }
+
     async fn init_call(
         &self,
         _context: &mut ToolContext,

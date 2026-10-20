@@ -71,6 +71,14 @@ impl ToolCore for PushTasks {
         })
     }
 
+    /// System tool: work queue
+    fn properties(&self, _args: &PushTasksArgs) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties {
+            idempotent: false,
+            important: true,
+        }
+    }
+
     async fn init_call(
         &self,
         context: &mut ToolContext,

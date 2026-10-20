@@ -69,6 +69,14 @@ impl ToolCore for UseChoreo {
         })
     }
 
+    /// System tool: choreo management
+    fn properties(&self, _args: &UseChoreoArgs) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties {
+            idempotent: false,
+            important: true,
+        }
+    }
+
     async fn init_call(
         &self,
         _context: &mut ToolContext,
@@ -233,6 +241,11 @@ mod tests {
         let log = Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
             use_choreo_tool_log(),
         ))));
+        // TenonTool sets properties from the tool before conversion runs
+        log.write().unwrap().properties = crate::chat::log::LogProperties {
+            idempotent: false,
+            important: true,
+        };
 
         // None keeps the original output; the conversion is silent
         let output = tool.convert_log(log.clone()).await;
@@ -250,5 +263,8 @@ mod tests {
             log.token_count,
             crate::utils::estimate_tokens(&choreo_log.system_content())
         );
+        // Properties inherited from the source tool log
+        assert!(!log.properties.idempotent);
+        assert!(log.properties.important);
     }
 }

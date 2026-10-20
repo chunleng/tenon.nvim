@@ -48,6 +48,13 @@ impl ToolCore for RecordThought {
         })
     }
 
+    fn properties(&self, _args: &RecordThoughtArgs) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties {
+            idempotent: false,
+            important: true,
+        }
+    }
+
     async fn init_call(
         &self,
         _context: &mut ToolContext,

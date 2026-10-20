@@ -122,6 +122,14 @@ impl ToolCore for ReadFile {
         })
     }
 
+    /// Read-only, no side effects
+    fn properties(&self, _args: &ReadFileArgs) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties {
+            idempotent: true,
+            important: false,
+        }
+    }
+
     async fn init_call(
         &self,
         _context: &mut ToolContext,

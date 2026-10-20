@@ -94,6 +94,13 @@ impl ToolCore for AskQuestion {
         })
     }
 
+    fn properties(&self, _args: &AskQuestionArgs) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties {
+            idempotent: false,
+            important: false,
+        }
+    }
+
     async fn init_call(
         &self,
         context: &mut ToolContext,

@@ -301,23 +301,24 @@ impl AgenticStreamEngine {
                                 .and_then(|s| s.split('`').next())
                                 .unwrap_or("unknown")
                                 .to_string();
+                            let mut fake_log = TenonLog::new(TenonLogData::Tool(TenonToolLog {
+                                tool_call: TenonToolCall {
+                                    id: tool_result.call.to_string(),
+                                    item_id: tool_result
+                                        .provider
+                                        .as_ref()
+                                        .and_then(|p| p.item_id.clone()),
+                                    internal_call_id: internal_call_id.clone(),
+                                    name: tool_name,
+                                    args: serde_json::Value::Null,
+                                },
+                                tool_result: Some(Err(TenonToolError(text.text.clone()))),
+                                progress: vec![],
+                            }));
+                            // The tool never ran, so its properties are undeterminable
+                            fake_log.properties = crate::chat::log::LogProperties::UNKNOWN;
                             log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
-                                    TenonToolLog {
-                                        tool_call: TenonToolCall {
-                                            id: tool_result.call.to_string(),
-                                            item_id: tool_result
-                                                .provider
-                                                .as_ref()
-                                                .and_then(|p| p.item_id.clone()),
-                                            internal_call_id: internal_call_id.clone(),
-                                            name: tool_name,
-                                            args: serde_json::Value::Null,
-                                        },
-                                        tool_result: Some(Err(TenonToolError(text.text.clone()))),
-                                        progress: vec![],
-                                    },
-                                )))),
+                                log: Arc::new(RwLock::new(fake_log)),
                                 active: true,
                             });
                         }

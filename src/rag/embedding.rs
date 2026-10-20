@@ -1,5 +1,4 @@
-use crate::chat::log::{TenonLog, TenonLogData};
-use crate::tools::{ToolClassification, get_tool_classification};
+use crate::chat::log::TenonLog;
 use crate::utils::path_from_str;
 use anyhow::Result;
 use fastembed::similarity::top_k;
@@ -17,7 +16,7 @@ const EMBED_CHUNK_SIZE: usize = 16;
 
 /// Generates embeddings for multiple logs.
 /// Returns one embedding per input log, in the same order.
-/// Idempotent tool logs are skipped (embedded as empty strings) since their
+/// Idempotent logs are skipped (embedded as empty strings) since their
 /// results are reproducible and add no retrieval signal.
 /// Texts exceeding MAX_TEXT_CHARS are embedded as empty strings.
 pub fn generate_embeddings(logs: &[Arc<RwLock<TenonLog>>]) -> Result<Vec<Vec<f32>>> {
@@ -42,15 +41,8 @@ pub fn generate_embeddings(logs: &[Arc<RwLock<TenonLog>>]) -> Result<Vec<Vec<f32
         .iter()
         .zip(&texts)
         .map(|(log, text)| match log.read().ok().as_deref() {
-            Some(log) => match log.data() {
-                TenonLogData::Tool(tool_log)
-                    if get_tool_classification(&tool_log.tool_call.name)
-                        == ToolClassification::Idempotent =>
-                {
-                    ""
-                }
-                _ => text.as_str(),
-            },
+            Some(log) if log.properties.idempotent => "",
+            Some(_) => text.as_str(),
             None => "",
         })
         .collect();
@@ -155,20 +147,20 @@ mod tests {
         ))))
     }
 
-    fn tool_log(name: &str) -> Arc<RwLock<TenonLog>> {
-        Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
-            TenonToolLog {
-                tool_call: TenonToolCall {
-                    id: "1".into(),
-                    internal_call_id: "1".into(),
-                    item_id: None,
-                    name: name.into(),
-                    args: serde_json::json!({}),
-                },
-                tool_result: None,
-                progress: vec![],
+    fn tool_log(name: &str, properties: crate::chat::log::LogProperties) -> Arc<RwLock<TenonLog>> {
+        let mut log = TenonLog::new(TenonLogData::Tool(TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "1".into(),
+                internal_call_id: "1".into(),
+                item_id: None,
+                name: name.into(),
+                args: serde_json::json!({}),
             },
-        ))))
+            tool_result: None,
+            progress: vec![],
+        }));
+        log.properties = properties;
+        Arc::new(RwLock::new(log))
     }
 
     #[test]
@@ -291,8 +283,20 @@ mod tests {
     fn test_generate_embeddings_skips_idempotent_tool() {
         let logs = vec![
             user_log("Hello world"),
-            tool_log("read_file"),   // Idempotent: skipped
-            tool_log("run_command"), // Mutating: embedded
+            tool_log(
+                "read_file",
+                crate::chat::log::LogProperties {
+                    idempotent: true,
+                    important: false,
+                },
+            ), // Idempotent: skipped
+            tool_log(
+                "run_command",
+                crate::chat::log::LogProperties {
+                    idempotent: false,
+                    important: false,
+                },
+            ), // Mutating: embedded
         ];
 
         let result = generate_embeddings(&logs);

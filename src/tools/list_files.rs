@@ -146,6 +146,14 @@ impl ToolCore for ListFiles {
         })
     }
 
+    /// Read-only, no side effects
+    fn properties(&self, _args: &ListFilesArgs) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties {
+            idempotent: true,
+            important: false,
+        }
+    }
+
     async fn init_call(
         &self,
         _context: &mut ToolContext,

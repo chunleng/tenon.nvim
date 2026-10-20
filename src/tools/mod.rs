@@ -73,6 +73,9 @@ pub trait ToolCore: Send + Sync {
     /// JSON Schema for arguments.
     fn parameters(&self) -> serde_json::Value;
 
+    /// Classification for the tool's chat log, determined from the typed arguments.
+    fn properties(&self, args: &Self::Args) -> crate::chat::log::LogProperties;
+
     /// Initialize the tool calling struct. A good place to perform validation and kick off work.
     fn init_call(
         &self,
@@ -130,10 +133,11 @@ impl<T: ToolCore> TenonTool<T> {
     fn create_tool_log(
         &self,
         args: &serde_json::Value,
+        properties: crate::chat::log::LogProperties,
     ) -> Result<Arc<RwLock<TenonLog>>, ToolExecutionError> {
         let id = uuid::Uuid::new_v4().to_string();
-        let log = Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
-            TenonToolLog {
+        let log = Arc::new(RwLock::new(TenonLog::new_with_properties(
+            TenonLogData::Tool(TenonToolLog {
                 tool_call: TenonToolCall {
                     // Same value for both: TenonTool mints the id, so the
                     // engine's internal_call_id matching finds this log entry.
@@ -145,8 +149,9 @@ impl<T: ToolCore> TenonTool<T> {
                 },
                 tool_result: None,
                 progress: vec![],
-            },
-        ))));
+            }),
+            properties,
+        )));
         let mut log_window = self
             .log_window
             .write()
@@ -183,17 +188,23 @@ impl<T: ToolCore + 'static> From<TenonTool<T>> for DynamicTool {
         DynamicTool::new(name, description, parameters, move |context, args| {
             let tool = Arc::clone(&tool);
             Box::pin(async move {
-                let log = tool.create_tool_log(&args)?;
-
-                // Every failure path below must record its error in the log
-                // before returning, so the UI always shows the outcome.
-                let result = async {
-                    let typed_args: T::Args = serde_json::from_value(args).map_err(|e| {
+                let typed_args_result: Result<T::Args, ToolExecutionError> =
+                    serde_json::from_value(args.clone()).map_err(|e| {
                         ToolExecutionError::invalid_args(format!(
                             "Failed to deserialize args: {}",
                             e
                         ))
-                    })?;
+                    });
+                let properties = match &typed_args_result {
+                    Ok(typed_args) => tool.inner.properties(typed_args),
+                    Err(_) => crate::chat::log::LogProperties::UNKNOWN,
+                };
+                let log = tool.create_tool_log(&args, properties)?;
+
+                // Every failure path below must record its error in the log
+                // before returning, so the UI always shows the outcome.
+                let result = async {
+                    let typed_args = typed_args_result?;
                     let mut call = tool
                         .inner
                         .init_call(context, typed_args)
@@ -228,63 +239,6 @@ impl<T: ToolCore + 'static> From<TenonTool<T>> for DynamicTool {
                 result
             })
         })
-    }
-}
-
-/// Classification of tools based on their behavior when rerun.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolClassification {
-    /// Read-only tools that produce reproducible results.
-    /// Rerunning with same inputs yields the same output.
-    Idempotent,
-
-    /// Read-only tools that may produce different results on rerun,
-    /// but don't mutate any state.
-    NonMutating,
-
-    /// Tools that mutate state when run.
-    /// Rerunning may have different effects or cause errors.
-    Mutating,
-
-    /// Tenon system tools for choreo management.
-    System,
-
-    /// Tools with unknown classification (e.g., MCP tools).
-    Unknown,
-}
-
-/// Returns the classification for a tool by its name.
-///
-/// Built-in tools have fixed classifications:
-/// - Idempotent: read_file, list_files, search_text
-/// - NonMutating: web_search, fetch_webpage, record_thought, pop_task
-/// - Mutating: edit_file, move_path, remove_path, run_command
-/// - System: use_choreo, navigate_choreo, end_choreo, push_tasks
-///
-/// Unknown tool names (including MCP tools) return `ToolClassification::Unknown`.
-pub fn get_tool_classification(name: &str) -> ToolClassification {
-    match name {
-        // Idempotent tools: read-only, reproducible results
-        "read_file" | "list_files" | "search_text" | "search_dependency_code" => {
-            ToolClassification::Idempotent
-        }
-
-        // Non-mutating tools: read-only, may produce different results
-        // pop_task is NonMutating (not System) so its result stays in the
-        // chat history for reference
-        "web_search" | "fetch_webpage" | "record_thought" | "analyze_image" | "ask_question"
-        | "pop_task" | "load_image" => ToolClassification::NonMutating,
-
-        // Mutating tools: modify state when run
-        "edit_file" | "move_path" | "remove_path" | "run_command" => ToolClassification::Mutating,
-
-        // System tools: Tenon choreo management and work queue
-        "use_choreo" | "navigate_choreo" | "end_choreo" | "push_tasks" => {
-            ToolClassification::System
-        }
-
-        // Unknown: MCP tools or unrecognized names
-        _ => ToolClassification::Unknown,
     }
 }
 
@@ -563,6 +517,7 @@ pub fn resolve_tools(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::log::LogProperties;
 
     #[test]
     fn select_in_order_preserves_selector_order() {
@@ -601,18 +556,6 @@ mod tests {
             Some(&result),
         );
         assert_eq!(summary, Some("id: fix crash".to_string()));
-    }
-
-    #[test]
-    fn pop_task_is_non_mutating_not_system() {
-        assert_eq!(
-            get_tool_classification("pop_task"),
-            ToolClassification::NonMutating
-        );
-        assert_eq!(
-            get_tool_classification("push_tasks"),
-            ToolClassification::System
-        );
     }
 
     mod tenon_tool_tests {
@@ -695,6 +638,14 @@ mod tests {
                 serde_json::json!({})
             }
 
+            fn properties(&self, _args: &MockArgs) -> LogProperties {
+                // Distinctive value: verifies the wiring from tool to log
+                LogProperties {
+                    idempotent: false,
+                    important: true,
+                }
+            }
+
             async fn init_call(
                 &self,
                 _context: &mut ToolContext,
@@ -740,6 +691,13 @@ mod tests {
                 serde_json::json!({})
             }
 
+            fn properties(&self, _args: &MockArgs) -> LogProperties {
+                LogProperties {
+                    idempotent: false,
+                    important: true,
+                }
+            }
+
             async fn init_call(
                 &self,
                 _context: &mut ToolContext,
@@ -783,6 +741,13 @@ mod tests {
                 serde_json::json!({})
             }
 
+            fn properties(&self, _args: &MockArgs) -> LogProperties {
+                LogProperties {
+                    idempotent: false,
+                    important: true,
+                }
+            }
+
             async fn init_call(
                 &self,
                 _context: &mut ToolContext,
@@ -814,6 +779,15 @@ mod tests {
                 TenonToolResult::Text(text) => assert_eq!(text.text, "done"),
                 _ => panic!("expected text result"),
             }
+            // Properties come from the tool's properties(), not a name lookup
+            let window = log_window.read().unwrap();
+            assert_eq!(
+                window.logs[0].log.read().unwrap().properties,
+                LogProperties {
+                    idempotent: false,
+                    important: true
+                }
+            );
         }
 
         #[tokio::test]
@@ -838,7 +812,13 @@ mod tests {
             let tool = TenonTool::new(MockStreamTool, log_window.clone());
 
             let handle = tool
-                .create_tool_log(&serde_json::json!({"input": "hello"}))
+                .create_tool_log(
+                    &serde_json::json!({"input": "hello"}),
+                    LogProperties {
+                        idempotent: false,
+                        important: true,
+                    },
+                )
                 .unwrap();
 
             {
@@ -903,6 +883,12 @@ mod tests {
             let logs = tool_logs(&log_window);
             assert_eq!(logs.len(), 1);
             assert!(logs[0].tool_result.as_ref().unwrap().is_err());
+            // Args could not be deserialized, so properties are undeterminable
+            let window = log_window.read().unwrap();
+            assert_eq!(
+                window.logs[0].log.read().unwrap().properties,
+                LogProperties::UNKNOWN
+            );
         }
     }
 }

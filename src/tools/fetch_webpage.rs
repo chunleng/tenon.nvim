@@ -138,6 +138,13 @@ impl ToolCore for FetchWebpage {
         })
     }
 
+    fn properties(&self, _args: &FetchWebpageArgs) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties {
+            idempotent: true,
+            important: false,
+        }
+    }
+
     async fn init_call(
         &self,
         _context: &mut ToolContext,

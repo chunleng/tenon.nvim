@@ -45,6 +45,14 @@ impl ToolCore for PopTask {
         })
     }
 
+    /// Non-idempotent: pops a task off the queue, but not a system log
+    fn properties(&self, _args: &PopTaskArgs) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties {
+            idempotent: false,
+            important: false,
+        }
+    }
+
     async fn init_call(
         &self,
         context: &mut ToolContext,

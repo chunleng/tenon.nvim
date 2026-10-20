@@ -54,6 +54,11 @@ impl ToolCore for McpClient {
         self.input_schema.clone()
     }
 
+    /// MCP tool semantics are unknown: take the least important role
+    fn properties(&self, _args: &Value) -> crate::chat::log::LogProperties {
+        crate::chat::log::LogProperties::UNKNOWN
+    }
+
     async fn init_call(
         &self,
         _context: &mut ToolContext,

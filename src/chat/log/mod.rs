@@ -325,10 +325,37 @@ mod tests {
     }
 
     #[test]
+    fn test_log_initializers_set_properties() {
+        let log = TenonLog::new(TenonLogData::User(TenonUserMessage::Text(
+            "test".to_string(),
+        )));
+        assert!(
+            !log.properties.idempotent && log.properties.important,
+            "new() defaults to non-idempotent, important"
+        );
+
+        let log = TenonLog::new_with_properties(
+            TenonLogData::User(TenonUserMessage::Text("test".to_string())),
+            LogProperties {
+                idempotent: true,
+                important: false,
+            },
+        );
+        assert!(
+            log.properties.idempotent && !log.properties.important,
+            "new_with_properties() honors the given properties"
+        );
+    }
+
+    #[test]
     fn test_last_updated_at_defaults_to_min_when_missing() {
         let json = r#"{"token_count":5,"User":{"Text":"hello"}}"#;
         let log: TenonLog = serde_json::from_str(json).unwrap();
         assert_eq!(log.last_updated_at, Utc.timestamp_nanos(0));
+        // Logs persisted before idempotent/important existed deserialize
+        // with default properties
+        assert!(!log.properties.idempotent);
+        assert!(!log.properties.important);
     }
 
     #[test]
@@ -730,22 +757,63 @@ mod tests {
     }
 }
 
+/// Properties of a chat log, used to classify it for RAG and context truncation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LogProperties {
+    /// Rerunning is safe, because it has no side effects
+    pub idempotent: bool,
+    /// Tenon system logs (choreo management, work queue).
+    pub important: bool,
+}
+
+impl LogProperties {
+    /// Properties for logs whose classification is undeterminable: unknown
+    /// tools and invalid tool calls take the least important role.
+    pub const UNKNOWN: Self = Self {
+        idempotent: true,
+        important: false,
+    };
+}
+
+/// Serde fallback for persisted logs predating the `properties` field. No default trait on
+/// LogProperties to ensure explicit setting of the properties
+fn default_log_properties() -> LogProperties {
+    LogProperties {
+        idempotent: false,
+        important: false,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonLog {
     #[serde(default = "zero")]
     pub token_count: usize,
     #[serde(default = "datetime_min")]
     pub last_updated_at: DateTime<Utc>,
+    #[serde(default = "default_log_properties")]
+    pub properties: LogProperties,
     #[serde(flatten)]
     pub data: TenonLogData,
 }
 
 impl TenonLog {
     pub fn new(data: TenonLogData) -> Self {
+        Self::new_with_properties(
+            data,
+            LogProperties {
+                idempotent: false,
+                important: true,
+            },
+        )
+    }
+
+    pub fn new_with_properties(data: TenonLogData, properties: LogProperties) -> Self {
         let token_count = data.count_tokens();
+
         Self {
             data,
             token_count,
+            properties,
             last_updated_at: Utc::now(),
         }
     }
