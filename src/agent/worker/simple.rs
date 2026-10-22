@@ -40,10 +40,11 @@ impl SimpleTenonWorkerAgent {
         Ok(Self { engine })
     }
 
+    #[allow(clippy::result_large_err)]
     pub async fn chat(
         &self,
         message: impl Into<Message> + Send,
-    ) -> Result<String, rig::agent::StreamingError> {
+    ) -> Result<String, rig::completion::PromptError> {
         self.engine
             .chat(message)
             .await

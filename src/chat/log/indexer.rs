@@ -386,10 +386,7 @@ mod tests {
                 args: serde_json::json!({}),
             },
             tool_result: Some(Ok(crate::chat::log::TenonToolResult::Text(
-                rig::agent::Text {
-                    text: "ok".into(),
-                    ..Default::default()
-                },
+                rig::agent::Text::new("ok"),
             ))),
             progress: vec![],
         }));

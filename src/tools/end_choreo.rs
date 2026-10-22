@@ -187,14 +187,13 @@ mod tests {
                 name: "end_choreo".to_string(),
                 args: serde_json::json!({"move_artifact": "final summary of work"}),
             },
-            tool_result: Some(Ok(TenonToolResult::Text(Text {
-                text: serde_json::json!({
+            tool_result: Some(Ok(TenonToolResult::Text(Text::new(
+                serde_json::json!({
                     "ended_choreo": "implement_code",
                     "artifact": "final summary of work",
                 })
                 .to_string(),
-                ..Default::default()
-            }))),
+            )))),
             progress: vec![],
         }
     }

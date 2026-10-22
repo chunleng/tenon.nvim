@@ -4,8 +4,9 @@ use crate::clients::{
 };
 use crate::directive::Directive;
 use rig::agent::{Agent, MultiTurnStreamItem, StreamingResult};
+use rig::completion::PromptError;
 use rig::message::Message;
-use rig::streaming::{Item, StreamEvent, StreamedUserContent};
+use rig::streaming::{Item, StreamEvent};
 use rig::tool::{DynamicTool, ToolContext};
 
 pub enum StreamItem {
@@ -30,9 +31,7 @@ pub enum StreamItem {
 
 fn convert_stream_item(item: MultiTurnStreamItem) -> StreamItem {
     match item {
-        MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult { tool_result }) => {
-            StreamItem::ToolResult { tool_result }
-        }
+        MultiTurnStreamItem::ToolResult { tool_result } => StreamItem::ToolResult { tool_result },
         MultiTurnStreamItem::StreamAssistantItem(Item::Event(StreamEvent::Reasoning {
             text,
             ..
@@ -78,7 +77,8 @@ impl ChatStream {
         ChatStream { inner }
     }
 
-    pub async fn next(&mut self) -> Option<Result<StreamItem, rig::agent::StreamingError>> {
+    #[allow(clippy::result_large_err)]
+    pub async fn next(&mut self) -> Option<Result<StreamItem, PromptError>> {
         use futures::stream::StreamExt;
         self.inner
             .next()

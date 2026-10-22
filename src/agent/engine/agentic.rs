@@ -304,10 +304,10 @@ impl AgenticStreamEngine {
                             let mut fake_log = TenonLog::new(TenonLogData::Tool(TenonToolLog {
                                 tool_call: TenonToolCall {
                                     id: call_id.clone(),
-                                    item_id: tool_result
-                                        .call
-                                        .provider()
-                                        .and_then(|p| p.item_id.clone()),
+                                    // rig 0.44 collapsed the dual-wire call id
+                                    // (item handle + correlator) into one, so
+                                    // there is no separate item id to record.
+                                    item_id: None,
                                     internal_call_id: call_id,
                                     name: tool_name,
                                     args: serde_json::Value::Null,
@@ -378,7 +378,7 @@ mod tests {
             .tool_server_handle()
             .static_tool_defs()
             .into_iter()
-            .map(|def| def.name)
+            .map(|def| def.name.to_string())
             .collect()
     }
 

@@ -4,7 +4,8 @@ pub mod window;
 
 use chrono::{DateTime, TimeZone, Utc};
 use rig::message::{
-    AssistantContent, CallId, Image, Message, ToolName, ToolResultContent, UserContent,
+    AssistantContent, AssistantMessage, CallId, Image, Message, ToolCall, ToolFunction, ToolName,
+    ToolResultContent, UserContent,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -60,10 +61,9 @@ impl From<&TenonAssistantMessage> for Option<Message> {
         if value.content.is_empty() {
             return None;
         }
-        Some(Message::Assistant {
-            id: None,
-            content: value.content.iter().map(Into::into).collect(),
-        })
+        Some(Message::Assistant(AssistantMessage::new(
+            value.content.iter().map(Into::into).collect(),
+        )))
     }
 }
 
@@ -134,23 +134,16 @@ impl From<&TenonToolLog> for Vec<Message> {
         let Ok(name) = ToolName::new(value.tool_call.name.clone()) else {
             return vec![];
         };
-        // Dual ids to fit the most troublesome OpenAI response API:
-        // item handle `fc_...` + correlator `call_...`
-        let item_id = value
-            .tool_call
-            .item_id
-            .clone()
-            .unwrap_or_else(|| format!("fc_{}", value.tool_call.id));
-        let call_id = format!("call_{}", value.tool_call.id);
-        let mut messages = vec![Message::Assistant {
-            id: None,
-            content: vec![AssistantContent::tool_call_with_call_id(
-                item_id.clone(),
+        // One call id shared by the call and its result; rig 0.44 carries a
+        // single wire id (the dual item-handle/correlator pair is gone).
+        // Built once so an empty log id cannot fork into two rig-issued ids.
+        let call_id = CallId::from_wire(value.tool_call.id.clone());
+        let mut messages = vec![Message::Assistant(AssistantMessage::new(vec![
+            AssistantContent::ToolCall(ToolCall::new(
                 call_id.clone(),
-                name.clone(),
-                value.tool_call.args.clone(),
-            )],
-        }];
+                ToolFunction::new(name.clone(), value.tool_call.args.clone()),
+            )),
+        ]))];
         if let Some(res) = &value.tool_result {
             let tool_result_content = match res {
                 Ok(TenonToolResult::Text(text)) => vec![ToolResultContent::Text(text.clone())],
@@ -158,11 +151,7 @@ impl From<&TenonToolLog> for Vec<Message> {
                 Err(err) => vec![ToolResultContent::text(&err.0)],
             };
             messages.push(Message::User {
-                content: vec![UserContent::tool_result(
-                    CallId::from_dual_wire(item_id, call_id),
-                    name,
-                    tool_result_content,
-                )],
+                content: vec![UserContent::tool_result(call_id, name, tool_result_content)],
             });
         }
 
@@ -379,10 +368,9 @@ mod tests {
         }));
         std::thread::sleep(std::time::Duration::from_millis(10));
         let before = Utc::now();
-        log.set_tool_result(Some(Ok(TenonToolResult::Text(rig::agent::Text {
-            text: "result".into(),
-            ..Default::default()
-        }))));
+        log.set_tool_result(Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+            "result",
+        )))));
         let after = Utc::now();
 
         assert!(log.last_updated_at >= before);
@@ -474,10 +462,9 @@ mod tests {
                     name: "navigate_choreo".to_string(),
                     args: serde_json::json!({"move": 2, "move_artifact": "scope analysis done"}),
                 },
-                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                    text: "output:\n  move: 2\n  artifact: scope analysis done".to_string(),
-                    ..Default::default()
-                }))),
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    "output:\n  move: 2\n  artifact: scope analysis done".to_string(),
+                )))),
                 progress: vec![],
             },
         };
@@ -510,10 +497,9 @@ mod tests {
                     name: "end_choreo".to_string(),
                     args: serde_json::json!({"move_artifact": "final summary of work"}),
                 },
-                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                    text: "choreo completed. output: final summary of work".to_string(),
-                    ..Default::default()
-                }))),
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    "choreo completed. output: final summary of work".to_string(),
+                )))),
                 progress: vec![],
             },
         };
@@ -557,10 +543,9 @@ mod tests {
                 name: name.to_string(),
                 args,
             },
-            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                text: result_text.to_string(),
-                ..Default::default()
-            }))),
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                result_text.to_string(),
+            )))),
             progress: vec![],
         }
     }
@@ -620,10 +605,9 @@ mod tests {
         )));
         let before = log.last_updated_at;
         if let TenonLogData::Tool(tool_log) = &mut log.data {
-            tool_log.tool_result = Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                text: "file contents".to_string(),
-                ..Default::default()
-            })));
+            tool_log.tool_result = Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                "file contents".to_string(),
+            ))));
         }
         log.refresh();
 
@@ -1146,13 +1130,9 @@ impl From<&TenonLog> for Vec<Message> {
             }
             TenonLogData::Tool(tool_log) => tool_log.into(),
             TenonLogData::Thought(thought_log) => {
-                vec![Message::Assistant {
-                    id: None,
-                    content: vec![AssistantContent::text(format!(
-                        "Thoughts: {}",
-                        thought_log.thought()
-                    ))],
-                }]
+                vec![Message::Assistant(AssistantMessage::new(vec![
+                    AssistantContent::text(format!("Thoughts: {}", thought_log.thought())),
+                ]))]
             }
             TenonLogData::Choreo(choreo_log) => {
                 vec![Message::System {

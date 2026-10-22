@@ -244,10 +244,9 @@ mod tests {
         // convert_log swaps the Tool log in place for a Choreo log carrying the tool log
         let tool_log = crate::chat::TenonToolLog {
             tool_call: dummy_tool_call("navigate_choreo"),
-            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                text: "output:\n  move: 2\n  artifact: test output from move 1".to_string(),
-                ..Default::default()
-            }))),
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                "output:\n  move: 2\n  artifact: test output from move 1".to_string(),
+            )))),
             progress: vec![],
         };
         let log = Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(tool_log))));

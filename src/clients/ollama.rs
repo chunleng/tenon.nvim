@@ -37,7 +37,9 @@ pub fn get_ollama_agent(
     {
         ollama_config = ollama_config.with_api_key(token);
     }
-    let model = ollama_config.client().completion(model_name);
+    // native_completion keeps the daemon's native /api/chat route; rig's
+    // completion() now targets the /v1 OpenAI-compatibility API instead.
+    let model = ollama_config.client().native_completion(model_name);
     let mut agent = AgentBuilder::new(model);
     if let Some(p) = preamble {
         agent = agent.preamble(&p);

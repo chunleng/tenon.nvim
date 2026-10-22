@@ -1324,10 +1324,9 @@ mod tests {
                 name: "read_file".into(),
                 args: serde_json::json!({"path": "test.txt"}),
             },
-            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                text: "file content".into(),
-                ..Default::default()
-            }))),
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                "file content",
+            )))),
             progress: vec![],
         }));
         let lines = format_log_detail(&log);
@@ -1362,10 +1361,9 @@ mod tests {
                 name: "run_command".into(),
                 args: serde_json::json!({"argv": ["ls"]}),
             },
-            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                text: "trimmed result".into(),
-                ..Default::default()
-            }))),
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                "trimmed result",
+            )))),
             progress: vec!["compiling".into(), "linking".into()],
         }));
         let lines = format_log_detail(&log);
@@ -1401,10 +1399,9 @@ mod tests {
                     name: "navigate_choreo".to_string(),
                     args: serde_json::json!({}),
                 },
-                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                    text: "move: 2\nartifact: \"move output here\"".into(),
-                    ..Default::default()
-                }))),
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    "move: 2\nartifact: \"move output here\"",
+                )))),
                 progress: vec![],
             },
         )));
@@ -1523,10 +1520,9 @@ mod tests {
                     name: "use_choreo".to_string(),
                     args: serde_json::json!({}),
                 },
-                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                    text: "move output here".into(),
-                    ..Default::default()
-                }))),
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    "move output here",
+                )))),
                 progress: vec![],
             },
         )));

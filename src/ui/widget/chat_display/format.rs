@@ -289,10 +289,9 @@ mod tests {
         // Success: green tick
         let success = TenonLogData::Tool(TenonToolLog {
             tool_call: tool_call.clone(),
-            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                text: "content".to_string(),
-                ..Default::default()
-            }))),
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                "content".to_string(),
+            )))),
             progress: vec![],
         });
         assert_eq!(success.prefix_hl_group(), "TenonLineToolSuccess");
@@ -326,10 +325,9 @@ mod tests {
         };
         let log = TenonToolLog {
             tool_call,
-            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                text: "content".to_string(),
-                ..Default::default()
-            }))),
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                "content".to_string(),
+            )))),
             progress: vec![],
         };
         let data = TenonLogData::Tool(log);
@@ -369,10 +367,9 @@ mod tests {
         // Result arrived: progress is hidden
         let completed = TenonLogData::Tool(TenonToolLog {
             tool_call,
-            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                text: "done".to_string(),
-                ..Default::default()
-            }))),
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                "done".to_string(),
+            )))),
             progress: vec!["compiling".to_string(), "linking".to_string()],
         });
         assert_eq!(

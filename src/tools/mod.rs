@@ -34,7 +34,7 @@ pub use push_tasks::PushTasks;
 pub use read_file::ReadFile;
 pub use record_thought::RecordThought;
 pub use remove_path::RemovePath;
-use rig::message::ToolResultContent;
+use rig::message::{ToolName, ToolResultContent};
 use rig::tool::{DynamicTool, IntoToolOutput, ToolContext, ToolExecutionError, ToolOutput};
 use std::sync::{Arc, RwLock};
 
@@ -170,10 +170,9 @@ fn tenon_result_from_output(output: &ToolOutput) -> TenonToolResult {
     match output.as_content().first() {
         Some(ToolResultContent::Text(text)) => TenonToolResult::Text(text.clone()),
         Some(ToolResultContent::Image(img)) => TenonToolResult::Image(img.clone()),
-        Some(ToolResultContent::Json { value }) => TenonToolResult::Text(rig::agent::Text {
-            text: value.to_string(),
-            ..Default::default()
-        }),
+        Some(ToolResultContent::Json { value }) => {
+            TenonToolResult::Text(rig::agent::Text::new(value.to_string()))
+        }
         None => TenonToolResult::Text(rig::agent::Text::default()),
     }
 }
@@ -185,6 +184,9 @@ impl<T: ToolCore + 'static> From<TenonTool<T>> for DynamicTool {
         let parameters = tool.inner.parameters();
         let tool = Arc::new(tool);
 
+        // Every ToolCore impl returns a non-empty name (a static literal, or
+        // `server____tool` for MCP), so the emptiness check cannot fail here.
+        let name = ToolName::new(name).expect("tool name is non-empty");
         DynamicTool::new_with_context(name, description, parameters, move |context, args| {
             let tool = Arc::clone(&tool);
             Box::pin(async move {
@@ -546,10 +548,9 @@ mod tests {
     #[test]
     fn pop_task_summary_extracts_id_from_output() {
         use crate::chat::TenonToolResult;
-        let result = Ok(TenonToolResult::Text(rig::agent::Text {
-            text: "group: bugs\nid: fix crash\ndetails: crash details\n".to_string(),
-            ..Default::default()
-        }));
+        let result = Ok(TenonToolResult::Text(rig::agent::Text::new(
+            "group: bugs\nid: fix crash\ndetails: crash details\n".to_string(),
+        )));
         let summary = tool_display_summary(
             "pop_task",
             &serde_json::json!({"group": "bugs"}),

@@ -35,14 +35,12 @@ mod tests {
         let mut session_usage = SessionUsage::default();
 
         // First exchange
-        let usage1 = Usage {
-            input_tokens: Some(100),
-            output_tokens: Some(50),
-            total_tokens: Some(150),
-            cached_input_tokens: Some(0),
-            cache_creation_input_tokens: Some(0),
-            ..Default::default()
-        };
+        let usage1 = Usage::new()
+            .input_tokens(100)
+            .output_tokens(50)
+            .total_tokens(150)
+            .cached_input_tokens(0)
+            .cache_creation_input_tokens(0);
         session_usage.add(usage1);
 
         assert_eq!(session_usage.accumulated.input_tokens, Some(100));
@@ -50,14 +48,12 @@ mod tests {
         assert_eq!(session_usage.last_exchange.input_tokens, Some(100));
 
         // Second exchange
-        let usage2 = Usage {
-            input_tokens: Some(200),
-            output_tokens: Some(100),
-            total_tokens: Some(300),
-            cached_input_tokens: Some(50),
-            cache_creation_input_tokens: Some(0),
-            ..Default::default()
-        };
+        let usage2 = Usage::new()
+            .input_tokens(200)
+            .output_tokens(100)
+            .total_tokens(300)
+            .cached_input_tokens(50)
+            .cache_creation_input_tokens(0);
         session_usage.add(usage2);
 
         // Accumulated should sum both
@@ -73,14 +69,12 @@ mod tests {
 
     #[test]
     fn test_session_usage_from_history() {
-        let accumulated = Usage {
-            input_tokens: Some(500),
-            output_tokens: Some(250),
-            total_tokens: Some(750),
-            cached_input_tokens: Some(100),
-            cache_creation_input_tokens: Some(0),
-            ..Default::default()
-        };
+        let accumulated = Usage::new()
+            .input_tokens(500)
+            .output_tokens(250)
+            .total_tokens(750)
+            .cached_input_tokens(100)
+            .cache_creation_input_tokens(0);
 
         let session_usage = SessionUsage {
             accumulated,

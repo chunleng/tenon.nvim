@@ -334,10 +334,7 @@ mod tests {
             args: serde_json::json!({}),
         };
         let tool_result = if has_result {
-            Some(Ok(TenonToolResult::Text(rig::agent::Text {
-                text: "ok".into(),
-                ..Default::default()
-            })))
+            Some(Ok(TenonToolResult::Text(rig::agent::Text::new("ok"))))
         } else {
             None
         };

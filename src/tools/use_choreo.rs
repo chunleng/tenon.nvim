@@ -187,10 +187,7 @@ mod tests {
                 name: "use_choreo".to_string(),
                 args: serde_json::json!({"choreo_id": "implement_code"}),
             },
-            tool_result: Some(Ok(TenonToolResult::Text(Text {
-                text: "done".to_string(),
-                ..Default::default()
-            }))),
+            tool_result: Some(Ok(TenonToolResult::Text(Text::new("done".to_string())))),
             progress: vec![],
         }
     }

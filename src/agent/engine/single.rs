@@ -23,10 +23,13 @@ impl SingleTextResponseEngine {
         Self { agent }
     }
 
+    // rig's PromptError is a large non_exhaustive enum; boxing it here would
+    // ripple through every caller for no behavioral gain.
+    #[allow(clippy::result_large_err)]
     pub async fn chat(
         &self,
         message: impl Into<Message> + Send,
-    ) -> Result<String, rig::agent::StreamingError> {
+    ) -> Result<String, rig::completion::PromptError> {
         let mut stream = ChatStream::new(&self.agent, message, vec![], 100, ToolContext::new());
         let mut full_text = String::new();
         let mut was_text = false;

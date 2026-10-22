@@ -115,15 +115,15 @@ pub enum ProviderConfig {
 mod tests {
     use super::InvalidToolCallHook;
     use futures::StreamExt;
-    use rig::agent::{AgentBuilder, MultiTurnStreamItem, StreamingError};
-    use rig::streaming::StreamedUserContent;
+    use rig::agent::{AgentBuilder, MultiTurnStreamItem};
+    use rig::completion::PromptError;
     use rig::test_utils::{MockAddTool, MockCompletionModel, MockStreamEvent};
 
     /// When the LLM calls a tool that is not registered (e.g. `record_choreo`
     /// when only `add` is available), the `InvalidToolCallHook` should treat it as
     /// a recoverable tool failure — emitting a synthetic ToolResult so the model
     /// can continue — rather than terminating the stream with a fatal
-    /// `StreamingError::Prompt(PromptError::UnknownToolCall)`.
+    /// `PromptError::UnknownToolCall`.
     #[tokio::test]
     async fn unknown_tool_call_yields_tool_result_not_streaming_error() {
         let model = MockCompletionModel::from_stream_turns([
@@ -145,13 +145,11 @@ mod tests {
         let mut stream = agent.prompt("use record_choreo").max_turns(3).stream();
 
         let mut saw_tool_result = false;
-        let mut streaming_error: Option<StreamingError> = None;
+        let mut streaming_error: Option<PromptError> = None;
 
         while let Some(item) = stream.next().await {
             match item {
-                Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
-                    ..
-                })) => {
+                Ok(MultiTurnStreamItem::ToolResult { .. }) => {
                     saw_tool_result = true;
                 }
                 Ok(MultiTurnStreamItem::StreamAssistantItem(_)) => {}
