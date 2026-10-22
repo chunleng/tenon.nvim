@@ -3,7 +3,9 @@ pub mod indexer;
 pub mod window;
 
 use chrono::{DateTime, TimeZone, Utc};
-use rig::message::{AssistantContent, Image, Message, ToolResultContent, UserContent};
+use rig::message::{
+    AssistantContent, CallId, Image, Message, ToolName, ToolResultContent, UserContent,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -127,6 +129,11 @@ pub struct TenonToolLog {
 
 impl From<&TenonToolLog> for Vec<Message> {
     fn from(value: &TenonToolLog) -> Self {
+        // An empty name (corrupt log) cannot form a valid call/result pair,
+        // so the log yields no history rather than an unpaired message.
+        let Ok(name) = ToolName::new(value.tool_call.name.clone()) else {
+            return vec![];
+        };
         // Dual ids to fit the most troublesome OpenAI response API:
         // item handle `fc_...` + correlator `call_...`
         let item_id = value
@@ -140,7 +147,7 @@ impl From<&TenonToolLog> for Vec<Message> {
             content: vec![AssistantContent::tool_call_with_call_id(
                 item_id.clone(),
                 call_id.clone(),
-                value.tool_call.name.clone(),
+                name.clone(),
                 value.tool_call.args.clone(),
             )],
         }];
@@ -151,10 +158,9 @@ impl From<&TenonToolLog> for Vec<Message> {
                 Err(err) => vec![ToolResultContent::text(&err.0)],
             };
             messages.push(Message::User {
-                content: vec![UserContent::tool_result_with_call_id(
-                    item_id,
-                    call_id,
-                    value.tool_call.name.clone(),
+                content: vec![UserContent::tool_result(
+                    CallId::from_dual_wire(item_id, call_id),
+                    name,
                     tool_result_content,
                 )],
             });

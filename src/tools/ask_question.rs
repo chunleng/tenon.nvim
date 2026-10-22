@@ -107,12 +107,13 @@ impl ToolCore for AskQuestion {
         args: Self::Args,
     ) -> Result<Self::Call, Self::Error> {
         let event_channel = context
-            .require::<Weak<EventChannel<PendingAction>>>()
-            .map_err(ToolExecutionError::from_error)?;
+            .scope::<Weak<EventChannel<PendingAction>>>()
+            .ok_or_else(|| ToolExecutionError::other("event channel not available"))?
+            .upgrade();
 
         let (tx, rx) = tokio::sync::oneshot::channel::<QuestionResult>();
 
-        if let Some(event_channel) = event_channel.upgrade() {
+        if let Some(event_channel) = event_channel {
             let mut options = args.options.unwrap_or_default();
             // Stable sort: recommended options first, original order preserved otherwise
             options.sort_by_key(|option| std::cmp::Reverse(option.recommended));
@@ -210,7 +211,7 @@ mod tests {
             .map(|_| ())
             .expect_err("missing context value must error");
         assert!(
-            err.to_string().contains("was not found"),
+            err.to_string().contains("event channel not available"),
             "unexpected error: {err}"
         );
     }
@@ -219,8 +220,7 @@ mod tests {
     async fn test_pushes_question_and_returns_answer() {
         let channel = new_channel();
         let tool = AskQuestion;
-        let mut context = ToolContext::new();
-        context.insert(Arc::downgrade(&channel));
+        let mut context = ToolContext::new().with_scope(Arc::new(Arc::downgrade(&channel)));
 
         let call = tool
             .init_call(&mut context, args("Pick one", &["a", "b"]))
@@ -247,8 +247,7 @@ mod tests {
     async fn test_recommended_options_sorted_to_top_stably() {
         let channel = new_channel();
         let tool = AskQuestion;
-        let mut context = ToolContext::new();
-        context.insert(Arc::downgrade(&channel));
+        let mut context = ToolContext::new().with_scope(Arc::new(Arc::downgrade(&channel)));
 
         let mut args = args("Pick one", &["a", "b", "c", "d"]);
         args.options.as_mut().unwrap()[1].recommended = true;
@@ -270,8 +269,7 @@ mod tests {
     async fn test_dismissed_response_returns_dismissed_message() {
         let channel = new_channel();
         let tool = AskQuestion;
-        let mut context = ToolContext::new();
-        context.insert(Arc::downgrade(&channel));
+        let mut context = ToolContext::new().with_scope(Arc::new(Arc::downgrade(&channel)));
 
         let call = tool
             .init_call(&mut context, args("Q?", &["a"]))
@@ -293,8 +291,7 @@ mod tests {
         drop(channel);
 
         let tool = AskQuestion;
-        let mut context = ToolContext::new();
-        context.insert(weak);
+        let mut context = ToolContext::new().with_scope(Arc::new(weak));
 
         let call = tool
             .init_call(&mut context, args("Q?", &["a"]))

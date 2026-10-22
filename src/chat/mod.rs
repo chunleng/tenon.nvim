@@ -131,9 +131,9 @@ impl ChatSession {
             .clone();
         let pending_actions_channel = Arc::new(EventChannel::new());
         let work_queue = Arc::new(RwLock::new(WorkQueue::default()));
-        let mut tool_context = ToolContext::new();
-        tool_context.insert(Arc::downgrade(&pending_actions_channel));
-        tool_context.insert(Arc::clone(&work_queue));
+        let tool_context = ToolContext::new()
+            .with_scope(Arc::new(Arc::downgrade(&pending_actions_channel)))
+            .with_scope(work_queue.clone());
         let engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
@@ -179,9 +179,9 @@ impl ChatSession {
         let pending_actions_channel = Arc::new(EventChannel::new());
 
         let work_queue = Arc::new(RwLock::new(history.work_queue.clone()));
-        let mut tool_context = ToolContext::new();
-        tool_context.insert(Arc::downgrade(&pending_actions_channel));
-        tool_context.insert(Arc::clone(&work_queue));
+        let tool_context = ToolContext::new()
+            .with_scope(Arc::new(Arc::downgrade(&pending_actions_channel)))
+            .with_scope(work_queue.clone());
         let mut engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
@@ -196,7 +196,7 @@ impl ChatSession {
             id: history.id,
             usage: Arc::new(RwLock::new(SessionUsage {
                 accumulated: history.usage,
-                last_exchange: Usage::new(),
+                last_exchange: Usage::default(),
             })),
             active_agent_name: agent_name,
             engine,

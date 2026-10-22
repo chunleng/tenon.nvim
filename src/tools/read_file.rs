@@ -172,7 +172,7 @@ mod tests {
         tokio::spawn(async move {
             let mut context = ToolContext::new();
             if let Some(weak) = weak {
-                context.insert(weak);
+                context = context.with_scope(Arc::new(weak));
             }
             let call = ReadFile
                 .init_call(

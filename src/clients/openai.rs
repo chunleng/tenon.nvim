@@ -1,5 +1,9 @@
 use crate::clients::ApiKey;
-use rig::{agent::Agent, client::AgentClientExt, providers::openai, tool::DynamicTool};
+use rig::{
+    agent::{Agent, AgentBuilder},
+    providers::openai::OpenAIConfig,
+    tool::DynamicTool,
+};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -32,13 +36,11 @@ pub fn get_openai_completion_api_agent(
             .notify_on_main_thread(e.to_string(), nvim_oxi::api::types::LogLevel::Error);
         String::new()
     });
-    let client = openai::Client::builder()
-        .base_url(config.base_url)
-        .api_key(api_key)
-        .build()
-        .unwrap()
-        .completions_api();
-    let mut agent = client.agent(model_name);
+    let model = OpenAIConfig::new(api_key)
+        .with_base_url(config.base_url)
+        .client()
+        .chat(model_name);
+    let mut agent = AgentBuilder::new(model);
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }
@@ -67,12 +69,11 @@ pub fn get_openai_response_api_agent(
             .notify_on_main_thread(e.to_string(), nvim_oxi::api::types::LogLevel::Error);
         String::new()
     });
-    let client = openai::Client::builder()
-        .base_url(config.base_url)
-        .api_key(api_key)
-        .build()
-        .unwrap();
-    let mut agent = client.agent(model_name);
+    let model = OpenAIConfig::new(api_key)
+        .with_base_url(config.base_url)
+        .client()
+        .responses(model_name);
+    let mut agent = AgentBuilder::new(model);
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }

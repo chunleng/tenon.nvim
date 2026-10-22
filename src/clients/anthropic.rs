@@ -1,5 +1,9 @@
 use crate::clients::ApiKey;
-use rig::{agent::Agent, client::AgentClientExt, providers::anthropic, tool::DynamicTool};
+use rig::{
+    agent::{Agent, AgentBuilder},
+    providers::anthropic::AnthropicConfig,
+    tool::DynamicTool,
+};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -32,12 +36,11 @@ pub fn get_anthropic_agent(
             .notify_on_main_thread(e.to_string(), nvim_oxi::api::types::LogLevel::Error);
         String::new()
     });
-    let client = anthropic::Client::builder()
-        .base_url(config.base_url)
-        .api_key(api_key)
-        .build()
-        .unwrap();
-    let mut agent = client.agent(model_name);
+    let model = AnthropicConfig::new(api_key)
+        .with_base_url(config.base_url)
+        .client()
+        .completion(model_name);
+    let mut agent = AgentBuilder::new(model);
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }

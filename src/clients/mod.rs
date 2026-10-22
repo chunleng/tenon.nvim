@@ -116,8 +116,7 @@ mod tests {
     use super::InvalidToolCallHook;
     use futures::StreamExt;
     use rig::agent::{AgentBuilder, MultiTurnStreamItem, StreamingError};
-    use rig::prelude::StreamingPrompt;
-    use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
+    use rig::streaming::StreamedUserContent;
     use rig::test_utils::{MockAddTool, MockCompletionModel, MockStreamEvent};
 
     /// When the LLM calls a tool that is not registered (e.g. `record_choreo`
@@ -143,7 +142,7 @@ mod tests {
             .add_hook(InvalidToolCallHook)
             .build();
 
-        let mut stream = agent.stream_prompt("use record_choreo").max_turns(3).await;
+        let mut stream = agent.prompt("use record_choreo").max_turns(3).stream();
 
         let mut saw_tool_result = false;
         let mut streaming_error: Option<StreamingError> = None;
@@ -155,9 +154,7 @@ mod tests {
                 })) => {
                     saw_tool_result = true;
                 }
-                Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Final(
-                    _,
-                ))) => {}
+                Ok(MultiTurnStreamItem::StreamAssistantItem(_)) => {}
                 Ok(MultiTurnStreamItem::FinalResponse(_)) => break,
                 Ok(_) => {}
                 Err(e) => {

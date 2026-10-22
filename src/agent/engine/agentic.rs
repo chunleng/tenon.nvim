@@ -55,9 +55,9 @@ impl AgenticStreamEngine {
         // Allow tools to set this flag to indicate to chat to restart a new stream so that we can
         // inject context base on the new state. Useful for tools that changes chat session's state
         // (e.g. Choreo tools)
-        tool_context.insert(Arc::new(ContinueSignal(AtomicBool::new(false))));
+        tool_context = tool_context.with_scope(Arc::new(ContinueSignal(AtomicBool::new(false))));
 
-        if tool_context.contains::<Arc<RwLock<WorkQueue>>>() {
+        if tool_context.scope::<RwLock<WorkQueue>>().is_some() {
             system_tools.insert(
                 0,
                 TenonTool::new(crate::tools::PushTasks, log_handler.log_window.clone()).into(),
@@ -68,7 +68,10 @@ impl AgenticStreamEngine {
             );
         }
 
-        if tool_context.contains::<Weak<EventChannel<PendingAction>>>() {
+        if tool_context
+            .scope::<Weak<EventChannel<PendingAction>>>()
+            .is_some()
+        {
             system_tools.insert(
                 0,
                 TenonTool::new(AskQuestion, log_handler.log_window.clone()).into(),
@@ -207,7 +210,7 @@ impl AgenticStreamEngine {
         let mut chat_history = self.log_handler.get_chat_history(&prompt);
         let mut messages = build_choreo_messages(
             &self.active_choreo,
-            self.tool_context.get::<Arc<RwLock<WorkQueue>>>(),
+            self.tool_context.scope::<RwLock<WorkQueue>>().as_ref(),
             prompt,
         )
         .await;
@@ -224,8 +227,7 @@ impl AgenticStreamEngine {
             chat_history,
             max_turns,
             self.tool_context.clone(),
-        )
-        .await;
+        );
 
         while let Some(result) = stream.next().await {
             if cancel_token.load(Ordering::SeqCst) {
@@ -275,12 +277,9 @@ impl AgenticStreamEngine {
                     }
                 }
                 Ok(StreamItem::ToolCall { .. }) => {}
-                Ok(StreamItem::ToolResult {
-                    tool_result,
-                    internal_call_id,
-                }) => {
+                Ok(StreamItem::ToolResult { tool_result }) => {
                     // A choreo tool set the flag: end this stream, start a new request
-                    if let Some(signal) = self.tool_context.get::<Arc<ContinueSignal>>()
+                    if let Some(signal) = self.tool_context.scope::<ContinueSignal>()
                         && signal.0.load(Ordering::SeqCst)
                     {
                         break;
@@ -301,14 +300,15 @@ impl AgenticStreamEngine {
                                 .and_then(|s| s.split('`').next())
                                 .unwrap_or("unknown")
                                 .to_string();
+                            let call_id = tool_result.call.to_string();
                             let mut fake_log = TenonLog::new(TenonLogData::Tool(TenonToolLog {
                                 tool_call: TenonToolCall {
-                                    id: tool_result.call.to_string(),
+                                    id: call_id.clone(),
                                     item_id: tool_result
-                                        .provider
-                                        .as_ref()
+                                        .call
+                                        .provider()
                                         .and_then(|p| p.item_id.clone()),
-                                    internal_call_id: internal_call_id.clone(),
+                                    internal_call_id: call_id,
                                     name: tool_name,
                                     args: serde_json::Value::Null,
                                 },
@@ -338,7 +338,7 @@ impl AgenticStreamEngine {
         }
 
         self.tool_context
-            .get::<Arc<ContinueSignal>>()
+            .scope::<ContinueSignal>()
             .is_some_and(|signal| signal.0.swap(false, Ordering::SeqCst))
     }
 }
@@ -375,9 +375,8 @@ mod tests {
     async fn agent_tool_names(engine: &AgenticStreamEngine) -> Vec<String> {
         engine
             .build_chat_adapter()
-            .tool_definitions(None)
-            .await
-            .unwrap()
+            .tool_server_handle()
+            .static_tool_defs()
             .into_iter()
             .map(|def| def.name)
             .collect()

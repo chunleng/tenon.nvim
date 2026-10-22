@@ -35,8 +35,8 @@ pub async fn request_approval(
     reject_message: String,
 ) -> ApprovalResult {
     let Some(event_channel) = context
-        .get::<Weak<EventChannel<PendingAction>>>()
-        .and_then(Weak::upgrade)
+        .scope::<Weak<EventChannel<PendingAction>>>()
+        .and_then(|weak| weak.upgrade())
     else {
         return ApprovalResult::Rejected(reject_message);
     };
@@ -73,8 +73,7 @@ mod tests {
         reject_message: String,
     ) -> tokio::task::JoinHandle<ApprovalResult> {
         tokio::spawn(async move {
-            let mut context = ToolContext::new();
-            context.insert(weak);
+            let mut context = ToolContext::new().with_scope(Arc::new(weak));
             request_approval(&mut context, tool, args, reject_message).await
         })
     }
@@ -192,8 +191,7 @@ mod tests {
         let channel = new_channel();
         let weak = Arc::downgrade(&channel);
         drop(channel);
-        let mut context = ToolContext::new();
-        context.insert(weak);
+        let mut context = ToolContext::new().with_scope(Arc::new(weak));
         assert_eq!(
             request_approval(
                 &mut context,

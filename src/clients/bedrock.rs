@@ -1,6 +1,5 @@
 use rig::{
-    agent::Agent,
-    client::{AgentClientExt, ProviderClient},
+    agent::{Agent, AgentBuilder},
     tool::DynamicTool,
 };
 
@@ -15,9 +14,8 @@ pub fn get_bedrock_agent(
     // from the standard env like AWS_REGION)
     // - AWS_ENDPOINT_URL_BEDROCK_RUNTIME
     // - AWS_BEARER_TOKEN_BEDROCK
-    let client = rig_bedrock::client::Client::from_env()
-        .expect("Failed to create Bedrock client from environment");
-    let mut agent = client.agent(model_name);
+    let model = rig_bedrock::client::BedrockRuntime::from_env().completion(model_name);
+    let mut agent = AgentBuilder::new(model);
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }

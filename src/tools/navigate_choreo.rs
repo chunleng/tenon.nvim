@@ -163,7 +163,7 @@ impl ToolCoreCall for NavigateChoreoCall {
         }
 
         // Signal the engine to end the stream and start a new request
-        if let Some(signal) = context.get::<Arc<ContinueSignal>>() {
+        if let Some(signal) = context.scope::<ContinueSignal>() {
             signal.0.store(true, Ordering::Release);
         }
 

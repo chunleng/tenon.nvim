@@ -185,7 +185,7 @@ impl<T: ToolCore + 'static> From<TenonTool<T>> for DynamicTool {
         let parameters = tool.inner.parameters();
         let tool = Arc::new(tool);
 
-        DynamicTool::new(name, description, parameters, move |context, args| {
+        DynamicTool::new_with_context(name, description, parameters, move |context, args| {
             let tool = Arc::clone(&tool);
             Box::pin(async move {
                 let typed_args_result: Result<T::Args, ToolExecutionError> =

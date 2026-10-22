@@ -58,11 +58,11 @@ impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
                 if let Ok(usage_lock) = session.usage.read() {
                     let session_usage = &*usage_lock;
                     (
-                        session_usage.accumulated.input_tokens,
-                        session_usage.accumulated.output_tokens,
-                        session_usage.accumulated.cached_input_tokens,
-                        session_usage.accumulated.total_tokens,
-                        session_usage.last_exchange.total_tokens,
+                        session_usage.accumulated.input_tokens.unwrap_or(0),
+                        session_usage.accumulated.output_tokens.unwrap_or(0),
+                        session_usage.accumulated.cached_input_tokens.unwrap_or(0),
+                        session_usage.accumulated.total_tokens.unwrap_or(0),
+                        session_usage.last_exchange.total_tokens.unwrap_or(0),
                     )
                 } else {
                     (0, 0, 0, 0, 0)

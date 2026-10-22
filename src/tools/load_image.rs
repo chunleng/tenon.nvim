@@ -32,7 +32,7 @@ impl ToolCoreCall for LoadImageCall {
         let image = load_image_file(&self.filepath).map_err(ToolExecutionError::other)?;
         // End the current stream and start a new request: the log is swapped
         // to a user image log, so the image is delivered as a user message
-        if let Some(signal) = context.get::<Arc<ContinueSignal>>() {
+        if let Some(signal) = context.scope::<ContinueSignal>() {
             signal.0.store(true, Ordering::Release);
         }
         Ok(ToolOutput::one(ToolResultContent::Image(image)))
@@ -153,8 +153,7 @@ mod tests {
 
     fn context_with_signal() -> (ToolContext, Arc<ContinueSignal>) {
         let signal = Arc::new(ContinueSignal(AtomicBool::new(false)));
-        let mut context = ToolContext::new();
-        context.insert(signal.clone());
+        let context = ToolContext::new().with_scope(signal.clone());
         (context, signal)
     }
 

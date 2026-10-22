@@ -1,9 +1,7 @@
 use crate::clients::ApiKey;
-use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use rig::{
-    agent::Agent,
-    client::{AgentClientExt, Nothing},
-    providers::ollama,
+    agent::{Agent, AgentBuilder},
+    providers::ollama::OllamaConfig,
     tool::DynamicTool,
 };
 use serde::Deserialize;
@@ -33,22 +31,14 @@ pub fn get_ollama_agent(
     tools: Vec<DynamicTool>,
     mut params: serde_json::Map<String, serde_json::Value>,
 ) -> Agent {
-    let mut headers = HeaderMap::new();
+    let mut ollama_config = OllamaConfig::new().with_base_url(config.base_url);
     if let Some(bearer) = config.bearer
         && let Ok(token) = bearer.resolve()
     {
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
-        );
+        ollama_config = ollama_config.with_api_key(token);
     }
-    let client = ollama::Client::builder()
-        .base_url(config.base_url)
-        .http_headers(headers)
-        .api_key(Nothing)
-        .build()
-        .unwrap();
-    let mut agent = client.agent(model_name);
+    let model = ollama_config.client().completion(model_name);
+    let mut agent = AgentBuilder::new(model);
     if let Some(p) = preamble {
         agent = agent.preamble(&p);
     }

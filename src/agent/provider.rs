@@ -5,13 +5,12 @@ use crate::clients::{
 use crate::directive::Directive;
 use rig::agent::{Agent, MultiTurnStreamItem, StreamingResult};
 use rig::message::Message;
-use rig::streaming::{StreamedAssistantContent, StreamedUserContent, StreamingChat};
+use rig::streaming::{Item, StreamEvent, StreamedUserContent};
 use rig::tool::{DynamicTool, ToolContext};
 
 pub enum StreamItem {
     ToolResult {
         tool_result: rig::message::ToolResult,
-        internal_call_id: String,
     },
     ReasoningDelta {
         reasoning: String,
@@ -22,7 +21,6 @@ pub enum StreamItem {
     #[allow(dead_code)]
     ToolCall {
         tool_call: rig::message::ToolCall,
-        internal_call_id: String,
     },
     CompletionCall {
         usage: rig::completion::Usage,
@@ -32,29 +30,17 @@ pub enum StreamItem {
 
 fn convert_stream_item(item: MultiTurnStreamItem) -> StreamItem {
     match item {
-        MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
-            tool_result,
-            internal_call_id,
-        }) => StreamItem::ToolResult {
-            tool_result,
-            internal_call_id,
-        },
-        MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ReasoningDelta {
-            reasoning,
-            ..
-        }) => StreamItem::ReasoningDelta { reasoning },
-        MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text_struct)) => {
-            StreamItem::Text {
-                text: text_struct.text,
-            }
+        MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult { tool_result }) => {
+            StreamItem::ToolResult { tool_result }
         }
-        MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
-            tool_call,
-            internal_call_id,
-        }) => StreamItem::ToolCall {
-            tool_call,
-            internal_call_id,
-        },
+        MultiTurnStreamItem::StreamAssistantItem(Item::Event(StreamEvent::Reasoning {
+            text,
+            ..
+        })) => StreamItem::ReasoningDelta { reasoning: text },
+        MultiTurnStreamItem::StreamAssistantItem(Item::Event(StreamEvent::Text {
+            text, ..
+        })) => StreamItem::Text { text },
+        MultiTurnStreamItem::ToolCall { tool_call } => StreamItem::ToolCall { tool_call },
         MultiTurnStreamItem::CompletionCall(call) => {
             StreamItem::CompletionCall { usage: call.usage }
         }
@@ -67,7 +53,7 @@ pub struct ChatStream {
 }
 
 impl ChatStream {
-    pub async fn new(
+    pub fn new(
         agent: &Agent,
         message: impl Into<Message> + Send,
         history: Vec<Message>,
@@ -83,11 +69,12 @@ impl ChatStream {
             other => other,
         };
         let inner = agent
-            .stream_chat(message, history)
+            .prompt(message)
+            .history(history)
             .max_turns(max_turns)
             .tool_concurrency(tool_concurrency)
             .tool_context(tool_context)
-            .await;
+            .stream();
         ChatStream { inner }
     }
 

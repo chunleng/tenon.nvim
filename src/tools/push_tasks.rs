@@ -3,7 +3,7 @@ use crate::chat::WorkQueue;
 use rig::tool::{ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use crate::tools::{ToolCore, ToolCoreCall};
 
@@ -85,8 +85,8 @@ impl ToolCore for PushTasks {
         args: Self::Args,
     ) -> Result<Self::Call, Self::Error> {
         let queue = context
-            .require::<Arc<RwLock<WorkQueue>>>()
-            .map_err(ToolExecutionError::from_error)?;
+            .scope::<RwLock<WorkQueue>>()
+            .ok_or_else(|| ToolExecutionError::other("work queue not available"))?;
 
         let mut guard = queue
             .write()
@@ -133,9 +133,7 @@ mod tests {
     }
 
     fn context_with_queue(queue: &Arc<RwLock<WorkQueue>>) -> ToolContext {
-        let mut context = ToolContext::new();
-        context.insert(queue.clone());
-        context
+        ToolContext::new().with_scope(queue.clone())
     }
 
     #[tokio::test]
@@ -151,7 +149,7 @@ mod tests {
             .map(|_| ())
             .expect_err("missing context value must error");
         assert!(
-            err.to_string().contains("was not found"),
+            err.to_string().contains("work queue not available"),
             "unexpected error: {err}"
         );
     }
