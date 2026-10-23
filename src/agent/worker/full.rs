@@ -1,11 +1,12 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
-use rig::tool::{ToolContext, ToolExecutionError};
+use rig::tool::{DynamicTool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::agent::engine::AgenticStreamEngine;
+use crate::chat::ChatLogHandler;
 use crate::chat::log::window::LogWindow;
 use crate::tools::{TenonTool, ToolCore, ToolCoreCall};
 use crate::{chat::choreo::Choreo, clients::SupportedModels, directive::Directive};
@@ -148,11 +149,22 @@ pub struct GoalOrientedWorker {
 }
 
 impl GoalOrientedWorker {
-    pub fn new(model: SupportedModels, directive: Vec<Directive>, tool_names: Vec<String>) -> Self {
+    pub fn new(
+        model: SupportedModels,
+        directive: Vec<Directive>,
+        tools: Vec<DynamicTool>,
+        log_handler: ChatLogHandler,
+    ) -> Self {
         let result_slot: Arc<RwLock<Option<GoalResult>>> = Arc::new(RwLock::new(None));
 
-        let mut engine =
-            AgenticStreamEngine::new(model, directive, tool_names, vec![], ToolContext::new());
+        let mut engine = AgenticStreamEngine::with_log_handler(
+            model,
+            directive,
+            tools,
+            vec![],
+            ToolContext::new(),
+            log_handler,
+        );
         engine.system_tools.push(
             TenonTool::new(
                 AnswerTool {

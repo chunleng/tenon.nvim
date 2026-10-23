@@ -2,7 +2,9 @@ mod rust;
 
 use crate::chat::log::window::LogWindow;
 use crate::chat::{TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData};
-use crate::tools::{ToolCore, ToolCoreCall, tool_display_summary};
+use crate::tools::{
+    ListFiles, ReadFile, SearchText, TenonTool, ToolCore, ToolCoreCall, tool_display_summary,
+};
 use futures::stream::{BoxStream, StreamExt};
 use rig::tool::{ToolContext, ToolExecutionError};
 use serde::Deserialize;
@@ -21,6 +23,7 @@ pub enum SupportedLanguages {
 }
 
 use crate::agent::worker::full::{GoalOrientedWorker, GoalResult};
+use crate::chat::ChatLogHandler;
 use crate::get_application_config;
 
 #[derive(Deserialize)]
@@ -102,13 +105,15 @@ impl ToolCore for SearchDependencyCode {
             .ok_or_else(|| ToolExecutionError::other("No default agent configured"))?;
         let model = agent_config.model.clone();
 
-        let tool_names = vec![
-            "search_text".to_string(),
-            "read_file".to_string(),
-            "list_files".to_string(),
+        let log_handler = ChatLogHandler::new();
+        let log_window = log_handler.log_window.clone();
+        let tools = vec![
+            TenonTool::new(SearchText, log_window.clone()).into(),
+            TenonTool::new(ReadFile, log_window.clone()).into(),
+            TenonTool::new(ListFiles, log_window).into(),
         ];
 
-        let mut agent = GoalOrientedWorker::new(model, vec![], tool_names);
+        let mut agent = GoalOrientedWorker::new(model, vec![], tools, log_handler);
 
         let task = format!(
             "Investigate the following in the dependency source code located at:\n{}\n\n\

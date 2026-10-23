@@ -4,6 +4,7 @@ use crate::chat::history::{SessionMetadata, save_to_history};
 use crate::get_application_config;
 use crate::hooks::run_needs_attention_hooks;
 use crate::tools::ask_question::Question;
+use crate::tools::resolve_tools;
 use crate::utils::approval::Approval;
 use chrono::{DateTime, Local};
 use nvim_oxi::Result as OxiResult;
@@ -134,13 +135,14 @@ impl ChatSession {
         let tool_context = ToolContext::new()
             .with_scope(Arc::new(Arc::downgrade(&pending_actions_channel)))
             .with_scope(work_queue.clone());
-        let engine = AgenticStreamEngine::new(
+        let mut engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
-            agent.tool_names,
+            vec![],
             agent.choreos,
             tool_context,
         );
+        engine.tools = resolve_tools(&agent.tool_names, engine.log_handler.log_window.clone());
         let log_window = engine.log_handler.log_window.clone();
         Ok(Self {
             id: generate_chat_id(),
@@ -185,10 +187,11 @@ impl ChatSession {
         let mut engine = AgenticStreamEngine::new(
             agent.model,
             agent.directive,
-            agent.tool_names,
+            vec![],
             agent.choreos,
             tool_context,
         );
+        engine.tools = resolve_tools(&agent.tool_names, engine.log_handler.log_window.clone());
         engine.load(logs);
         let log_window = engine.log_handler.log_window.clone();
 

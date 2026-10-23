@@ -16,7 +16,7 @@ use crate::chat::{
 };
 use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource, PresetContent, directive_path};
-use crate::tools::{AskQuestion, RecordThought, TenonTool, resolve_tools};
+use crate::tools::{AskQuestion, RecordThought, TenonTool};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use rig::agent::Agent;
 
@@ -44,11 +44,28 @@ impl AgenticStreamEngine {
     pub fn new(
         model: SupportedModels,
         directive: Vec<Directive>,
-        tool_names: Vec<String>,
+        tools: Vec<DynamicTool>,
+        choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
+        tool_context: ToolContext,
+    ) -> Self {
+        Self::with_log_handler(
+            model,
+            directive,
+            tools,
+            choreos,
+            tool_context,
+            ChatLogHandler::new(),
+        )
+    }
+
+    pub fn with_log_handler(
+        model: SupportedModels,
+        directive: Vec<Directive>,
+        tools: Vec<DynamicTool>,
         choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
         mut tool_context: ToolContext,
+        log_handler: ChatLogHandler,
     ) -> Self {
-        let log_handler = ChatLogHandler::new();
         let mut system_tools =
             vec![TenonTool::new(RecordThought, log_handler.log_window.clone()).into()];
 
@@ -78,7 +95,6 @@ impl AgenticStreamEngine {
             );
         }
 
-        let tools = resolve_tools(&tool_names, log_handler.log_window.clone());
         Self {
             model,
             directive,
@@ -91,9 +107,9 @@ impl AgenticStreamEngine {
         }
     }
 
-    /// Re-resolves tools from raw selectors, replacing the current set.
-    pub fn set_tools(&mut self, tool_names: Vec<String>) {
-        self.tools = resolve_tools(&tool_names, self.log_handler.log_window.clone());
+    /// Replaces the current tool set with caller-resolved tools.
+    pub fn set_tools(&mut self, tools: Vec<DynamicTool>) {
+        self.tools = tools;
     }
 
     /// Replaces log_window from logs and reconstructs active_choreo from choreo logs.
@@ -348,6 +364,7 @@ mod tests {
     use super::*;
     use crate::chat::TenonChoreoLog;
     use crate::clients::{OllamaProviderConfig, ProviderConfig, SupportedModels};
+    use crate::tools::resolve_tools;
 
     fn test_model() -> SupportedModels {
         SupportedModels {
@@ -359,17 +376,22 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_engine_resolves_tools_at_new() {
-        let engine = AgenticStreamEngine::new(
-            test_model(),
-            vec![],
-            vec!["read_file".to_string(), "edit_file".to_string()],
-            vec![],
-            ToolContext::new(),
+    #[tokio::test]
+    async fn test_engine_uses_caller_resolved_tools() {
+        // The caller resolves tool names into DynamicTools before passing them in.
+        let log_handler = ChatLogHandler::new();
+        let tools = resolve_tools(
+            &["read_file".to_string(), "edit_file".to_string()],
+            log_handler.log_window.clone(),
         );
+        let engine =
+            AgenticStreamEngine::new(test_model(), vec![], tools, vec![], ToolContext::new());
         let names: Vec<String> = engine.tools.iter().map(|t| t.name().to_string()).collect();
         assert_eq!(names, vec!["read_file", "edit_file"]);
+        // Caller-provided tools must be wired into the chat adapter.
+        let adapter_names = agent_tool_names(&engine).await;
+        assert!(adapter_names.contains(&"read_file".to_string()));
+        assert!(adapter_names.contains(&"edit_file".to_string()));
     }
 
     async fn agent_tool_names(engine: &AgenticStreamEngine) -> Vec<String> {
@@ -445,13 +467,13 @@ mod tests {
             .set(std::env::current_dir().unwrap())
             .ok();
 
-        let mut engine = AgenticStreamEngine::new(
-            test_model(),
-            vec![],
-            vec!["read_file".to_string(), "edit_file".to_string()],
-            vec![],
-            ToolContext::new(),
+        let log_handler = ChatLogHandler::new();
+        let tools = resolve_tools(
+            &["read_file".to_string(), "edit_file".to_string()],
+            log_handler.log_window.clone(),
         );
+        let mut engine =
+            AgenticStreamEngine::new(test_model(), vec![], tools, vec![], ToolContext::new());
 
         // Navigate to move 2
         let move1_log = TenonLog::new(TenonLogData::Choreo(TenonChoreoLog {
