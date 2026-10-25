@@ -23,8 +23,11 @@ pub struct SearchTextArgs {
     pub max_files: Option<usize>,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
-pub struct SearchText;
+#[derive(Deserialize, Serialize, Clone, Default)]
+pub struct SearchText {
+    /// Base directory for resolving `path`. `None` resolves against the process cwd.
+    pub working_directory: Option<std::path::PathBuf>,
+}
 
 #[derive(Serialize)]
 struct MatchEntry {
@@ -63,6 +66,7 @@ fn truncate_line(line: &str) -> String {
 
 pub struct SearchTextCall {
     args: SearchTextArgs,
+    working_directory: Option<std::path::PathBuf>,
 }
 
 impl ToolCoreCall for SearchTextCall {
@@ -71,13 +75,28 @@ impl ToolCoreCall for SearchTextCall {
 
     async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
         let args = self.args;
-        let search_dir = args.path.unwrap_or_else(|| ".".to_string());
-        let search_path = path_from_str(&search_dir);
-
+        let search_path = match &self.working_directory {
+            Some(dir) => match args.path.as_deref() {
+                None => dir.clone(),
+                Some(p) => {
+                    let path = path_from_str(p);
+                    if path.is_relative() {
+                        dir.join(path)
+                    } else {
+                        path
+                    }
+                }
+            },
+            None => args
+                .path
+                .as_deref()
+                .map(path_from_str)
+                .unwrap_or_else(|| path_from_str(".")),
+        };
         if !search_path.exists() {
             return Err(ToolExecutionError::not_found(format!(
                 "Directory '{}' not found",
-                search_dir
+                search_path.display()
             )));
         }
 
@@ -165,11 +184,12 @@ impl ToolCoreCall for SearchTextCall {
                 continue;
             }
 
+            let relative = entry
+                .path()
+                .strip_prefix(&search_path)
+                .unwrap_or(entry.path());
+
             if let Some(ref matcher) = glob_matcher {
-                let relative = entry
-                    .path()
-                    .strip_prefix(&search_path)
-                    .unwrap_or(entry.path());
                 if !matcher.is_match(relative) {
                     continue;
                 }
@@ -189,7 +209,14 @@ impl ToolCoreCall for SearchTextCall {
                 Err(_) => continue,
             };
 
-            let path_str = entry.path().to_str().unwrap_or_default().to_string();
+            // Explicit `path` -> full entry paths; default (working directory)
+            // -> paths relative to the search root
+            let out = if args.path.is_some() {
+                entry.path()
+            } else {
+                relative
+            };
+            let path_str = out.to_str().unwrap_or_default().to_string();
             files.push((path_str, text));
         }
 
@@ -233,7 +260,7 @@ impl ToolCore for SearchText {
                 },
                 "path": {
                     "type": "string",
-                    "description": "Directory to search. cwd if omitted"
+                    "description": "Directory to search. Relative paths resolve against cwd; cwd if omitted"
                 },
                 "glob": {
                     "type": "string",
@@ -270,7 +297,10 @@ impl ToolCore for SearchText {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Call, Self::Error> {
-        Ok(SearchTextCall { args })
+        Ok(SearchTextCall {
+            args,
+            working_directory: self.working_directory.clone(),
+        })
     }
 }
 
@@ -554,6 +584,81 @@ mod tests {
 
             assert_eq!(parsed["context_before"], json!(["line3", "line4"]));
             assert_eq!(parsed["context_after"], json!(["line6"]));
+        }
+    }
+
+    mod path_resolution {
+        use super::*;
+        use rig::tool::ToolContext;
+
+        fn make_temp_tree(tag: &str, root_file: &str) -> std::path::PathBuf {
+            let dir = std::env::temp_dir().join(format!(
+                "tenon_search_text_{}_{}",
+                tag,
+                std::process::id()
+            ));
+            std::fs::create_dir_all(dir.join("sub")).unwrap();
+            std::fs::write(dir.join(root_file), "needle here").unwrap();
+            std::fs::write(dir.join("sub").join("nested.txt"), "needle here").unwrap();
+            dir
+        }
+
+        async fn run_search(
+            working_directory: Option<std::path::PathBuf>,
+            path: Option<String>,
+        ) -> Result<String, ToolExecutionError> {
+            let mut context = ToolContext::new();
+            let call = SearchText { working_directory }
+                .init_call(
+                    &mut context,
+                    SearchTextArgs {
+                        pattern: None,
+                        literal: Some("needle".to_string()),
+                        path,
+                        glob: None,
+                        ignore_case: None,
+                        context_lines: None,
+                        max_files: None,
+                    },
+                )
+                .await
+                .expect("init_call should succeed");
+            call.result(&mut context).await
+        }
+
+        #[tokio::test]
+        async fn test_path_resolution_against_working_directory() {
+            let dir = make_temp_tree("wd", "root.txt");
+            let other = make_temp_tree("other", "other_root.txt");
+
+            // path None -> working directory, output relative to it
+            let output = run_search(Some(dir.clone()), None)
+                .await
+                .expect("path None should resolve to working directory");
+            assert!(output.contains("root.txt"), "got: {output}");
+            assert!(output.contains("nested.txt"), "got: {output}");
+            assert!(!output.contains(dir.to_str().unwrap()), "got: {output}");
+
+            // relative path -> joined against working directory, output full path
+            let output = run_search(Some(dir.clone()), Some("sub".to_string()))
+                .await
+                .expect("relative path should resolve against working directory");
+            let nested_full = dir.join("sub").join("nested.txt");
+            assert!(
+                output.contains(nested_full.to_str().unwrap()),
+                "got: {output}"
+            );
+            assert!(!output.contains("root.txt"), "got: {output}");
+
+            // absolute path -> used as-is, ignoring the working directory
+            let output = run_search(Some(dir.clone()), Some(other.to_string_lossy().to_string()))
+                .await
+                .expect("absolute path should be used as-is");
+            assert!(output.contains("other_root.txt"), "got: {output}");
+            assert!(!output.contains(dir.to_str().unwrap()), "got: {output}");
+
+            std::fs::remove_dir_all(&dir).ok();
+            std::fs::remove_dir_all(&other).ok();
         }
     }
 

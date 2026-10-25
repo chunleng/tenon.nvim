@@ -452,7 +452,7 @@ fn builtin_tools(log_window: Arc<RwLock<LogWindow>>) -> Vec<Option<(String, Dyna
         )),
         Some((
             "search_text".to_string(),
-            TenonTool::new(SearchText, log_window.clone()).into(),
+            TenonTool::new(SearchText::default(), log_window.clone()).into(),
         )),
     ];
 
