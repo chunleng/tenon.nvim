@@ -22,6 +22,14 @@ pub enum SupportedLanguages {
     Rust,
 }
 
+impl std::fmt::Display for SupportedLanguages {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SupportedLanguages::Rust => write!(f, "rust"),
+        }
+    }
+}
+
 use crate::agent::worker::full::{GoalOrientedWorker, GoalResult};
 use crate::chat::ChatLogHandler;
 use crate::get_application_config;
@@ -58,7 +66,7 @@ impl ToolCore for SearchDependencyCode {
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "What to investigate in the dependency's code"
+                    "description": "What to investigate"
                 },
                 "language": {
                     "type": "string",
@@ -71,7 +79,8 @@ impl ToolCore for SearchDependencyCode {
                 },
                 "version": {
                     "type": "string",
-                    "description": "Exact dependency version. Autoresolve when omitted. Required when multiple versions exist"
+                    "description": "Exact dependency version. Autoresolved when omitted. Required \
+                        when the project uses multiple versions of the dependency"
                 }
             },
             "required": ["prompt", "language", "dependency"]
@@ -134,11 +143,10 @@ impl ToolCore for SearchDependencyCode {
         let mut agent = GoalOrientedWorker::new(model, vec![], tools, log_handler);
 
         let task = format!(
-            "Investigate the following in the dependency source code located at:\n{}\n\n\
+            "You are in the directory of the source code of {}, a {} dependency. Investigate the following:\n\n\
              {}\n\n\
              All paths must be within the dependency source directory above.",
-            source_path.display(),
-            args.prompt
+            args.dependency, args.language, args.prompt
         );
 
         let log_window = agent.log_window();
