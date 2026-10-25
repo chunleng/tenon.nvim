@@ -145,7 +145,9 @@ impl ToolCore for SearchDependencyCode {
         let task = format!(
             "You are in the directory of the source code of {}, a {} dependency. Investigate the following:\n\n\
              {}\n\n\
-             All paths must be within the dependency source directory above.",
+             All paths must be within the dependency source directory above. \
+             If the investigation leads outside this dependency, do not search other \
+             libraries. End the search there and report where it ended as your answer",
             args.dependency, args.language, args.prompt
         );
 
