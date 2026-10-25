@@ -63,10 +63,6 @@ let lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
 buffer.set_lines(start..end, false, lines);
 ```
 
-### `rig-core` was Renamed
-
-`rig-core` was renamed to `rig`. While most code was moved to `rig`, some core logic might retain in `rig-core`
-
 ## Deep-Dive Docs
 
 See `.agent/` folder:
