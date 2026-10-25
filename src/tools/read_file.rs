@@ -58,15 +58,16 @@ impl ToolCoreCall for ReadFileCall {
             }
         }
 
-        // Output contract: successful reads start with a `-` line followed by the content. Failures
-        // stay on the error channel (ToolExecutionError).
+        // Output contract: successful reads start with a `success: ...; content:` status line
+        // followed by the content. Failures stay on the error channel (ToolExecutionError)
+        // with an `error: ` prefix.
         match fs::read_to_string(path) {
             Ok(content) => {
                 let lines: Vec<&str> = content.lines().collect();
                 let total_lines = lines.len();
 
                 if total_lines == 0 {
-                    return Ok("-".to_string());
+                    return Ok("success: empty file".to_string());
                 }
 
                 let (start_line, end_line) = match (args.start_line, args.end_line) {
@@ -79,18 +80,23 @@ impl ToolCoreCall for ReadFileCall {
 
                 if start >= total_lines {
                     return Err(ToolExecutionError::invalid_args(format!(
-                        "start_line {} > file_len {}",
+                        "error: start_line {} > file_len {}",
                         start + 1,
                         total_lines
                     )));
                 }
 
                 let selected_lines = lines[start..end].join("\n");
+                let status = if start + 1 == end {
+                    format!("success: line {} read; content:", start + 1)
+                } else {
+                    format!("success: line {}-{} read; content:", start + 1, end)
+                };
 
-                Ok(format!("-\n{selected_lines}"))
+                Ok(format!("{status}\n{selected_lines}"))
             }
             Err(e) => Err(ToolExecutionError::other(format!(
-                "read_file '{}': {}",
+                "error: read_file '{}': {}",
                 args.filepath, e
             ))),
         }
@@ -107,7 +113,10 @@ impl ToolCore for ReadFile {
     type Call = ReadFileCall;
 
     fn description(&self) -> String {
-        "Read file contents. Supports line ranges (1-based, inclusive; default: full file). Successful reads start with a `-` line followed by the file content".to_string()
+        "Read file contents. Supports line ranges (1-based, inclusive; default: full file). \
+         First line of the result is a status line (`success: ...; content:` for reads, \
+         `error: ...` for failures); the second line onwards is the file content, verbatim."
+            .to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -257,7 +266,10 @@ mod tests {
 
         std::fs::remove_file(&path).ok();
         let output = result.expect("should swap and return lines, not error");
-        assert_eq!(output, "-\nline2\nline3\nline4\nline5");
+        assert_eq!(
+            output,
+            "success: line 2-5 read; content:\nline2\nline3\nline4\nline5"
+        );
     }
 
     #[tokio::test]
@@ -284,7 +296,7 @@ mod tests {
 
         std::fs::remove_file(&path).ok();
         let output = result.expect("equal start/end is a valid single-line read");
-        assert_eq!(output, "-\nline2");
+        assert_eq!(output, "success: line 2 read; content:\nline2");
     }
 
     #[tokio::test]
@@ -310,7 +322,7 @@ mod tests {
 
         std::fs::remove_file(&path).ok();
         let output = result.expect("empty file read should succeed");
-        assert_eq!(output, "-");
+        assert_eq!(output, "success: empty file");
     }
 
     #[tokio::test]
@@ -336,8 +348,8 @@ mod tests {
             .expect_err("missing file should return ToolExecutionError");
         assert!(
             err.to_string()
-                .contains("/nonexistent/tenon_read_file_missing"),
-            "error should name the filepath, got: {err}"
+                .starts_with("error: read_file '/nonexistent/tenon_read_file_missing'"),
+            "error should be prefixed with 'error: ' and name the filepath, got: {err}"
         );
 
         // Out-of-range start_line: same error contract
@@ -362,6 +374,10 @@ mod tests {
             .await
             .expect_err("out-of-range start_line should return ToolExecutionError");
         std::fs::remove_file(&path).ok();
+        assert!(
+            err.to_string().starts_with("error: "),
+            "error should be prefixed with 'error: ', got: {err}"
+        );
         assert!(
             err.to_string().contains("start_line"),
             "error should mention start_line, got: {err}"
@@ -399,7 +415,7 @@ mod tests {
         let output = task.await.expect("task should not panic");
         assert_eq!(
             output.expect("approved read should succeed"),
-            "-\nsecret content"
+            "success: line 1 read; content:\nsecret content"
         );
         channel.mark_done();
 
@@ -425,7 +441,7 @@ mod tests {
         let output = task.await.expect("task should not panic");
         assert_eq!(
             output.expect("non-hidden read should succeed"),
-            "-\nnormal content"
+            "success: line 1 read; content:\nnormal content"
         );
         assert!(
             channel.peek().is_none(),
@@ -468,7 +484,7 @@ mod tests {
 
         std::fs::remove_dir_all(&dir).ok();
         let output = result.expect("relative path should resolve against working directory");
-        assert_eq!(output, "-\nwd content");
+        assert_eq!(output, "success: line 1 read; content:\nwd content");
     }
 
     #[tokio::test]
@@ -487,7 +503,7 @@ mod tests {
 
         std::fs::remove_dir_all(&dir).ok();
         let output = output.expect("relative path in hidden working dir should read");
-        assert_eq!(output, "-\nhidden wd content");
+        assert_eq!(output, "success: line 1 read; content:\nhidden wd content");
         assert!(
             channel.peek().is_none(),
             "raw relative filepath without hidden component must not push an approval"
