@@ -59,7 +59,7 @@ If instructions contradict, prioritize in order:
 - No emoji/icon unless necessary
 - Before calling `ask_question`, put context in chat; put only the question in the tool, and don't repeat it in chat
 - Chat log content: restate or reference depending on content type
-    - System content are not visible to the user. Never reference them in output; restate their content instead
+    - System/Tool content are not visible to the user. Never reference them in output; restate their content instead
     - Other content is visible to the user. Don't restate it; reference it instead
 
 ### All Text Output (chat, documents, code comments)
