@@ -19,11 +19,15 @@ pub struct ListFilesArgs {
     pub max_count: Option<usize>,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
-pub struct ListFiles;
+#[derive(Deserialize, Serialize, Clone, Default)]
+pub struct ListFiles {
+    /// Base directory for resolving `path`. `None` resolves against the process cwd.
+    pub working_directory: Option<std::path::PathBuf>,
+}
 
 pub struct ListFilesCall {
     args: ListFilesArgs,
+    working_directory: Option<std::path::PathBuf>,
 }
 
 impl ToolCoreCall for ListFilesCall {
@@ -34,13 +38,28 @@ impl ToolCoreCall for ListFilesCall {
         let args = self.args;
         let max_count = args.max_count.unwrap_or(20);
         let show_gitignored = args.show_gitignored.unwrap_or(false);
-        let search_dir = args.path.unwrap_or_else(|| ".".to_string());
-        let search_path = path_from_str(&search_dir);
-
+        let search_path = match &self.working_directory {
+            Some(dir) => match args.path.as_deref() {
+                None => dir.clone(),
+                Some(p) => {
+                    let path = path_from_str(p);
+                    if path.is_relative() {
+                        dir.join(path)
+                    } else {
+                        path
+                    }
+                }
+            },
+            None => args
+                .path
+                .as_deref()
+                .map(path_from_str)
+                .unwrap_or_else(|| path_from_str(".")),
+        };
         if !search_path.exists() {
             return Err(ToolExecutionError::not_found(format!(
                 "Directory '{}' not found",
-                search_dir
+                search_path.display()
             )));
         }
 
@@ -83,10 +102,17 @@ impl ToolCoreCall for ListFilesCall {
                         continue;
                     }
                     total_matched += 1;
-                    if files.len() < max_count
-                        && let Some(path_str) = e.path().to_str()
-                    {
-                        files.push(path_str.to_string());
+                    if files.len() < max_count {
+                        // Explicit `path` -> full entry paths; default (working directory)
+                        // -> paths relative to the search root
+                        let out = if args.path.is_some() {
+                            e.path()
+                        } else {
+                            relative
+                        };
+                        if let Some(out_str) = out.to_str() {
+                            files.push(out_str.to_string());
+                        }
                     }
                 }
                 Err(_) => continue,
@@ -129,7 +155,7 @@ impl ToolCore for ListFiles {
                 },
                 "path": {
                     "type": "string",
-                    "description": "Search dir. cwd if omitted"
+                    "description": "Search dir. Relative paths resolve against cwd; cwd if omitted"
                 },
                 "show_gitignored": {
                     "type": "boolean",
@@ -159,6 +185,84 @@ impl ToolCore for ListFiles {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Call, Self::Error> {
-        Ok(ListFilesCall { args })
+        Ok(ListFilesCall {
+            args,
+            working_directory: self.working_directory.clone(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rig::tool::ToolContext;
+
+    fn make_temp_tree(tag: &str, root_file: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("tenon_list_files_{}_{}", tag, std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join(root_file), "").unwrap();
+        std::fs::write(dir.join("sub").join("nested.txt"), "").unwrap();
+        dir
+    }
+
+    async fn run_list(
+        working_directory: Option<std::path::PathBuf>,
+        path: Option<String>,
+        pattern: &str,
+    ) -> Result<String, ToolExecutionError> {
+        let mut context = ToolContext::new();
+        let call = ListFiles { working_directory }
+            .init_call(
+                &mut context,
+                ListFilesArgs {
+                    pattern: pattern.to_string(),
+                    path,
+                    show_gitignored: None,
+                    max_count: None,
+                },
+            )
+            .await
+            .expect("init_call should succeed");
+        call.result(&mut context).await
+    }
+
+    #[tokio::test]
+    async fn test_path_resolution_against_working_directory() {
+        let dir = make_temp_tree("wd", "root.txt");
+        let other = make_temp_tree("other", "other_root.txt");
+
+        // path None -> working directory, output relative to it
+        let output = run_list(Some(dir.clone()), None, "*.txt")
+            .await
+            .expect("path None should resolve to working directory");
+        assert!(output.contains("root.txt"), "got: {output}");
+        assert!(!output.contains("nested.txt"), "got: {output}");
+        assert!(!output.contains(dir.to_str().unwrap()), "got: {output}");
+
+        // relative path -> joined against working directory, output full path
+        let output = run_list(Some(dir.clone()), Some("sub".to_string()), "*.txt")
+            .await
+            .expect("relative path should resolve against working directory");
+        let nested_full = dir.join("sub").join("nested.txt");
+        assert!(
+            output.contains(nested_full.to_str().unwrap()),
+            "got: {output}"
+        );
+        assert!(!output.contains("root.txt"), "got: {output}");
+
+        // absolute path -> used as-is, ignoring the working directory
+        let output = run_list(
+            Some(dir.clone()),
+            Some(other.to_string_lossy().to_string()),
+            "*.txt",
+        )
+        .await
+        .expect("absolute path should be used as-is");
+        assert!(output.contains("other_root.txt"), "got: {output}");
+        assert!(!output.contains("nested.txt"), "got: {output}");
+
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&other).ok();
     }
 }

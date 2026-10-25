@@ -116,7 +116,13 @@ impl ToolCore for SearchDependencyCode {
                 log_window.clone(),
             )
             .into(),
-            TenonTool::new(ListFiles, log_window).into(),
+            TenonTool::new(
+                ListFiles {
+                    working_directory: Some(source_path.clone()),
+                },
+                log_window,
+            )
+            .into(),
         ];
 
         let mut agent = GoalOrientedWorker::new(model, vec![], tools, log_handler);

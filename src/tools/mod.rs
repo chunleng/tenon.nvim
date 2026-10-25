@@ -424,7 +424,7 @@ fn builtin_tools(log_window: Arc<RwLock<LogWindow>>) -> Vec<Option<(String, Dyna
         )),
         Some((
             "list_files".to_string(),
-            TenonTool::new(ListFiles, log_window.clone()).into(),
+            TenonTool::new(ListFiles::default(), log_window.clone()).into(),
         )),
         Some((
             "move_path".to_string(),
