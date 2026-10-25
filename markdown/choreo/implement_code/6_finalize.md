@@ -8,7 +8,7 @@
   a. Goal-related: the failing test/check covers code written for the goal, or the failure is in an area the goal's changes touched
   b. Unrelated: pre-existing failures, or failures in areas the goal's changes did not touch
 4. If any goal-related failure exists, provide the `failures` artifact
-5. If no goal-related failure exists, the choreo ends; surface any unverifiable items accumulated during Verify moves (from choreo memory) and any unrelated failures as the final output to the user
+5. If no goal-related failure exists, the choreo ends; the final artifact carries any unverifiable items accumulated during Verify moves (from choreo memory) and any unrelated failures
 
 ## Choreo Move Artifact
 
@@ -25,4 +25,4 @@ unverifiable:
 unrelated_failures:
   - "check failures not related to the goal, with why they are unrelated"
 ```
-This is the final output the user sees.
+This is the final artifact of the choreo.

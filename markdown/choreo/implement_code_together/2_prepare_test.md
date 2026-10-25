@@ -43,7 +43,7 @@ Dropped tests are dropped silently. Only kept tests are shown to the user.
 No valuable test remains → navigate to next move without confirmation.
 
 ### Confirm with User
-1. Show kept test targets
+1. ::tenon-print:: the kept test targets
 2. Say "Please confirm the test"
    - User confirmed, test created/modified or told to skip → next move
    - User requests changes → loop to process step 1

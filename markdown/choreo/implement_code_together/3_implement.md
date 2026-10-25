@@ -1,5 +1,5 @@
 ## Process
-1. If goal is to create a test, say "Test only goal, skipping implementation" and navigate to move 1
+1. If goal is to create a test, ::tenon-print:: "Test only goal, skipping implementation" and navigate to move 1
 2. Implement:
   - `tests` from previous move is empty → implement per goal directly
   - Otherwise → implement only what's needed to make the test pass:
@@ -10,7 +10,7 @@
   - Build project
   - `tests` from previous move is empty → skip test run
   - Otherwise → run test (should pass now), run tests in same module/feature area
-4. Summarize changes
+4. ::tenon-print:: summary of changes
 5. Ask user to confirm: "Please confirm the implementation"
   - Confirm → format code and navigate to move 1
   - Otherwise → use "Decision: Confirm vs. Reject vs. No Answer" to interpret the response
