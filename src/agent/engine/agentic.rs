@@ -16,7 +16,7 @@ use crate::chat::{
 };
 use crate::clients::SupportedModels;
 use crate::directive::{Directive, DirectiveSource, PresetContent, directive_path};
-use crate::tools::{AskQuestion, RecordThought, TenonTool};
+use crate::tools::{AskQuestion, TenonTool};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use rig::agent::Agent;
 
@@ -66,8 +66,7 @@ impl AgenticStreamEngine {
         mut tool_context: ToolContext,
         log_handler: ChatLogHandler,
     ) -> Self {
-        let mut system_tools =
-            vec![TenonTool::new(RecordThought, log_handler.log_window.clone()).into()];
+        let mut system_tools: Vec<DynamicTool> = Vec::new();
 
         // Allow tools to set this flag to indicate to chat to restart a new stream so that we can
         // inject context base on the new state. Useful for tools that changes chat session's state

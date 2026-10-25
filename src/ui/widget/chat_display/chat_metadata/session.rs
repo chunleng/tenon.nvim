@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn test_session_line_agent_model_and_tool_diff() {
         let mut state = MetadataSessionState::new();
-        // Model changed from default, 7 tools removed from default's 9 tools
+        // Model changed from default, 6 tools removed from default's 8 tools
         let values = MetadataValues {
             current_tool_names: vec!["read_file".to_string(), "edit_file".to_string()],
             input_tokens: 100,
@@ -376,17 +376,17 @@ mod tests {
 
         assert_eq!(
             parts.agent_segment(true),
-            "\u{ed35}  default (󰚩 claude-3-5-sonnet | 󰣖 -7)"
+            "\u{ed35}  default (󰚩 claude-3-5-sonnet | 󰣖 -6)"
         );
         // Model dropped: robot sign and separator kept with the tool diff
-        assert_eq!(parts.agent_segment(false), "\u{ed35}  default (󰚩 | 󰣖 -7)");
+        assert_eq!(parts.agent_segment(false), "\u{ed35}  default (󰚩 | 󰣖 -6)");
         assert_eq!(parts.join(), "100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total");
     }
 
     #[test]
     fn test_session_line_agent_tool_diff_only() {
         let mut state = MetadataSessionState::new();
-        // Model matches default, 8 tools removed from default's 9 tools
+        // Model matches default, 7 tools removed from default's 8 tools
         let values = MetadataValues {
             model_display: "ollama_cloud: glm-5.1".to_string(),
             current_tool_names: vec!["read_file".to_string()],
@@ -396,7 +396,7 @@ mod tests {
         let parts = state.session_line_parts(&values);
 
         // No model change: tool diff only, no robot sign
-        assert_eq!(parts.agent_segment(true), "\u{ed35}  default (󰣖 -8)");
+        assert_eq!(parts.agent_segment(true), "\u{ed35}  default (󰣖 -7)");
         assert_eq!(parts.join(), "0 󰕒, 0 󰇚, 0 total");
     }
 
@@ -415,7 +415,6 @@ mod tests {
                 "run_command".to_string(),
                 "search_text".to_string(),
                 "web_search".to_string(),
-                "record_thought".to_string(),
             ],
             ..MetadataValues::test_default()
         };
@@ -428,7 +427,7 @@ mod tests {
     #[test]
     fn test_session_line_agent_added_tools() {
         let mut state = MetadataSessionState::new();
-        // 1 added (mcp_server____custom_tool), 7 removed (default's 9 minus
+        // 1 added (mcp_server____custom_tool), 6 removed (default's 8 minus
         // read_file, edit_file)
         let values = MetadataValues {
             model_display: "ollama_cloud: glm-5.1".to_string(),
@@ -443,7 +442,7 @@ mod tests {
         let parts = state.session_line_parts(&values);
 
         // No model change: tool diff only, no robot sign
-        assert_eq!(parts.agent_segment(true), "\u{ed35}  default (󰣖 +1/-7)");
+        assert_eq!(parts.agent_segment(true), "\u{ed35}  default (󰣖 +1/-6)");
     }
 
     #[test]

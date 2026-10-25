@@ -229,9 +229,7 @@ impl ChatLogIndexer {
                 if indexed.active
                     && matches!(
                         log.data(),
-                        TenonLogData::User(_)
-                            | TenonLogData::Assistant(_)
-                            | TenonLogData::Thought(_)
+                        TenonLogData::User(_) | TenonLogData::Assistant(_)
                     )
                     && !is_first_user(idx)
                     && candidates.insert(idx)
@@ -447,7 +445,7 @@ mod tests {
 
     #[test]
     fn test_get_relevant_context_adds_role_attribute() {
-        use crate::chat::log::{TenonChoreoLog, TenonThoughtLog, TenonToolCall, TenonToolLog};
+        use crate::chat::log::{TenonChoreoLog, TenonToolLog};
 
         let make_choreo_log = || {
             TenonLog::new(TenonLogData::Choreo(TenonChoreoLog::new(
@@ -457,29 +455,12 @@ mod tests {
                 TenonToolLog::default(),
             )))
         };
-        let make_thought_log = || {
-            TenonLog::new(TenonLogData::Thought(TenonThoughtLog {
-                summary: None,
-                tool_log: TenonToolLog {
-                    tool_call: TenonToolCall {
-                        id: "call-1".to_string(),
-                        internal_call_id: "call-1".to_string(),
-                        item_id: None,
-                        name: "record_thought".to_string(),
-                        args: serde_json::json!({"thought": "thinking"}),
-                    },
-                    tool_result: None,
-                    progress: vec![],
-                },
-            }))
-        };
 
         // (inactive log, expected role)
         let cases = vec![
             (create_user_log(1), "user"),
             (create_assistant_log(1), "assistant"),
             (create_tool_log("run_command", 1, MUTATING), "tool"),
-            (make_thought_log(), "thought"),
             (make_choreo_log(), "choreo"),
         ];
 

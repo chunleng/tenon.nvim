@@ -67,18 +67,6 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             TenonLogData::Choreo(choreo_log) => {
                 vec![format!("# {}", choreo_log.content)]
             }
-            TenonLogData::Thought(thought_log) => match &thought_log.summary {
-                Some(summary) => {
-                    let mut lines = vec!["Thought summary:".to_string()];
-                    lines.extend(summary.lines().map(|s| s.to_string()));
-                    lines
-                }
-                None => thought_log
-                    .thought()
-                    .lines()
-                    .map(|s| s.to_string())
-                    .collect(),
-            },
         }
     }
 
@@ -94,7 +82,6 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
                 }
             }
             TenonLogData::Tool(_) => "TenonLineTool".to_string(),
-            TenonLogData::Thought(_) => "TenonLineThought".to_string(),
             TenonLogData::Choreo(_) => String::new(),
             TenonLogData::Image { .. } => String::new(),
         }
@@ -114,7 +101,6 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             }
             TenonLogData::Tool(_) => "󰣖 ".to_string(),
             TenonLogData::Choreo(_) => " ".to_string(),
-            TenonLogData::Thought(_) => " ".to_string(),
         }
     }
 
@@ -131,7 +117,6 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
                 }
             }
             TenonLogData::Tool(_) => "TenonSignTool".to_string(),
-            TenonLogData::Thought(_) => "TenonSignThought".to_string(),
             TenonLogData::Choreo(_) => "TenonSignChoreo".to_string(),
         }
     }
@@ -152,7 +137,7 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::log::{TenonImageLog, TenonThoughtLog};
+    use crate::chat::log::TenonImageLog;
     use crate::chat::{
         TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog, TenonLogData,
         TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage,
@@ -398,55 +383,6 @@ mod tests {
         assert_eq!(data.sign(), "󰣖 ");
         assert_eq!(data.sign_hl_group(), "TenonSignTool");
         assert_eq!(data.line_hl_group(), "TenonLineTool");
-    }
-
-    fn thought_tool_log(thought: &str) -> TenonToolLog {
-        TenonToolLog {
-            tool_call: TenonToolCall {
-                id: "call-1".to_string(),
-                internal_call_id: "call-1".to_string(),
-                item_id: None,
-                name: "record_thought".to_string(),
-                args: serde_json::json!({"thought": thought}),
-            },
-            tool_result: None,
-            progress: vec![],
-        }
-    }
-
-    #[test]
-    fn test_thought_formatter_with_summary() {
-        let thought = TenonLogData::Thought(TenonThoughtLog {
-            summary: Some("Short summary".to_string()),
-            tool_log: thought_tool_log(
-                "I need to think about this carefully.\nIt has multiple lines.",
-            ),
-        });
-
-        assert_eq!(thought.lines(), vec!["Thought summary:", "Short summary"]);
-        assert_eq!(thought.sign_hl_group(), "TenonSignThought");
-        assert_eq!(thought.line_hl_group(), "TenonLineThought");
-    }
-
-    #[test]
-    fn test_thought_formatter_without_summary() {
-        let thought = TenonLogData::Thought(TenonThoughtLog {
-            summary: None,
-            tool_log: thought_tool_log(
-                "I need to think about this carefully.\nIt has multiple lines.",
-            ),
-        });
-
-        // Falls back to showing the thought itself
-        assert_eq!(
-            thought.lines(),
-            vec![
-                "I need to think about this carefully.",
-                "It has multiple lines."
-            ]
-        );
-        assert_eq!(thought.sign_hl_group(), "TenonSignThought");
-        assert_eq!(thought.line_hl_group(), "TenonLineThought");
     }
 
     #[test]

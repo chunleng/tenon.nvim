@@ -213,9 +213,6 @@ impl ChatLogCache {
                                 RenderType::Head(poll_line_count)
                             }
                         }
-                        TenonLogData::Thought(thought_log) if thought_log.summary.is_none() => {
-                            RenderType::Tail(3)
-                        }
                         _ => RenderType::Head(poll_line_count),
                     };
 
@@ -258,7 +255,7 @@ impl ChatLogCache {
 
             // Update check_from_index:
             // - If last rendered entry is assistant, keep it at check_from to allow re-rendering (streaming support)
-            // - If last rendered entry is tool/thought/choreo, find the first entry in the
+            // - If last rendered entry is tool/choreo, find the first entry in the
             //   consecutive chain.
             // - Otherwise, progress to current_count
             let new_check_from = self
@@ -270,18 +267,14 @@ impl ChatLogCache {
                     };
                     match &log.data {
                         TenonLogData::Assistant(_) => current_count - 1,
-                        TenonLogData::Tool(_)
-                        | TenonLogData::Thought(_)
-                        | TenonLogData::Choreo(_) => (0..current_count - 1)
+                        TenonLogData::Tool(_) | TenonLogData::Choreo(_) => (0..current_count - 1)
                             .rev()
                             .take_while(|&i| {
                                 self.rendered_entries.get(i).is_some_and(|e| {
                                     e.log.read().ok().is_some_and(|l| {
                                         matches!(
                                             l.data,
-                                            TenonLogData::Tool(_)
-                                                | TenonLogData::Thought(_)
-                                                | TenonLogData::Choreo(_)
+                                            TenonLogData::Tool(_) | TenonLogData::Choreo(_)
                                         )
                                     })
                                 })
@@ -367,30 +360,6 @@ mod tests {
             )))),
             active: true,
         };
-    }
-
-    fn add_thought_log(cache: &mut ChatLogCache, thought: &str) {
-        let session = cache.chat_session.write().unwrap();
-        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
-        log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Thought(
-                crate::chat::log::TenonThoughtLog {
-                    summary: None,
-                    tool_log: crate::chat::log::TenonToolLog {
-                        tool_call: crate::chat::log::TenonToolCall {
-                            id: "thought".to_string(),
-                            internal_call_id: "thought".to_string(),
-                            item_id: None,
-                            name: "record_thought".to_string(),
-                            args: serde_json::json!({"thought": thought}),
-                        },
-                        tool_result: None,
-                        progress: vec![],
-                    },
-                },
-            )))),
-            active: true,
-        });
     }
 
     fn add_tool_log(cache: &mut ChatLogCache, name: &str, id: usize) {
@@ -604,23 +573,6 @@ mod tests {
     }
 
     #[test]
-    fn test_check_from_index_chain_includes_thought() {
-        let mut cache = init_test_cache();
-
-        add_user_log(&mut cache, "Hello");
-        add_tool_log(&mut cache, "tool1", 1);
-        add_thought_log(&mut cache, "thinking");
-        add_tool_log(&mut cache, "tool2", 2);
-
-        let (updates, _) = cache.poll_render_update();
-        assert_eq!(updates.len(), 4);
-
-        // Backtrack must reach tool1 through the thought log so a mid-chain
-        // conversion (Tool -> Thought) stays re-renderable
-        assert_eq!(cache.check_from_index.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
     fn test_shrinking_log_updates_positions() {
         let mut cache = init_test_cache();
 
@@ -751,32 +703,6 @@ mod tests {
             updates[0].target_log.read().unwrap().data.lines().len(),
             5,
             "all 5 lines should be present"
-        );
-    }
-
-    #[test]
-    fn test_thought_without_summary_always_tail_3() {
-        // Thought with next log: Tail(3), not Tail(1)
-        let mut cache = init_test_cache();
-        add_thought_log(&mut cache, "Thought 1\nThought 2\nThought 3\nThought 4");
-        add_user_log(&mut cache, "Hello");
-
-        let (updates, _) = cache.poll_render_update();
-        assert_eq!(updates.len(), 2);
-        assert!(
-            matches!(updates[0].render_type, RenderType::Tail(3)),
-            "thought without summary with next log should be Tail(3)"
-        );
-
-        // Thought without next log: Tail(3)
-        let mut cache = init_test_cache();
-        add_thought_log(&mut cache, "Thought 1\nThought 2\nThought 3\nThought 4");
-
-        let (updates, _) = cache.poll_render_update();
-        assert_eq!(updates.len(), 1);
-        assert!(
-            matches!(updates[0].render_type, RenderType::Tail(3)),
-            "thought without summary without next log should be Tail(3)"
         );
     }
 

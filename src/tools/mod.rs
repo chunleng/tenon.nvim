@@ -11,7 +11,6 @@ pub mod navigate_choreo;
 pub mod pop_task;
 pub mod push_tasks;
 pub mod read_file;
-pub mod record_thought;
 pub mod remove_path;
 pub mod run_command;
 pub mod search_dependency_code;
@@ -32,7 +31,6 @@ pub use move_path::MovePath;
 pub use pop_task::PopTask;
 pub use push_tasks::PushTasks;
 pub use read_file::ReadFile;
-pub use record_thought::RecordThought;
 pub use remove_path::RemovePath;
 use rig::message::{ToolName, ToolResultContent};
 use rig::tool::{DynamicTool, IntoToolOutput, ToolContext, ToolExecutionError, ToolOutput};
@@ -248,7 +246,7 @@ impl<T: ToolCore + 'static> From<TenonTool<T>> for DynamicTool {
 /// by extracting the core parameter from its args JSON (or, for tools whose
 /// meaningful info is in the output, from the tool result).
 ///
-/// Returns `None` for tools with no useful display arg (e.g. "record_thought", MCP tools).
+/// Returns `None` for tools with no useful display arg (e.g. MCP tools).
 pub fn tool_display_summary(
     name: &str,
     args: &Value,
@@ -435,10 +433,6 @@ fn builtin_tools(log_window: Arc<RwLock<LogWindow>>) -> Vec<Option<(String, Dyna
             TenonTool::new(ReadFile::default(), log_window.clone()).into(),
         )),
         Some((
-            "record_thought".to_string(),
-            TenonTool::new(RecordThought, log_window.clone()).into(),
-        )),
-        Some((
             "remove_path".to_string(),
             TenonTool::new(RemovePath, log_window.clone()).into(),
         )),
@@ -480,7 +474,7 @@ fn builtin_tools(log_window: Arc<RwLock<LogWindow>>) -> Vec<Option<(String, Dyna
 /// Resolve a list of tool name strings into concrete `DynamicTool` instances.
 ///
 /// Built-in names: "edit_file", "fetch_webpage",
-/// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search", "record_thought".
+/// "list_files", "move_path", "read_file", "remove_path", "run_command", "search_text", "web_search".
 /// MCP tool names: "server_name.tool_name" for a specific tool,
 /// or "server_name" to include all tools from that server.
 #[cfg(not(test))]
@@ -561,7 +555,7 @@ mod tests {
 
     mod tenon_tool_tests {
         use super::*;
-        use crate::chat::log::TenonThoughtLog;
+        use crate::chat::log::TenonChoreoLog;
         use crate::chat::log::indexer::IndexedLog;
         use crate::chat::log::window::LogWindow;
         use crate::chat::{TenonLogData, TenonToolLog, TenonToolResult};
@@ -672,7 +666,7 @@ mod tests {
             }
         }
 
-        /// Converts its log to a Thought log with a replacement result.
+        /// Converts its log to a Choreo log with a replacement result.
         struct MockConvertTool;
 
         impl ToolCore for MockConvertTool {
@@ -713,10 +707,12 @@ mod tests {
                     return None;
                 };
                 let tool_log = tool_log.clone();
-                log.data = TenonLogData::Thought(TenonThoughtLog {
-                    summary: None,
+                log.data = TenonLogData::Choreo(TenonChoreoLog::new(
+                    "c-1",
+                    "Converted",
+                    Some(1),
                     tool_log,
-                });
+                ));
                 log.refresh();
                 Some(ToolOutput::text("converted"))
             }
@@ -844,14 +840,14 @@ mod tests {
             // The returned output is the converted result, not the original
             assert_eq!(result.output().as_text(), Some("converted"));
 
-            // The log was swapped to a Thought log; its embedded result is the
+            // The log was swapped to a Choreo log; its embedded result is the
             // original one, written before the conversion
             let window = log_window.read().unwrap();
             let log = window.logs[0].log.read().unwrap();
-            let TenonLogData::Thought(thought_log) = log.data() else {
-                panic!("expected Thought log after convert_log");
+            let TenonLogData::Choreo(choreo_log) = log.data() else {
+                panic!("expected Choreo log after convert_log");
             };
-            let Some(Ok(TenonToolResult::Text(text))) = &thought_log.tool_log.tool_result else {
+            let Some(Ok(TenonToolResult::Text(text))) = &choreo_log.tool_log.tool_result else {
                 panic!("expected embedded Text tool result");
             };
             assert_eq!(text.text, "done");

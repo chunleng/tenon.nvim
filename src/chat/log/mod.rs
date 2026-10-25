@@ -160,26 +160,6 @@ impl From<&TenonToolLog> for Vec<Message> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TenonThoughtLog {
-    pub summary: Option<String>,
-    /// The original `record_thought` tool log
-    pub tool_log: TenonToolLog,
-}
-
-impl TenonThoughtLog {
-    /// The thought text, read from the embedded tool call args.
-    pub fn thought(&self) -> String {
-        self.tool_log
-            .tool_call
-            .args
-            .get("thought")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenonChoreoLog {
     pub id: String,
     pub content: String,
@@ -289,7 +269,6 @@ pub enum TenonLogData {
     User(TenonUserMessage),
     Assistant(TenonAssistantMessage),
     Tool(TenonToolLog),
-    Thought(TenonThoughtLog),
     Choreo(TenonChoreoLog),
     Image(TenonImageLog),
 }
@@ -621,15 +600,6 @@ mod tests {
     }
 
     #[test]
-    fn test_thought_helper_falls_back_to_empty() {
-        let thought_log = TenonThoughtLog {
-            summary: None,
-            tool_log: choreo_tool_log("record_thought", serde_json::json!({}), ""),
-        };
-        assert_eq!(thought_log.thought(), "");
-    }
-
-    #[test]
     fn test_choreo_log_converts_to_system_context() {
         let choreo_log = TenonChoreoLog {
             id: "c-1".to_string(),
@@ -724,17 +694,6 @@ mod tests {
             content: vec![TenonAssistantMessageContent::Text("reply".to_string())],
         }));
         assert_eq!(log.to_embeddable_text(), "reply");
-
-        // Thought
-        let log = TenonLog::new(TenonLogData::Thought(TenonThoughtLog {
-            summary: None,
-            tool_log: choreo_tool_log(
-                "record_thought",
-                serde_json::json!({"thought": "thinking"}),
-                "",
-            ),
-        }));
-        assert_eq!(log.to_embeddable_text(), "thinking");
 
         // Choreo returns its id
         let log = TenonLog::new(TenonLogData::Choreo(TenonChoreoLog::new(
@@ -847,7 +806,6 @@ impl TenonLog {
                 }
                 text
             }
-            TenonLogData::Thought(thought_log) => thought_log.thought(),
             TenonLogData::Choreo(choreo_log) => choreo_log.id.clone(),
         }
     }
@@ -930,7 +888,6 @@ impl TenonLogData {
             TenonLogData::Image(_) => "user",
             TenonLogData::Assistant(_) => "assistant",
             TenonLogData::Tool(_) => "tool",
-            TenonLogData::Thought(_) => "thought",
             TenonLogData::Choreo(_) => "choreo",
         }
     }
@@ -1002,17 +959,6 @@ impl TenonLogData {
                         lines.push(String::new());
                         lines.extend(plain(&err.0));
                     }
-                }
-                lines
-            }
-            TenonLogData::Thought(log) => {
-                let mut lines = vec!["### Thought".to_string(), String::new()];
-                lines.extend(plain(&log.thought()));
-                if let Some(summary) = &log.summary {
-                    lines.push(String::new());
-                    lines.push("### Summary".to_string());
-                    lines.push(String::new());
-                    lines.extend(plain(summary));
                 }
                 lines
             }
@@ -1098,7 +1044,6 @@ impl TenonLogData {
                 };
                 call_tokens + result_tokens
             }
-            TenonLogData::Thought(log) => estimate_tokens(&log.thought()),
             TenonLogData::Choreo(log) => estimate_tokens(&log.system_content()),
         }
     }
@@ -1129,11 +1074,6 @@ impl From<&TenonLog> for Vec<Message> {
                 }
             }
             TenonLogData::Tool(tool_log) => tool_log.into(),
-            TenonLogData::Thought(thought_log) => {
-                vec![Message::Assistant(AssistantMessage::new(vec![
-                    AssistantContent::text(format!("Thoughts: {}", thought_log.thought())),
-                ]))]
-            }
             TenonLogData::Choreo(choreo_log) => {
                 vec![Message::System {
                     content: choreo_log.system_content(),

@@ -122,7 +122,6 @@ impl Default for TenonConfig {
                     "run_command",
                     "search_text",
                     "web_search",
-                    "record_thought",
                 ],
                 vec![],
             ),
