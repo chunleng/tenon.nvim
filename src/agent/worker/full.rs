@@ -239,9 +239,11 @@ impl GoalOrientedWorker {
         }
 
         let overtime_prompt = format!(
-            "{task_with_instruction}\n\n\
-             Complete the task now with what you found so far. \
-             Reply with the answer using the answer tool, or state that there is no answer."
+            "{task}\n\n\
+             Time is up. Do not call any tool other than `submit_answer`. \
+             Call `submit_answer` now: with `is_answer` set to true and the best answer \
+             you found so far, or with `is_answer` set to false and an explanation \
+             of why there is no answer."
         );
 
         for _ in 0..self.overtime_rounds {
