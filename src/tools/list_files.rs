@@ -1,5 +1,5 @@
 use crate::tools::{ToolCore, ToolCoreCall};
-use crate::utils::{normalize_glob, path_from_str};
+use crate::utils::{is_within_directory, normalize_glob, path_from_str};
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 
@@ -23,11 +23,14 @@ pub struct ListFilesArgs {
 pub struct ListFiles {
     /// Base directory for resolving `path`. `None` resolves against the process cwd.
     pub working_directory: Option<std::path::PathBuf>,
+    /// When true, reject requests whose resolved path falls outside `working_directory`.
+    pub restrict_to_working_directory: bool,
 }
 
 pub struct ListFilesCall {
     args: ListFilesArgs,
     working_directory: Option<std::path::PathBuf>,
+    restrict_to_working_directory: bool,
 }
 
 impl ToolCoreCall for ListFilesCall {
@@ -61,6 +64,20 @@ impl ToolCoreCall for ListFilesCall {
                 "Directory '{}' not found",
                 search_path.display()
             )));
+        }
+        if self.restrict_to_working_directory {
+            // `None` restricts to the process cwd
+            let base = match &self.working_directory {
+                Some(dir) => dir.clone(),
+                None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            };
+            if !is_within_directory(&search_path, &base) {
+                return Err(ToolExecutionError::invalid_args(format!(
+                    "Path '{}' is outside the working directory '{}'",
+                    search_path.display(),
+                    base.display()
+                )));
+            }
         }
 
         let pattern = normalize_glob(&args.pattern);
@@ -188,6 +205,7 @@ impl ToolCore for ListFiles {
         Ok(ListFilesCall {
             args,
             working_directory: self.working_directory.clone(),
+            restrict_to_working_directory: self.restrict_to_working_directory,
         })
     }
 }
@@ -208,22 +226,26 @@ mod tests {
 
     async fn run_list(
         working_directory: Option<std::path::PathBuf>,
+        restrict_to_working_directory: bool,
         path: Option<String>,
         pattern: &str,
     ) -> Result<String, ToolExecutionError> {
         let mut context = ToolContext::new();
-        let call = ListFiles { working_directory }
-            .init_call(
-                &mut context,
-                ListFilesArgs {
-                    pattern: pattern.to_string(),
-                    path,
-                    show_gitignored: None,
-                    max_count: None,
-                },
-            )
-            .await
-            .expect("init_call should succeed");
+        let call = ListFiles {
+            working_directory,
+            restrict_to_working_directory,
+        }
+        .init_call(
+            &mut context,
+            ListFilesArgs {
+                pattern: pattern.to_string(),
+                path,
+                show_gitignored: None,
+                max_count: None,
+            },
+        )
+        .await
+        .expect("init_call should succeed");
         call.result(&mut context).await
     }
 
@@ -233,7 +255,7 @@ mod tests {
         let other = make_temp_tree("other", "other_root.txt");
 
         // path None -> working directory, output relative to it
-        let output = run_list(Some(dir.clone()), None, "*.txt")
+        let output = run_list(Some(dir.clone()), false, None, "*.txt")
             .await
             .expect("path None should resolve to working directory");
         assert!(output.contains("root.txt"), "got: {output}");
@@ -241,7 +263,7 @@ mod tests {
         assert!(!output.contains(dir.to_str().unwrap()), "got: {output}");
 
         // relative path -> joined against working directory, output full path
-        let output = run_list(Some(dir.clone()), Some("sub".to_string()), "*.txt")
+        let output = run_list(Some(dir.clone()), false, Some("sub".to_string()), "*.txt")
             .await
             .expect("relative path should resolve against working directory");
         let nested_full = dir.join("sub").join("nested.txt");
@@ -254,6 +276,7 @@ mod tests {
         // absolute path -> used as-is, ignoring the working directory
         let output = run_list(
             Some(dir.clone()),
+            false,
             Some(other.to_string_lossy().to_string()),
             "*.txt",
         )
@@ -261,6 +284,56 @@ mod tests {
         .expect("absolute path should be used as-is");
         assert!(output.contains("other_root.txt"), "got: {output}");
         assert!(!output.contains("nested.txt"), "got: {output}");
+
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&other).ok();
+    }
+
+    #[tokio::test]
+    async fn test_restrict_to_working_directory() {
+        let dir = make_temp_tree("restrict", "root.txt");
+        let other = make_temp_tree("restrict_other", "other_root.txt");
+
+        // absolute path outside the working directory -> rejected
+        let err = run_list(
+            Some(dir.clone()),
+            true,
+            Some(other.to_string_lossy().to_string()),
+            "*.txt",
+        )
+        .await
+        .expect_err("absolute path outside working directory should be rejected");
+        assert!(err.to_string().contains("outside the working directory"));
+
+        // relative path escaping via `..` -> rejected
+        let escape = format!("../{}", other.file_name().unwrap().to_string_lossy());
+        let err = run_list(Some(dir.clone()), true, Some(escape), "*.txt")
+            .await
+            .expect_err("`..` escape should be rejected");
+        assert!(err.to_string().contains("outside the working directory"));
+
+        // relative path inside the working directory -> allowed
+        let output = run_list(Some(dir.clone()), true, Some("sub".to_string()), "*.txt")
+            .await
+            .expect("relative path inside working directory should be allowed");
+        assert!(output.contains("nested.txt"), "got: {output}");
+
+        // no working directory configured -> restriction applies against cwd
+        let err = run_list(
+            None,
+            true,
+            Some(other.to_string_lossy().to_string()),
+            "*.txt",
+        )
+        .await
+        .expect_err("no working directory means restriction against cwd");
+        assert!(err.to_string().contains("outside the working directory"));
+
+        // path inside the cwd -> allowed
+        let output = run_list(None, true, Some("src".to_string()), "*.rs")
+            .await
+            .expect("path inside cwd should be allowed");
+        assert!(output.contains("src/lib.rs"), "got: {output}");
 
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&other).ok();

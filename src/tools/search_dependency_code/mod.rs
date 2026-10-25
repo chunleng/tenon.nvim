@@ -120,6 +120,7 @@ impl ToolCore for SearchDependencyCode {
             TenonTool::new(
                 SearchText {
                     working_directory: Some(source_path.clone()),
+                    restrict_to_working_directory: true,
                 },
                 log_window.clone(),
             )
@@ -127,6 +128,7 @@ impl ToolCore for SearchDependencyCode {
             TenonTool::new(
                 ReadFile {
                     working_directory: Some(source_path.clone()),
+                    restrict_to_working_directory: true,
                 },
                 log_window.clone(),
             )
@@ -134,6 +136,7 @@ impl ToolCore for SearchDependencyCode {
             TenonTool::new(
                 ListFiles {
                     working_directory: Some(source_path.clone()),
+                    restrict_to_working_directory: true,
                 },
                 log_window,
             )

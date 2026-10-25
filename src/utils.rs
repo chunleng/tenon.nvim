@@ -46,6 +46,12 @@ pub fn path_from_str(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Check whether `path` is `dir` itself or inside it
+pub fn is_within_directory(path: &Path, dir: &Path) -> bool {
+    let resolve = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    resolve(path).starts_with(resolve(dir))
+}
+
 /// Check whether a path contains a hidden component: a `Normal` component
 /// starting with `.` (e.g. `.env`, `.git`). `.` and `..` are separate
 /// component variants and never count as hidden. Cross-platform: handles

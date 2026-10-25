@@ -1,6 +1,6 @@
 use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::approval::{ApprovalResult, request_approval};
-use crate::utils::{has_hidden_component, path_from_str};
+use crate::utils::{has_hidden_component, is_within_directory, path_from_str};
 
 use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
@@ -21,11 +21,14 @@ pub struct ReadFileArgs {
 pub struct ReadFile {
     /// Base directory for resolving relative `filepath`s. `None` resolves against the process cwd.
     pub working_directory: Option<std::path::PathBuf>,
+    /// When true, reject requests whose resolved path falls outside `working_directory`.
+    pub restrict_to_working_directory: bool,
 }
 
 pub struct ReadFileCall {
     args: ReadFileArgs,
     working_directory: Option<std::path::PathBuf>,
+    restrict_to_working_directory: bool,
 }
 
 impl ToolCoreCall for ReadFileCall {
@@ -39,6 +42,20 @@ impl ToolCoreCall for ReadFileCall {
             Some(dir) if path.is_relative() => dir.join(path),
             _ => path,
         };
+        if self.restrict_to_working_directory {
+            // `None` restricts to the process cwd
+            let base = match &self.working_directory {
+                Some(dir) => dir.clone(),
+                None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            };
+            if !is_within_directory(&path, &base) {
+                return Err(ToolExecutionError::invalid_args(format!(
+                    "Path '{}' is outside the working directory '{}'",
+                    path.display(),
+                    base.display()
+                )));
+            }
+        }
 
         // Use the raw `args.filepath` so that we check for hidden component based on whatever is
         // passed to the tool
@@ -157,6 +174,7 @@ impl ToolCore for ReadFile {
         Ok(ReadFileCall {
             args,
             working_directory: self.working_directory.clone(),
+            restrict_to_working_directory: self.restrict_to_working_directory,
         })
     }
 }
@@ -197,17 +215,20 @@ mod tests {
             if let Some(weak) = weak {
                 context = context.with_scope(Arc::new(weak));
             }
-            let call = ReadFile { working_directory }
-                .init_call(
-                    &mut context,
-                    ReadFileArgs {
-                        filepath,
-                        start_line: None,
-                        end_line: None,
-                    },
-                )
-                .await
-                .expect("init_call should succeed");
+            let call = ReadFile {
+                working_directory,
+                ..Default::default()
+            }
+            .init_call(
+                &mut context,
+                ReadFileArgs {
+                    filepath,
+                    start_line: None,
+                    end_line: None,
+                },
+            )
+            .await
+            .expect("init_call should succeed");
             call.result(&mut context).await
         })
     }
@@ -251,6 +272,7 @@ mod tests {
         let mut context = ToolContext::new();
         let call = ReadFile {
             working_directory: None,
+            ..Default::default()
         }
         .init_call(
             &mut context,
@@ -281,6 +303,7 @@ mod tests {
         let mut context = ToolContext::new();
         let call = ReadFile {
             working_directory: None,
+            ..Default::default()
         }
         .init_call(
             &mut context,
@@ -307,6 +330,7 @@ mod tests {
         let mut context = ToolContext::new();
         let call = ReadFile {
             working_directory: None,
+            ..Default::default()
         }
         .init_call(
             &mut context,
@@ -331,6 +355,7 @@ mod tests {
         let mut context = ToolContext::new();
         let call = ReadFile {
             working_directory: None,
+            ..Default::default()
         }
         .init_call(
             &mut context,
@@ -358,6 +383,7 @@ mod tests {
         let filepath = path.to_string_lossy().to_string();
         let call = ReadFile {
             working_directory: None,
+            ..Default::default()
         }
         .init_call(
             &mut context,
@@ -469,6 +495,7 @@ mod tests {
         let mut context = ToolContext::new();
         let call = ReadFile {
             working_directory: Some(dir.clone()),
+            ..Default::default()
         }
         .init_call(
             &mut context,
@@ -485,6 +512,88 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
         let output = result.expect("relative path should resolve against working directory");
         assert_eq!(output, "success: line 1 read; content:\nwd content");
+    }
+
+    async fn run_read(
+        working_directory: Option<std::path::PathBuf>,
+        restrict_to_working_directory: bool,
+        filepath: String,
+    ) -> Result<String, ToolExecutionError> {
+        let mut context = ToolContext::new();
+        let call = ReadFile {
+            working_directory,
+            restrict_to_working_directory,
+        }
+        .init_call(
+            &mut context,
+            ReadFileArgs {
+                filepath,
+                start_line: None,
+                end_line: None,
+            },
+        )
+        .await
+        .expect("init_call should succeed");
+        call.result(&mut context).await
+    }
+
+    #[tokio::test]
+    async fn test_restrict_to_working_directory() {
+        let dir =
+            std::env::temp_dir().join(format!("tenon_read_file_restrict_{}", std::process::id()));
+        let other = std::env::temp_dir().join(format!(
+            "tenon_read_file_restrict_other_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(dir.join("file.txt"), "inside content").unwrap();
+        std::fs::write(other.join("other.txt"), "outside content").unwrap();
+
+        // absolute path outside the working directory -> rejected
+        let err = run_read(
+            Some(dir.clone()),
+            true,
+            other.join("other.txt").to_string_lossy().to_string(),
+        )
+        .await
+        .expect_err("absolute path outside working directory should be rejected");
+        assert!(err.to_string().contains("outside the working directory"));
+
+        // relative path escaping via `..` -> rejected
+        let escape = format!(
+            "../{}/other.txt",
+            other.file_name().unwrap().to_string_lossy()
+        );
+        let err = run_read(Some(dir.clone()), true, escape)
+            .await
+            .expect_err("`..` escape should be rejected");
+        assert!(err.to_string().contains("outside the working directory"));
+
+        // relative path inside the working directory -> allowed
+        let output = run_read(Some(dir.clone()), true, "file.txt".to_string())
+            .await
+            .expect("relative path inside working directory should be allowed");
+        assert_eq!(output, "success: line 1 read; content:\ninside content");
+
+        // no working directory configured -> restriction applies against cwd
+        let err = run_read(
+            None,
+            true,
+            other.join("other.txt").to_string_lossy().to_string(),
+        )
+        .await
+        .expect_err("no working directory means restriction against cwd");
+        assert!(err.to_string().contains("outside the working directory"));
+
+        // path inside the cwd -> allowed
+        let output = run_read(None, true, "src/lib.rs".to_string())
+            .await
+            .expect("path inside cwd should be allowed");
+        assert!(output.starts_with("success:"), "got: {output}");
+
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&other).ok();
     }
 
     #[tokio::test]
