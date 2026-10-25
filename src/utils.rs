@@ -1,4 +1,5 @@
 pub mod approval;
+pub mod rig_http;
 
 use std::path::{Path, PathBuf};
 use std::sync::{

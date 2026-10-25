@@ -39,7 +39,9 @@ pub fn get_ollama_agent(
     }
     // native_completion keeps the daemon's native /api/chat route; rig's
     // completion() now targets the /v1 OpenAI-compatibility API instead.
-    let model = ollama_config.client().native_completion(model_name);
+    let model = ollama_config
+        .connect(crate::utils::rig_http::shared())
+        .native_completion(model_name);
     let mut agent = AgentBuilder::new(model);
     if let Some(p) = preamble {
         agent = agent.preamble(&p);

@@ -38,7 +38,7 @@ pub fn get_anthropic_agent(
     });
     let model = AnthropicConfig::new(api_key)
         .with_base_url(config.base_url)
-        .client()
+        .connect(crate::utils::rig_http::shared())
         .completion(model_name);
     let mut agent = AgentBuilder::new(model);
     if let Some(p) = preamble {

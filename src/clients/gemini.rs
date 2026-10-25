@@ -101,7 +101,7 @@ pub fn get_gemini_agent(
     };
     let model = GeminiConfig::new(query_key)
         .with_base_url(config.base_url)
-        .client()
+        .connect(crate::utils::rig_http::shared())
         .completion(model_name);
     let model = Model::new(
         model.wire,

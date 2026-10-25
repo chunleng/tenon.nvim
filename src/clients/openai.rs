@@ -38,7 +38,7 @@ pub fn get_openai_completion_api_agent(
     });
     let model = OpenAIConfig::new(api_key)
         .with_base_url(config.base_url)
-        .client()
+        .connect(crate::utils::rig_http::shared())
         .chat(model_name);
     let mut agent = AgentBuilder::new(model);
     if let Some(p) = preamble {
@@ -71,7 +71,7 @@ pub fn get_openai_response_api_agent(
     });
     let model = OpenAIConfig::new(api_key)
         .with_base_url(config.base_url)
-        .client()
+        .connect(crate::utils::rig_http::shared())
         .responses(model_name);
     let mut agent = AgentBuilder::new(model);
     if let Some(p) = preamble {
