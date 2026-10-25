@@ -17,11 +17,15 @@ pub struct ReadFileArgs {
     pub end_line: Option<usize>,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
-pub struct ReadFile;
+#[derive(Deserialize, Serialize, Clone, Default)]
+pub struct ReadFile {
+    /// Base directory for resolving relative `filepath`s. `None` resolves against the process cwd.
+    pub working_directory: Option<std::path::PathBuf>,
+}
 
 pub struct ReadFileCall {
     args: ReadFileArgs,
+    working_directory: Option<std::path::PathBuf>,
 }
 
 impl ToolCoreCall for ReadFileCall {
@@ -31,8 +35,14 @@ impl ToolCoreCall for ReadFileCall {
     async fn result(self, context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
         let args = self.args;
         let path = path_from_str(&args.filepath);
+        let path = match &self.working_directory {
+            Some(dir) if path.is_relative() => dir.join(path),
+            _ => path,
+        };
 
-        if has_hidden_component(&path) {
+        // Use the raw `args.filepath` so that we check for hidden component based on whatever is
+        // passed to the tool
+        if has_hidden_component(&path_from_str(&args.filepath)) {
             let args_value = serde_json::to_value(&args)
                 .map_err(|e| ToolExecutionError::other(format!("failed to serialize args: {e}")))?;
 
@@ -135,7 +145,10 @@ impl ToolCore for ReadFile {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Call, Self::Error> {
-        Ok(ReadFileCall { args })
+        Ok(ReadFileCall {
+            args,
+            working_directory: self.working_directory.clone(),
+        })
     }
 }
 
@@ -167,6 +180,7 @@ mod tests {
     /// since the tool pushes the approval and awaits within a single call.
     fn spawn_read(
         weak: Option<Weak<EventChannel<PendingAction>>>,
+        working_directory: Option<std::path::PathBuf>,
         filepath: String,
     ) -> tokio::task::JoinHandle<Result<String, ToolExecutionError>> {
         tokio::spawn(async move {
@@ -174,7 +188,7 @@ mod tests {
             if let Some(weak) = weak {
                 context = context.with_scope(Arc::new(weak));
             }
-            let call = ReadFile
+            let call = ReadFile { working_directory }
                 .init_call(
                     &mut context,
                     ReadFileArgs {
@@ -226,17 +240,19 @@ mod tests {
         let filepath = path.to_string_lossy().to_string();
 
         let mut context = ToolContext::new();
-        let call = ReadFile
-            .init_call(
-                &mut context,
-                ReadFileArgs {
-                    filepath,
-                    start_line: Some(5),
-                    end_line: Some(2),
-                },
-            )
-            .await
-            .expect("init_call should succeed");
+        let call = ReadFile {
+            working_directory: None,
+        }
+        .init_call(
+            &mut context,
+            ReadFileArgs {
+                filepath,
+                start_line: Some(5),
+                end_line: Some(2),
+            },
+        )
+        .await
+        .expect("init_call should succeed");
         let result = call.result(&mut context).await;
 
         std::fs::remove_file(&path).ok();
@@ -251,17 +267,19 @@ mod tests {
         let filepath = path.to_string_lossy().to_string();
 
         let mut context = ToolContext::new();
-        let call = ReadFile
-            .init_call(
-                &mut context,
-                ReadFileArgs {
-                    filepath,
-                    start_line: Some(2),
-                    end_line: Some(2),
-                },
-            )
-            .await
-            .expect("init_call should succeed");
+        let call = ReadFile {
+            working_directory: None,
+        }
+        .init_call(
+            &mut context,
+            ReadFileArgs {
+                filepath,
+                start_line: Some(2),
+                end_line: Some(2),
+            },
+        )
+        .await
+        .expect("init_call should succeed");
         let result = call.result(&mut context).await;
 
         std::fs::remove_file(&path).ok();
@@ -275,17 +293,19 @@ mod tests {
         let filepath = path.to_string_lossy().to_string();
 
         let mut context = ToolContext::new();
-        let call = ReadFile
-            .init_call(
-                &mut context,
-                ReadFileArgs {
-                    filepath,
-                    start_line: None,
-                    end_line: None,
-                },
-            )
-            .await
-            .expect("init_call should succeed");
+        let call = ReadFile {
+            working_directory: None,
+        }
+        .init_call(
+            &mut context,
+            ReadFileArgs {
+                filepath,
+                start_line: None,
+                end_line: None,
+            },
+        )
+        .await
+        .expect("init_call should succeed");
         let result = call.result(&mut context).await;
 
         std::fs::remove_file(&path).ok();
@@ -297,17 +317,19 @@ mod tests {
     async fn test_failures_return_tool_execution_error() {
         // Missing file: a real error, not in-band output
         let mut context = ToolContext::new();
-        let call = ReadFile
-            .init_call(
-                &mut context,
-                ReadFileArgs {
-                    filepath: "/nonexistent/tenon_read_file_missing".to_string(),
-                    start_line: None,
-                    end_line: None,
-                },
-            )
-            .await
-            .expect("init_call should succeed");
+        let call = ReadFile {
+            working_directory: None,
+        }
+        .init_call(
+            &mut context,
+            ReadFileArgs {
+                filepath: "/nonexistent/tenon_read_file_missing".to_string(),
+                start_line: None,
+                end_line: None,
+            },
+        )
+        .await
+        .expect("init_call should succeed");
         let err = call
             .result(&mut context)
             .await
@@ -322,17 +344,19 @@ mod tests {
         let content = "line1\nline2\nline3";
         let path = write_temp_file("out_of_range", content);
         let filepath = path.to_string_lossy().to_string();
-        let call = ReadFile
-            .init_call(
-                &mut context,
-                ReadFileArgs {
-                    filepath,
-                    start_line: Some(10),
-                    end_line: None,
-                },
-            )
-            .await
-            .expect("init_call should succeed");
+        let call = ReadFile {
+            working_directory: None,
+        }
+        .init_call(
+            &mut context,
+            ReadFileArgs {
+                filepath,
+                start_line: Some(10),
+                end_line: None,
+            },
+        )
+        .await
+        .expect("init_call should succeed");
         let err = call
             .result(&mut context)
             .await
@@ -356,7 +380,7 @@ mod tests {
 
         // Approve: hidden path pushes an approval carrying the tool name,
         // args, and reject message, then returns the file content
-        let task = spawn_read(Some(weak.clone()), hidden_filepath.clone());
+        let task = spawn_read(Some(weak.clone()), None, hidden_filepath.clone());
         let PendingAction::Approval(approval) = wait_for_approval(&channel).await else {
             panic!("front pending action should be an approval");
         };
@@ -380,7 +404,7 @@ mod tests {
         channel.mark_done();
 
         // Reject: hidden path returns the prefixed deny message as an error
-        let task = spawn_read(Some(weak.clone()), hidden_filepath.clone());
+        let task = spawn_read(Some(weak.clone()), None, hidden_filepath.clone());
         let PendingAction::Approval(approval) = wait_for_approval(&channel).await else {
             panic!("front pending action should be an approval");
         };
@@ -397,7 +421,7 @@ mod tests {
         channel.mark_done();
 
         // Non-hidden path: reads without pushing any approval
-        let task = spawn_read(Some(weak), normal_filepath);
+        let task = spawn_read(Some(weak), None, normal_filepath);
         let output = task.await.expect("task should not panic");
         assert_eq!(
             output.expect("non-hidden read should succeed"),
@@ -409,7 +433,7 @@ mod tests {
         );
 
         // Missing channel: hidden path defaults to reject
-        let task = spawn_read(None, hidden_filepath.clone());
+        let task = spawn_read(None, None, hidden_filepath.clone());
         let err = task.await.expect("task should not panic").unwrap_err();
         assert!(
             err.to_string().contains(&hidden_filepath),
@@ -418,5 +442,55 @@ mod tests {
 
         std::fs::remove_file(&hidden_path).ok();
         std::fs::remove_file(&normal_path).ok();
+    }
+
+    #[tokio::test]
+    async fn test_relative_path_resolves_against_working_directory() {
+        let dir = std::env::temp_dir().join(format!("tenon_read_file_wd_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("file.txt"), "wd content").unwrap();
+
+        let mut context = ToolContext::new();
+        let call = ReadFile {
+            working_directory: Some(dir.clone()),
+        }
+        .init_call(
+            &mut context,
+            ReadFileArgs {
+                filepath: "file.txt".to_string(),
+                start_line: None,
+                end_line: None,
+            },
+        )
+        .await
+        .expect("init_call should succeed");
+        let result = call.result(&mut context).await;
+
+        std::fs::remove_dir_all(&dir).ok();
+        let output = result.expect("relative path should resolve against working directory");
+        assert_eq!(output, "-\nwd content");
+    }
+
+    #[tokio::test]
+    async fn test_hidden_working_directory_allows_relative_path() {
+        // Working directory itself is hidden; the raw relative filepath has no
+        // hidden component, so no approval should be pushed.
+        let dir =
+            std::env::temp_dir().join(format!(".tenon_read_file_wd_hidden_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("file.txt"), "hidden wd content").unwrap();
+
+        let channel = Arc::new(EventChannel::new());
+        let weak = Arc::downgrade(&channel);
+        let task = spawn_read(Some(weak), Some(dir.clone()), "file.txt".to_string());
+        let output = task.await.expect("task should not panic");
+
+        std::fs::remove_dir_all(&dir).ok();
+        let output = output.expect("relative path in hidden working dir should read");
+        assert_eq!(output, "-\nhidden wd content");
+        assert!(
+            channel.peek().is_none(),
+            "raw relative filepath without hidden component must not push an approval"
+        );
     }
 }

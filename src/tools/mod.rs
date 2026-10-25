@@ -432,7 +432,7 @@ fn builtin_tools(log_window: Arc<RwLock<LogWindow>>) -> Vec<Option<(String, Dyna
         )),
         Some((
             "read_file".to_string(),
-            TenonTool::new(ReadFile, log_window.clone()).into(),
+            TenonTool::new(ReadFile::default(), log_window.clone()).into(),
         )),
         Some((
             "record_thought".to_string(),

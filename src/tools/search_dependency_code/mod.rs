@@ -109,7 +109,13 @@ impl ToolCore for SearchDependencyCode {
         let log_window = log_handler.log_window.clone();
         let tools = vec![
             TenonTool::new(SearchText, log_window.clone()).into(),
-            TenonTool::new(ReadFile, log_window.clone()).into(),
+            TenonTool::new(
+                ReadFile {
+                    working_directory: Some(source_path.clone()),
+                },
+                log_window.clone(),
+            )
+            .into(),
             TenonTool::new(ListFiles, log_window).into(),
         ];
 
