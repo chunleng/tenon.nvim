@@ -140,6 +140,11 @@ pub fn load_image_file(path: &str) -> Result<rig::message::Image, String> {
     })
 }
 
+/// Check whether a string is an http(s) URL.
+pub fn is_url(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
 /// Strip a leading `./` from a glob pattern so that e.g. `./**/*` matches the
 /// same files as `**/*`. Patterns that are just `.` or `./` are left as-is
 /// (they don't carry the same meaning as a `./` prefix on a real glob).

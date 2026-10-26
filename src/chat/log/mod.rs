@@ -240,7 +240,7 @@ impl TenonChoreoLog {
 /// Source of an image log entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TenonImageLog {
-    /// Image loaded via the `load_image` tool. Carries the original tool log
+    /// Image loaded via the `read_image` tool. Carries the original tool log
     /// so history conversion can reuse the in-memory image from the tool
     /// result instead of re-reading the file from disk.
     Tool(TenonToolLog),
@@ -503,7 +503,7 @@ mod tests {
                 id: "call-1".to_string(),
                 internal_call_id: "call-1".to_string(),
                 item_id: None,
-                name: "load_image".to_string(),
+                name: "read_image".to_string(),
                 args: serde_json::json!({ "filepath": filepath }),
             },
             // convert_log only runs after set_tool_result, so an image log
@@ -1055,7 +1055,7 @@ impl From<&TenonLog> for Vec<Message> {
             TenonLogData::User(user_message) => vec![user_message.into()],
             TenonLogData::Image(image_log) => {
                 // convert_log only runs after a successful result, and
-                // load_image's success output is always an image
+                // read_image's load path output is always an image
                 let content = match image_log {
                     TenonImageLog::Tool(tool_log) => match &tool_log.tool_result {
                         Some(Ok(TenonToolResult::Image(image))) => vec![

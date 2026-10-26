@@ -19,7 +19,7 @@ pub enum WebSearchConfig {
 #[derive(Debug, Clone)]
 pub struct ToolsConfig {
     pub fetch_webpage: FetchWebpageConfig,
-    pub analyze_image: AnalyzeImageConfig,
+    pub read_image: ReadImageConfig,
     pub run_command: RunCommandConfig,
     pub web_search: Option<WebSearchConfig>,
 }
@@ -28,7 +28,7 @@ impl Default for ToolsConfig {
     fn default() -> Self {
         Self {
             fetch_webpage: FetchWebpageConfig { model: None },
-            analyze_image: AnalyzeImageConfig { model: None },
+            read_image: ReadImageConfig::default(),
             run_command: RunCommandConfig::default(),
             web_search: None,
         }
@@ -41,8 +41,9 @@ pub struct FetchWebpageConfig {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct AnalyzeImageConfig {
-    pub model: Option<SupportedModels>,
+pub struct ReadImageConfig {
+    /// Vision model used when the chat's model has no vision.
+    pub fallback_model: Option<SupportedModels>,
 }
 
 #[derive(Debug, Clone, Default)]

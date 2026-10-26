@@ -156,7 +156,26 @@ impl AgenticStreamEngine {
         let mut tools = self.system_tools.clone();
         if self.model.vision {
             tools.push(
-                TenonTool::new(crate::tools::LoadImage, self.log_handler.log_window.clone()).into(),
+                TenonTool::new(
+                    crate::tools::ReadImage::Vision {
+                        model: self.model.clone(),
+                    },
+                    self.log_handler.log_window.clone(),
+                )
+                .into(),
+            );
+        } else if let Some(fallback_model) = crate::get_application_config()
+            .tools
+            .read_image
+            .fallback_model
+            .clone()
+        {
+            tools.push(
+                TenonTool::new(
+                    crate::tools::ReadImage::NonVision { fallback_model },
+                    self.log_handler.log_window.clone(),
+                )
+                .into(),
             );
         }
         tools.extend(self.tools.clone());
@@ -404,32 +423,53 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_vision_model_auto_enables_load_image() {
+    async fn test_vision_model_auto_enables_read_image() {
         let mut model = test_model();
         model.vision = true;
         let engine = AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
         assert!(
             agent_tool_names(&engine)
                 .await
-                .contains(&"load_image".to_string()),
-            "vision model should have load_image as a system tool"
+                .contains(&"read_image".to_string()),
+            "vision model should have read_image as a system tool"
         );
     }
 
     #[tokio::test]
-    async fn test_non_vision_model_does_not_enable_load_image() {
+    async fn test_non_vision_model_does_not_enable_read_image() {
         let engine =
             AgenticStreamEngine::new(test_model(), vec![], vec![], vec![], ToolContext::new());
         assert!(
             !agent_tool_names(&engine)
                 .await
-                .contains(&"load_image".to_string()),
-            "non-vision model should not have load_image"
+                .contains(&"read_image".to_string()),
+            "non-vision model should not have read_image"
         );
     }
 
     #[tokio::test]
-    async fn test_switching_model_updates_load_image_availability() {
+    async fn test_non_vision_model_enables_read_image_with_fallback_model() {
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().unwrap())
+            .ok();
+        let mut config = crate::config::TenonConfig::default();
+        let mut fallback = test_model();
+        fallback.vision = true;
+        config.tools.read_image.fallback_model = Some(fallback);
+        let _config = crate::ConfigOverride::set(config);
+
+        let engine =
+            AgenticStreamEngine::new(test_model(), vec![], vec![], vec![], ToolContext::new());
+        assert!(
+            agent_tool_names(&engine)
+                .await
+                .contains(&"read_image".to_string()),
+            "non-vision model with a fallback vision model should have read_image"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_switching_model_updates_read_image_availability() {
         let mut model = test_model();
         model.vision = true;
         let mut engine =
@@ -437,8 +477,8 @@ mod tests {
         assert!(
             agent_tool_names(&engine)
                 .await
-                .contains(&"load_image".to_string()),
-            "vision model should have load_image as a system tool"
+                .contains(&"read_image".to_string()),
+            "vision model should have read_image as a system tool"
         );
 
         // Simulate a model switch to a non-vision model
@@ -446,8 +486,8 @@ mod tests {
         assert!(
             !agent_tool_names(&engine)
                 .await
-                .contains(&"load_image".to_string()),
-            "switching to a non-vision model should drop load_image"
+                .contains(&"read_image".to_string()),
+            "switching to a non-vision model should drop read_image"
         );
 
         // And back to a vision model
@@ -455,8 +495,8 @@ mod tests {
         assert!(
             agent_tool_names(&engine)
                 .await
-                .contains(&"load_image".to_string()),
-            "switching back to a vision model should restore load_image"
+                .contains(&"read_image".to_string()),
+            "switching back to a vision model should restore read_image"
         );
     }
 

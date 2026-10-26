@@ -80,7 +80,7 @@ pub enum WebSearchProviderConfig {
 #[serde(deny_unknown_fields)]
 pub struct ToolsUserConfig {
     pub fetch_webpage: Option<FetchWebpageUserConfig>,
-    pub analyze_image: Option<AnalyzeImageUserConfig>,
+    pub read_image: Option<ReadImageUserConfig>,
     pub run_command: Option<RunCommandUserConfig>,
     pub web_search: Option<WebSearchProviderConfig>,
 }
@@ -102,8 +102,8 @@ pub struct FetchWebpageUserConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AnalyzeImageUserConfig {
-    pub model: Option<Model>,
+pub struct ReadImageUserConfig {
+    pub fallback_model: Option<Model>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -297,14 +297,22 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                     }),
                 )?);
             }
-            if let Some(analyze_image) = tools.analyze_image
-                && let Some(model) = analyze_image.model
+            if let Some(read_image) = tools.read_image
+                && let Some(model) = read_image.fallback_model
             {
-                conf.tools.analyze_image.model = Some(conf.models.get(&model.0).cloned().ok_or(
-                    nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                        msg: format!("unknown model for analyze_image: {}", model.0),
-                    }),
-                )?);
+                let fallback =
+                    conf.models
+                        .get(&model.0)
+                        .cloned()
+                        .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                            msg: format!("unknown model for read_image fallback: {}", model.0),
+                        }))?;
+                if !fallback.vision {
+                    return Err(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                        msg: format!("read_image fallback_model must support vision: {}", model.0),
+                    }));
+                }
+                conf.tools.read_image.fallback_model = Some(fallback);
             }
             if let Some(run) = tools.run_command {
                 conf.tools.run_command.whitelist = run.whitelist;
@@ -611,7 +619,8 @@ mod tests {
                 connector: "ollama".to_string(),
                 name: "llama3".to_string(),
                 default_parameters: serde_json::Map::new(),
-                vision: false,
+                // read_image's fallback_model must support vision
+                vision: true,
             },
         );
 
@@ -619,8 +628,8 @@ mod tests {
             fetch_webpage: Some(FetchWebpageUserConfig {
                 model: Some(Model("fast".to_string())),
             }),
-            analyze_image: Some(AnalyzeImageUserConfig {
-                model: Some(Model("fast".to_string())),
+            read_image: Some(ReadImageUserConfig {
+                fallback_model: Some(Model("fast".to_string())),
             }),
             run_command: Some(RunCommandUserConfig {
                 whitelist: vec![],
@@ -649,8 +658,8 @@ mod tests {
         let fw = result.tools.fetch_webpage.model.unwrap();
         assert_eq!(fw.model_name, "llama3");
 
-        let ai = result.tools.analyze_image.model.unwrap();
-        assert_eq!(ai.model_name, "llama3");
+        let ri = result.tools.read_image.fallback_model.unwrap();
+        assert_eq!(ri.model_name, "llama3");
 
         let rc = &result.tools.run_command.check_models;
         assert_eq!(rc.len(), 1);
@@ -661,6 +670,52 @@ mod tests {
     }
 
     #[test]
+    fn try_from_tools_error_on_non_vision_read_image_fallback() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+        let mut connectors = HashMap::new();
+        connectors.insert(
+            "ollama".to_string(),
+            ProviderConfig::Ollama(Default::default()),
+        );
+
+        let mut models = HashMap::new();
+        models.insert(
+            "fast".to_string(),
+            ModelConfig {
+                connector: "ollama".to_string(),
+                name: "llama3".to_string(),
+                default_parameters: serde_json::Map::new(),
+                vision: false,
+            },
+        );
+
+        let tools = ToolsUserConfig {
+            fetch_webpage: None,
+            read_image: Some(ReadImageUserConfig {
+                fallback_model: Some(Model("fast".to_string())),
+            }),
+            run_command: None,
+            web_search: None,
+        };
+
+        let config = TenonUserConfig {
+            connectors: Some(connectors),
+            agents: None,
+            models: Some(models),
+            tools: Some(tools),
+            history: None,
+            title: None,
+            hooks: None,
+        };
+
+        let err = TenonConfig::try_from(config).err().expect("should reject");
+        assert!(
+            err.to_string().contains("must support vision"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
     fn try_from_tools_error_on_unknown_model() {
         let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
 
@@ -668,7 +723,7 @@ mod tests {
             fetch_webpage: Some(FetchWebpageUserConfig {
                 model: Some(Model("nonexistent".to_string())),
             }),
-            analyze_image: None,
+            read_image: None,
             run_command: None,
             web_search: None,
         };
@@ -693,7 +748,7 @@ mod tests {
 
         let tools = ToolsUserConfig {
             fetch_webpage: None,
-            analyze_image: None,
+            read_image: None,
             run_command: None,
             web_search: Some(WebSearchProviderConfig::Brave {
                 api_key: ApiKey::Value("test-key".into()),

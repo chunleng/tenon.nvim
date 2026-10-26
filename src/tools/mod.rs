@@ -1,16 +1,15 @@
-pub mod analyze_image;
 pub mod ask_question;
 pub mod edit_file;
 pub mod end_choreo;
 pub mod fetch_webpage;
 pub mod list_files;
-pub mod load_image;
 pub mod mcp_client;
 pub mod move_path;
 pub mod navigate_choreo;
 pub mod pop_task;
 pub mod push_tasks;
 pub mod read_file;
+pub mod read_image;
 pub mod remove_path;
 pub mod run_command;
 pub mod search_dependency_code;
@@ -20,17 +19,16 @@ pub mod web_search;
 
 use crate::tools::web_search::{LangSearch, Tavily};
 use crate::{config::WebSearchConfig, mcp::McpHubCaller, tools::web_search::Brave};
-pub use analyze_image::AnalyzeImage;
 pub use ask_question::AskQuestion;
 pub use edit_file::EditFile;
 pub use fetch_webpage::FetchWebpage;
 pub use list_files::ListFiles;
-pub use load_image::LoadImage;
 pub use mcp_client::McpClient;
 pub use move_path::MovePath;
 pub use pop_task::PopTask;
 pub use push_tasks::PushTasks;
 pub use read_file::ReadFile;
+pub use read_image::ReadImage;
 pub use remove_path::RemovePath;
 use rig::message::{ToolName, ToolResultContent};
 use rig::tool::{DynamicTool, IntoToolOutput, ToolContext, ToolExecutionError, ToolOutput};
@@ -292,12 +290,11 @@ pub fn tool_display_summary(
 
     let core_arg: &str = match name {
         "web_search" => "query",
-        "read_file" | "edit_file" | "remove_path" | "load_image" => "filepath",
+        "read_file" | "edit_file" | "remove_path" | "read_image" => "filepath",
         "move_path" => "source",
         "list_files" => "pattern",
         "search_dependency_code" => "dependency",
         "fetch_webpage" => "url",
-        "analyze_image" => "image",
         "ask_question" => "question",
         "navigate_choreo" => "move",
         _ => return None,
@@ -332,7 +329,6 @@ pub fn all_tool_names() -> Vec<String> {
         "run_command".into(),
         "search_dependency_code".into(),
         "search_text".into(),
-        "analyze_image".into(),
     ];
 
     if crate::get_application_config().tools.web_search.is_some() {
@@ -415,10 +411,6 @@ fn builtin_tools(log_window: Arc<RwLock<LogWindow>>) -> Vec<Option<(String, Dyna
         Some((
             "fetch_webpage".to_string(),
             TenonTool::new(FetchWebpage, log_window.clone()).into(),
-        )),
-        Some((
-            "analyze_image".to_string(),
-            TenonTool::new(AnalyzeImage, log_window.clone()).into(),
         )),
         Some((
             "list_files".to_string(),

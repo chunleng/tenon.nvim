@@ -187,7 +187,7 @@ mod tests {
                 id: "call-1".to_string(),
                 internal_call_id: "call-1".to_string(),
                 item_id: None,
-                name: "load_image".to_string(),
+                name: "read_image".to_string(),
                 args: serde_json::json!({ "filepath": filepath }),
             },
             // convert_log only runs after set_tool_result, so an image log
@@ -441,7 +441,7 @@ mod tests {
         // The image log is produced by swapping the last tool log in place, so
         // it is the last log during the continuation request. It must be
         // included in history, otherwise the model never sees the image and
-        // calls load_image again.
+        // calls read_image again.
         let logs = vec![
             create_user_log(1),
             create_assistant_log(1),

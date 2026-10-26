@@ -150,7 +150,7 @@ mod tests {
                 id: "call-1".to_string(),
                 internal_call_id: "call-1".to_string(),
                 item_id: None,
-                name: "load_image".to_string(),
+                name: "read_image".to_string(),
                 args: serde_json::json!({ "filepath": filepath }),
             },
             // convert_log only runs after set_tool_result, so an image log
