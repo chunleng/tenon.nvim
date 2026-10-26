@@ -152,7 +152,7 @@ impl<T: ToolCore> TenonTool<T> {
             .log_window
             .write()
             .map_err(|_| ToolExecutionError::other("Failed to lock log window"))?;
-        log_window.logs.push(IndexedLog {
+        log_window.add_log(IndexedLog {
             log: log.clone(),
             active: true,
         });

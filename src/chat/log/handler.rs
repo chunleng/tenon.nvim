@@ -48,7 +48,7 @@ impl ChatLogHandler {
     pub fn add_user_message(&self, message: String) {
         if let Ok(mut log_window) = self.log_window.write() {
             log_window.prune_incomplete_messages();
-            log_window.logs.push(IndexedLog {
+            log_window.add_log(IndexedLog {
                 log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::User(
                     TenonUserMessage::Text(message),
                 )))),

@@ -101,6 +101,19 @@ impl LogWindow {
             .unwrap_or(false)
     }
 
+    /// Appends a new log to the window. If the last log is an assistant
+    /// message, it is marked complete first: a new log means the previous
+    /// assistant turn has ended.
+    pub fn add_log(&mut self, log: IndexedLog) {
+        if let Some(last) = self.logs.last_mut()
+            && let Ok(mut last_log) = last.log.write()
+            && let TenonLogData::Assistant(message) = &mut last_log.data
+        {
+            message.complete = true;
+        }
+        self.logs.push(log);
+    }
+
     /// Prunes trailing incomplete tool calls (those without results) and a trailing incomplete
     /// assistant message from the logs to prevent sending broken history to the LLM.
     pub fn prune_incomplete_messages(&mut self) {
@@ -567,5 +580,38 @@ mod tests {
             log_window.logs[1].log.read().unwrap().data(),
             TenonLogData::Assistant(_)
         ));
+    }
+
+    #[test]
+    fn test_add_log_completes_last_assistant() {
+        // Last log is an incomplete assistant: it is completed before the new
+        // log is added
+        let mut log_window = LogWindow {
+            logs: vec![
+                create_user_indexed_log("Hello"),
+                create_assistant_indexed_log(false),
+            ],
+        };
+
+        log_window.add_log(create_user_indexed_log("Next"));
+
+        assert_eq!(log_window.logs.len(), 3);
+        if let TenonLogData::Assistant(msg) = &log_window.logs[1].log.read().unwrap().data() {
+            assert!(msg.complete);
+        } else {
+            panic!("expected assistant log at index 1");
+        }
+        assert!(matches!(
+            log_window.logs[2].log.read().unwrap().data(),
+            TenonLogData::User(_)
+        ));
+
+        // An already-complete assistant stays complete
+        log_window.add_log(create_tool_indexed_log("tool1", true));
+        if let TenonLogData::Assistant(msg) = &log_window.logs[1].log.read().unwrap().data() {
+            assert!(msg.complete);
+        } else {
+            panic!("expected assistant log at index 1");
+        }
     }
 }

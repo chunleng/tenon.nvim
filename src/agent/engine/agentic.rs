@@ -280,7 +280,7 @@ impl AgenticStreamEngine {
                                 updated = log.append_text(&text);
                             }
                             if !updated {
-                                log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                                log_window.add_log(crate::chat::log::indexer::IndexedLog {
                                     log: Arc::new(RwLock::new(TenonLog::new(
                                         TenonLogData::Assistant(TenonAssistantMessage {
                                             reasoning: None,
@@ -302,7 +302,7 @@ impl AgenticStreamEngine {
                                 updated = log.append_reasoning(&reasoning);
                             }
                             if !updated {
-                                log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                                log_window.add_log(crate::chat::log::indexer::IndexedLog {
                                     log: Arc::new(RwLock::new(TenonLog::new(
                                         TenonLogData::Assistant(TenonAssistantMessage {
                                             reasoning: Some(reasoning),
@@ -357,7 +357,7 @@ impl AgenticStreamEngine {
                                     }));
                                 // The tool never ran, so its properties are undeterminable
                                 fake_log.properties = crate::chat::log::LogProperties::UNKNOWN;
-                                log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                                log_window.add_log(crate::chat::log::indexer::IndexedLog {
                                     log: Arc::new(RwLock::new(fake_log)),
                                     active: true,
                                 });
