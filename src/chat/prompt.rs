@@ -111,7 +111,7 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
             contexts.push(format!(
                 "<context type=\"choreo-state\">\n\
                     Currently in \"{}\" move of {} choreo.\n\
-                    1. Execute the \"Process\" section of the `instruction` tag. If its steps are numbered, run them in order, completing all within this turn unless the user explicitly asks to stop. Do not print output of the `instruction` tag to chat. The only exception: if the `instruction` tag contains the `::tenon-print::` keyword, print only the text following that keyword, stripping the keyword itself.\n\
+                    1. Execute the \"Process\" section of the `instruction` tag. If its steps are numbered, run them in order, completing all within this turn unless the user explicitly asks to stop. Do not print output of the `instruction` tag to chat, with exception of `::tenon-chat::` enforcement keyword.\n\
                     2. Navigate only after all \"Process\" steps are done, unless the instruction explicitly says to navigate earlier. Reference and select from the `navigation` tag: call the tool whose condition matches; an `any` condition matches only when no other condition does.\
                     \n\n\
                     {}\

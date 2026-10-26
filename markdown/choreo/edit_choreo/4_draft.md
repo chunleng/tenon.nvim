@@ -6,7 +6,7 @@
    - If the Choreo Move Artifact varies by goto path (e.g. different artifacts for structural vs content routing), use subsections for each variant
 3. Write instruction files to `{storage_path}/{N}_{move_name}.md` where N is the move number, e.g. `1_`, `2_`, `3_`
 4. If creating, add the new module to `{config_path}/mod.rs`
-5. ::tenon-print:: summary of changes and ask user for confirmation
+5. ::tenon-chat:: summary of changes and ask user for confirmation
    - If user requests content-only changes, loop back to process step 2
    - If user feedback involves move design changes, navigate to move 3
 

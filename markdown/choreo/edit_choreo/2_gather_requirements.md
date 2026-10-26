@@ -11,7 +11,7 @@
    - The decisions are the user's; put each one to them and wait for their answer
    - If user input conflicts with existing choreo behavior, ask whether the existing behavior should change or be preserved
    - If research findings exist, present them to the user and let them decide what to adopt; adopted findings flow into the requirements
-6. ::tenon-print:: summary of the understood requirements, and confirm with the user before proceeding. If requirements changed, loop back to process step 5 (interview) and re-confirm
+6. ::tenon-chat:: summary of the understood requirements, and confirm with the user before proceeding. If requirements changed, loop back to process step 5 (interview) and re-confirm
 
 ## Requirements DON'Ts
 - Requirements describe what the choreo should accomplish, not how to structure it into moves; move design will happen later

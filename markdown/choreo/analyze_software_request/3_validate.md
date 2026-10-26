@@ -9,7 +9,7 @@
   - If any setup issues found → navigate to plan move
 3. Flow check: verify steps are ordered so each builds on the previous. If issues found → navigate to plan move
 4. If all checks pass:
-  - ::tenon-print:: the scope and plan
+  - ::tenon-chat:: the scope and plan
   - Ask the user for confirmation
   - On confirmation → create one development task per plan step (see "Task Creation"), then end choreo
   - On scope changed/issue → navigate to scope move
