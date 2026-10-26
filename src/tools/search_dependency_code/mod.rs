@@ -475,6 +475,7 @@ mod tests {
             content: vec![TenonAssistantMessageContent::Text(
                 "\n  first line  \nsecond line".to_string(),
             )],
+            complete: false,
         };
         assert_eq!(assistant_lines(&msg), vec!["󰚩 first line", "󰚩 second line"]);
     }
@@ -487,6 +488,7 @@ mod tests {
                 TenonAssistantMessageContent::Text("   ".to_string()),
                 TenonAssistantMessageContent::Text("real text\nmore".to_string()),
             ],
+            complete: false,
         };
         assert_eq!(assistant_lines(&msg), vec!["󰚩 real text", "󰚩 more"]);
     }
@@ -497,6 +499,7 @@ mod tests {
         let msg = TenonAssistantMessage {
             reasoning: Some("thinking\nmore thoughts".to_string()),
             content: vec![],
+            complete: false,
         };
         assert_eq!(assistant_lines(&msg), vec!["󰚩 thinking", "󰚩 more thoughts"]);
     }
@@ -525,6 +528,7 @@ mod tests {
             TenonAssistantMessage {
                 reasoning: None,
                 content: vec![TenonAssistantMessageContent::Text(text.to_string())],
+                complete: false,
             },
         ))))
     }
@@ -534,6 +538,7 @@ mod tests {
             TenonAssistantMessage {
                 reasoning: Some("thinking".to_string()),
                 content: vec![],
+                complete: false,
             },
         ))))
     }

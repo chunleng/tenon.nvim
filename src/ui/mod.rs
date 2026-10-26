@@ -1294,6 +1294,7 @@ mod tests {
         let log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
             reasoning: Some("thinking".to_string()),
             content: vec![TenonAssistantMessageContent::Text("response".to_string())],
+            complete: false,
         }));
         let lines = format_log_detail(&log);
         let content = lines.join("\n");

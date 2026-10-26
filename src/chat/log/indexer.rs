@@ -329,6 +329,7 @@ mod tests {
         let mut log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
             content: vec![TenonAssistantMessageContent::Text("x".repeat(token_count))],
             reasoning: None,
+            complete: true,
         }));
         log.token_count = token_count;
         log

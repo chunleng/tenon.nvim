@@ -44,6 +44,9 @@ impl From<&TenonAssistantMessageContent> for AssistantContent {
 pub struct TenonAssistantMessage {
     pub reasoning: Option<String>,
     pub content: Vec<TenonAssistantMessageContent>,
+    /// Streaming finished for this message
+    #[serde(default)]
+    pub complete: bool,
 }
 
 impl TenonAssistantMessage {
@@ -413,10 +416,21 @@ mod tests {
     }
 
     #[test]
+    fn test_assistant_message_complete_defaults_false_when_field_absent() {
+        let message: TenonAssistantMessage =
+            serde_json::from_str("{\"reasoning\":null,\"content\":[]}").expect("deserializes");
+        assert!(
+            !message.complete,
+            "histories saved before the complete field must still deserialize"
+        );
+    }
+
+    #[test]
     fn test_append_reasoning_updates_last_updated_at() {
         let mut log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
             reasoning: None,
             content: vec![],
+            complete: false,
         }));
         std::thread::sleep(std::time::Duration::from_millis(10));
         let before = Utc::now();
@@ -692,6 +706,7 @@ mod tests {
         let log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
             reasoning: None,
             content: vec![TenonAssistantMessageContent::Text("reply".to_string())],
+            complete: false,
         }));
         assert_eq!(log.to_embeddable_text(), "reply");
 

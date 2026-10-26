@@ -189,6 +189,7 @@ mod tests {
         let msg = TenonAssistantMessage {
             reasoning: Some("thinking...".to_string()),
             content: vec![],
+            complete: false,
         };
         let data = TenonLogData::Assistant(msg);
 
@@ -205,6 +206,7 @@ mod tests {
             content: vec![TenonAssistantMessageContent::Text(
                 "Hello\nWorld".to_string(),
             )],
+            complete: false,
         };
         let data = TenonLogData::Assistant(msg);
 
@@ -221,6 +223,7 @@ mod tests {
             content: vec![TenonAssistantMessageContent::Text(
                 "Hello\nWorld".to_string(),
             )],
+            complete: false,
         };
         let data = TenonLogData::Assistant(msg);
 
@@ -295,6 +298,7 @@ mod tests {
         let assistant = TenonLogData::Assistant(TenonAssistantMessage {
             reasoning: None,
             content: vec![TenonAssistantMessageContent::Text("Hello".to_string())],
+            complete: false,
         });
         assert_eq!(assistant.prefix_hl_group(), "");
     }

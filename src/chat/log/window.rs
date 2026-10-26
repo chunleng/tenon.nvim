@@ -101,9 +101,23 @@ impl LogWindow {
             .unwrap_or(false)
     }
 
-    /// Prunes trailing incomplete tool calls (those without results) from the logs
-    /// to prevent sending broken history to the LLM.
+    /// Prunes trailing incomplete tool calls (those without results) and a trailing incomplete
+    /// assistant message from the logs to prevent sending broken history to the LLM.
     pub fn prune_incomplete_messages(&mut self) {
+        // A trailing incomplete assistant message (streaming never finished) is
+        // dropped first; no trailing tools can follow it, so the tool prune
+        // below would be a no-op.
+        if let Some(last) = self.logs.last() {
+            let incomplete_assistant = last.log.read().ok().is_some_and(|l| match l.data() {
+                TenonLogData::Assistant(msg) => !msg.complete,
+                _ => false,
+            });
+            if incomplete_assistant {
+                self.logs.pop();
+                return;
+            }
+        }
+
         let logs = &self.logs;
         let last_non_tool_index = logs.iter().enumerate().rfind(|(_, log)| {
             !log.log
@@ -209,6 +223,7 @@ mod tests {
         let mut log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
             content: vec![TenonAssistantMessageContent::Text("x".repeat(token_count))],
             reasoning: None,
+            complete: true,
         }));
         log.token_count = token_count;
         log
@@ -285,6 +300,7 @@ mod tests {
             let mut log = TenonLog::new(TenonLogData::Assistant(TenonAssistantMessage {
                 content: vec![TenonAssistantMessageContent::Text("x".repeat(token_count))],
                 reasoning: None,
+                complete: true,
             }));
             log.token_count = token_count;
             log
@@ -460,6 +476,19 @@ mod tests {
         ));
     }
 
+    fn create_assistant_indexed_log(complete: bool) -> IndexedLog {
+        IndexedLog {
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Assistant(
+                TenonAssistantMessage {
+                    content: vec![TenonAssistantMessageContent::Text("x".to_string())],
+                    reasoning: None,
+                    complete,
+                },
+            )))),
+            active: true,
+        }
+    }
+
     #[test]
     fn test_prune_incomplete_messages() {
         let mut log_window = LogWindow {
@@ -485,5 +514,58 @@ mod tests {
         if let TenonLogData::Tool(tl) = &log_window.logs[1].log.read().unwrap().data() {
             assert!(tl.tool_result.is_some());
         }
+    }
+
+    #[test]
+    fn test_prune_incomplete_messages_removes_trailing_incomplete_assistant() {
+        // Trailing incomplete assistant is removed
+        let mut log_window = LogWindow {
+            logs: vec![
+                create_user_indexed_log("Hello"),
+                create_assistant_indexed_log(false),
+            ],
+        };
+
+        log_window.prune_incomplete_messages();
+
+        assert_eq!(log_window.logs.len(), 1);
+        assert!(matches!(
+            log_window.logs[0].log.read().unwrap().data(),
+            TenonLogData::User(_)
+        ));
+
+        // Complete assistant stays
+        let mut log_window = LogWindow {
+            logs: vec![
+                create_user_indexed_log("Hello"),
+                create_assistant_indexed_log(true),
+            ],
+        };
+
+        log_window.prune_incomplete_messages();
+
+        assert_eq!(log_window.logs.len(), 2);
+        assert!(matches!(
+            log_window.logs[1].log.read().unwrap().data(),
+            TenonLogData::Assistant(_)
+        ));
+
+        // Incomplete assistant followed by resultless tool: the tool is
+        // pruned, the assistant stays (it is not the last log at check time)
+        let mut log_window = LogWindow {
+            logs: vec![
+                create_user_indexed_log("Hello"),
+                create_assistant_indexed_log(false),
+                create_tool_indexed_log("tool1", false),
+            ],
+        };
+
+        log_window.prune_incomplete_messages();
+
+        assert_eq!(log_window.logs.len(), 2);
+        assert!(matches!(
+            log_window.logs[1].log.read().unwrap().data(),
+            TenonLogData::Assistant(_)
+        ));
     }
 }

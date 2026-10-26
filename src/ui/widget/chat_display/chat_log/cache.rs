@@ -326,6 +326,7 @@ mod tests {
                 TenonAssistantMessage {
                     reasoning: Some(reasoning.to_string()),
                     content: vec![],
+                    complete: false,
                 },
             )))),
             active: true,
@@ -340,6 +341,7 @@ mod tests {
                 TenonAssistantMessage {
                     reasoning: Some(reasoning.to_string()),
                     content: vec![],
+                    complete: false,
                 },
             )))),
             active: true,
@@ -356,6 +358,7 @@ mod tests {
                     content: vec![crate::chat::log::TenonAssistantMessageContent::Text(
                         content.to_string(),
                     )],
+                    complete: false,
                 },
             )))),
             active: true,

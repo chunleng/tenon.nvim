@@ -285,6 +285,7 @@ impl AgenticStreamEngine {
                                         TenonLogData::Assistant(TenonAssistantMessage {
                                             reasoning: None,
                                             content: vec![TenonAssistantMessageContent::Text(text)],
+                                            complete: false,
                                         }),
                                     ))),
                                     active: true,
@@ -306,6 +307,7 @@ impl AgenticStreamEngine {
                                         TenonLogData::Assistant(TenonAssistantMessage {
                                             reasoning: Some(reasoning),
                                             content: vec![],
+                                            complete: false,
                                         }),
                                     ))),
                                     active: true,
@@ -365,6 +367,13 @@ impl AgenticStreamEngine {
                     Ok(StreamItem::Other) => {}
                     Ok(StreamItem::CompletionCall { usage }) => {
                         on_completion_call(usage);
+                        if let Ok(mut log_window) = self.log_handler.log_window.write()
+                            && let Some(indexed_log) = log_window.logs.last_mut()
+                            && let Ok(mut log) = indexed_log.log.write()
+                            && let TenonLogData::Assistant(message) = &mut log.data
+                        {
+                            message.complete = true;
+                        }
                     }
                     Err(e) => {
                         // Mid-stream failures (e.g. "error decoding response body") surface here
@@ -581,8 +590,9 @@ mod tests {
     /// Minimal Ollama /api/chat mock over raw TCP. The first `fail_times`
     /// connections serve a valid response head plus a truncated ndjson body
     /// (partial content reaches the chat, then the connection drops
-    /// mid-body); every later connection serves the full body.
-    async fn spawn_flaky_ollama_mock(
+    /// mid-body); every later connection serves the full body. Pass 0 for a
+    /// stable mock that always serves the full body.
+    async fn spawn_ollama_mock(
         body: &'static str,
         fail_times: usize,
     ) -> (SocketAddr, Arc<AtomicUsize>) {
@@ -661,7 +671,7 @@ mod tests {
             "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"world\"},\"done\":false}\n",
             "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
         );
-        let (addr, connections) = spawn_flaky_ollama_mock(body, 1).await;
+        let (addr, connections) = spawn_ollama_mock(body, 1).await;
 
         let model = SupportedModels {
             connector_name: "test".to_string(),
@@ -705,13 +715,59 @@ mod tests {
             })
             .collect::<String>();
         assert_eq!(
-            assistant_text, "Hello Hello world",
-            "the retried turn must deliver the complete response after the partial one"
+            assistant_text, "Hello world",
+            "the partial response must be pruned before the retry delivers the complete one"
         );
         assert_eq!(
             connections.load(Ordering::SeqCst),
             2,
             "a transient mid-stream failure must be retried"
+        );
+    }
+
+    #[tokio::test]
+    async fn completion_call_marks_last_assistant_message_complete() {
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().expect("test cwd"))
+            .ok();
+        let body = concat!(
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"Hello \"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"world\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
+        );
+        let (addr, _connections) = spawn_ollama_mock(body, 0).await;
+
+        let model = SupportedModels {
+            connector_name: "test".to_string(),
+            config: ProviderConfig::Ollama(OllamaProviderConfig {
+                base_url: format!("http://{addr}"),
+                bearer: None,
+            }),
+            model_name: "test".to_string(),
+            default_parameters: serde_json::Map::new(),
+            vision: false,
+        };
+        let mut engine =
+            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+
+        let cancel = AtomicBool::new(false);
+        engine
+            .process_turn("Say hello".to_string(), &cancel, |_| {}, 1)
+            .await;
+
+        let log_window = engine
+            .log_handler
+            .log_window
+            .read()
+            .expect("log window readable");
+        let last = log_window.logs.last().expect("assistant log exists");
+        let log = last.log.read().expect("log readable");
+        let TenonLogData::Assistant(message) = log.data() else {
+            panic!("last log should be the assistant message");
+        };
+        assert!(
+            message.complete,
+            "CompletionCall must mark the assistant message as complete"
         );
     }
 
@@ -726,7 +782,7 @@ mod tests {
             "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
         );
         // Every connection truncates mid-body, so every attempt fails.
-        let (addr, connections) = spawn_flaky_ollama_mock(body, usize::MAX).await;
+        let (addr, connections) = spawn_ollama_mock(body, usize::MAX).await;
 
         let model = SupportedModels {
             connector_name: "test".to_string(),
@@ -774,8 +830,8 @@ mod tests {
             })
             .collect::<String>();
         assert_eq!(
-            assistant_text, "Hello Hello Hello ",
-            "each attempt's partial response accumulates when the error surfaces"
+            assistant_text, "Hello ",
+            "each attempt's partial response is pruned, leaving only the last attempt's"
         );
         assert_eq!(
             connections.load(Ordering::SeqCst),
