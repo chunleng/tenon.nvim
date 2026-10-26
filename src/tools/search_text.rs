@@ -206,10 +206,10 @@ impl ToolCoreCall for SearchTextCall {
                 .strip_prefix(&search_path)
                 .unwrap_or(entry.path());
 
-            if let Some(ref matcher) = glob_matcher {
-                if !matcher.is_match(relative) {
-                    continue;
-                }
+            if let Some(ref matcher) = glob_matcher
+                && !matcher.is_match(relative)
+            {
+                continue;
             }
 
             let content_bytes = match std::fs::read(entry.path()) {

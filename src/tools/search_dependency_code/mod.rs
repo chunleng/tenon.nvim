@@ -393,8 +393,8 @@ fn assistant_lines(msg: &TenonAssistantMessage) -> Vec<String> {
     let text = msg
         .content
         .iter()
-        .filter_map(|c| match c {
-            TenonAssistantMessageContent::Text(text) => Some(text.as_str()),
+        .map(|c| match c {
+            TenonAssistantMessageContent::Text(text) => text.as_str(),
         })
         .collect::<Vec<_>>()
         .join("\n");
