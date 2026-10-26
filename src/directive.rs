@@ -243,17 +243,6 @@ pub fn load_system_directives() -> HashMap<String, Directive> {
     );
 
     map.insert(
-        "Reduce Commentary".into(),
-        Directive {
-            condition: None,
-            source: DirectiveSource::Preset {
-                id: "Reduce Commentary".into(),
-                content: PresetContent::File(directive_path("reduce-commentary.md")),
-            },
-        },
-    );
-
-    map.insert(
         "Respect Writing Intent".into(),
         Directive {
             condition: None,
