@@ -240,135 +240,150 @@ impl AgenticStreamEngine {
         on_completion_call: impl Fn(Usage),
         max_turns: usize,
     ) -> bool {
-        let agent = self.build_chat_adapter();
-        let mut chat_history = self.log_handler.get_chat_history(&prompt);
-        let mut messages = build_choreo_messages(
-            &self.active_choreo,
-            self.tool_context.scope::<RwLock<WorkQueue>>().as_ref(),
-            prompt,
-        )
-        .await;
-        let message = if messages.is_empty() {
-            Message::system("<context></context>")
-        } else {
-            let message = messages.pop().unwrap();
-            chat_history.extend(messages);
-            message
-        };
-        let mut stream = ChatStream::new(
-            &agent,
-            message,
-            chat_history,
-            max_turns,
-            self.tool_context.clone(),
-        );
+        const MAX_STREAM_ATTEMPTS: usize = 3;
 
-        while let Some(result) = stream.next().await {
-            if cancel_token.load(Ordering::SeqCst) {
-                break;
-            }
-            match result {
-                Ok(StreamItem::Text { text }) => {
-                    if let Ok(mut log_window) = self.log_handler.log_window.write() {
-                        let mut updated = false;
-                        if let Some(indexed_log) = log_window.logs.last_mut()
-                            && let Ok(mut log) = indexed_log.log.write()
-                        {
-                            updated = log.append_text(&text);
-                        }
-                        if !updated {
-                            log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Assistant(
-                                    TenonAssistantMessage {
-                                        reasoning: None,
-                                        content: vec![TenonAssistantMessageContent::Text(text)],
-                                    },
-                                )))),
-                                active: true,
-                            });
-                        }
-                    }
-                }
-                Ok(StreamItem::ReasoningDelta { reasoning }) => {
-                    if let Ok(mut log_window) = self.log_handler.log_window.write() {
-                        let mut updated = false;
-                        if let Some(indexed_log) = log_window.logs.last_mut()
-                            && let Ok(mut log) = indexed_log.log.write()
-                        {
-                            updated = log.append_reasoning(&reasoning);
-                        }
-                        if !updated {
-                            log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Assistant(
-                                    TenonAssistantMessage {
-                                        reasoning: Some(reasoning),
-                                        content: vec![],
-                                    },
-                                )))),
-                                active: true,
-                            });
-                        }
-                    }
-                }
-                Ok(StreamItem::ToolCall { .. }) => {}
-                Ok(StreamItem::ToolResult { tool_result }) => {
-                    // A choreo tool set the flag: end this stream, start a new request
-                    if let Some(signal) = self.tool_context.scope::<ContinueSignal>()
-                        && signal.0.load(Ordering::SeqCst)
-                    {
-                        break;
-                    }
+        'attempts: for attempt in 0..MAX_STREAM_ATTEMPTS {
+            let agent = self.build_chat_adapter();
+            let mut chat_history = self.log_handler.get_chat_history(&prompt);
+            let mut messages = build_choreo_messages(
+                &self.active_choreo,
+                self.tool_context.scope::<RwLock<WorkQueue>>().as_ref(),
+                prompt.clone(),
+            )
+            .await;
+            let message = if messages.is_empty() {
+                Message::system("<context></context>")
+            } else {
+                let message = messages.pop().unwrap();
+                chat_history.extend(messages);
+                message
+            };
+            let mut stream = ChatStream::new(
+                &agent,
+                message,
+                chat_history,
+                max_turns,
+                self.tool_context.clone(),
+            );
 
-                    if let Ok(mut log_window) = self.log_handler.log_window.write() {
-                        // No matching Tool log → the tool call was invalid and skipped by
-                        // InvalidToolCallHook.
-                        let content = tool_result.content.first();
-                        if let Some(ToolResultContent::Text(text)) = content
-                            && text.text.starts_with("ToolCallError: ")
-                        {
-                            // Fake the tool call so the log is displayable and produces valid
-                            // LLM history (matching tool_call.id + tool_result.id).
-                            let tool_name = text
-                                .text
-                                .strip_prefix("ToolCallError: `")
-                                .and_then(|s| s.split('`').next())
-                                .unwrap_or("unknown")
-                                .to_string();
-                            let call_id = tool_result.call.to_string();
-                            let mut fake_log = TenonLog::new(TenonLogData::Tool(TenonToolLog {
-                                tool_call: TenonToolCall {
-                                    id: call_id.clone(),
-                                    // rig 0.44 collapsed the dual-wire call id
-                                    // (item handle + correlator) into one, so
-                                    // there is no separate item id to record.
-                                    item_id: None,
-                                    internal_call_id: call_id,
-                                    name: tool_name,
-                                    args: serde_json::Value::Null,
-                                },
-                                tool_result: Some(Err(TenonToolError(text.text.clone()))),
-                                progress: vec![],
-                            }));
-                            // The tool never ran, so its properties are undeterminable
-                            fake_log.properties = crate::chat::log::LogProperties::UNKNOWN;
-                            log_window.logs.push(crate::chat::log::indexer::IndexedLog {
-                                log: Arc::new(RwLock::new(fake_log)),
-                                active: true,
-                            });
+            while let Some(result) = stream.next().await {
+                if cancel_token.load(Ordering::SeqCst) {
+                    break;
+                }
+                match result {
+                    Ok(StreamItem::Text { text }) => {
+                        if let Ok(mut log_window) = self.log_handler.log_window.write() {
+                            let mut updated = false;
+                            if let Some(indexed_log) = log_window.logs.last_mut()
+                                && let Ok(mut log) = indexed_log.log.write()
+                            {
+                                updated = log.append_text(&text);
+                            }
+                            if !updated {
+                                log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                                    log: Arc::new(RwLock::new(TenonLog::new(
+                                        TenonLogData::Assistant(TenonAssistantMessage {
+                                            reasoning: None,
+                                            content: vec![TenonAssistantMessageContent::Text(text)],
+                                        }),
+                                    ))),
+                                    active: true,
+                                });
+                            }
                         }
                     }
-                }
-                Ok(StreamItem::Other) => {}
-                Ok(StreamItem::CompletionCall { usage }) => {
-                    on_completion_call(usage);
-                }
-                Err(e) => {
-                    GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
-                        format!("error occurred while streaming response from LLM: {}", e),
-                        LogLevel::Error,
-                    );
+                    Ok(StreamItem::ReasoningDelta { reasoning }) => {
+                        if let Ok(mut log_window) = self.log_handler.log_window.write() {
+                            let mut updated = false;
+                            if let Some(indexed_log) = log_window.logs.last_mut()
+                                && let Ok(mut log) = indexed_log.log.write()
+                            {
+                                updated = log.append_reasoning(&reasoning);
+                            }
+                            if !updated {
+                                log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                                    log: Arc::new(RwLock::new(TenonLog::new(
+                                        TenonLogData::Assistant(TenonAssistantMessage {
+                                            reasoning: Some(reasoning),
+                                            content: vec![],
+                                        }),
+                                    ))),
+                                    active: true,
+                                });
+                            }
+                        }
+                    }
+                    Ok(StreamItem::ToolCall { .. }) => {}
+                    Ok(StreamItem::ToolResult { tool_result }) => {
+                        // A choreo tool set the flag: end this stream, start a new request
+                        if let Some(signal) = self.tool_context.scope::<ContinueSignal>()
+                            && signal.0.load(Ordering::SeqCst)
+                        {
+                            break;
+                        }
+
+                        if let Ok(mut log_window) = self.log_handler.log_window.write() {
+                            // No matching Tool log → the tool call was invalid and skipped by
+                            // InvalidToolCallHook.
+                            let content = tool_result.content.first();
+                            if let Some(ToolResultContent::Text(text)) = content
+                                && text.text.starts_with("ToolCallError: ")
+                            {
+                                // Fake the tool call so the log is displayable and produces valid
+                                // LLM history (matching tool_call.id + tool_result.id).
+                                let tool_name = text
+                                    .text
+                                    .strip_prefix("ToolCallError: `")
+                                    .and_then(|s| s.split('`').next())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+                                let call_id = tool_result.call.to_string();
+                                let mut fake_log =
+                                    TenonLog::new(TenonLogData::Tool(TenonToolLog {
+                                        tool_call: TenonToolCall {
+                                            id: call_id.clone(),
+                                            // rig 0.44 collapsed the dual-wire call id
+                                            // (item handle + correlator) into one, so
+                                            // there is no separate item id to record.
+                                            item_id: None,
+                                            internal_call_id: call_id,
+                                            name: tool_name,
+                                            args: serde_json::Value::Null,
+                                        },
+                                        tool_result: Some(Err(TenonToolError(text.text.clone()))),
+                                        progress: vec![],
+                                    }));
+                                // The tool never ran, so its properties are undeterminable
+                                fake_log.properties = crate::chat::log::LogProperties::UNKNOWN;
+                                log_window.logs.push(crate::chat::log::indexer::IndexedLog {
+                                    log: Arc::new(RwLock::new(fake_log)),
+                                    active: true,
+                                });
+                            }
+                        }
+                    }
+                    Ok(StreamItem::Other) => {}
+                    Ok(StreamItem::CompletionCall { usage }) => {
+                        on_completion_call(usage);
+                    }
+                    Err(e) => {
+                        // Mid-stream failures (e.g. "error decoding response body") surface here
+                        // after partial content was delivered;
+                        if attempt + 1 < MAX_STREAM_ATTEMPTS
+                            && let Ok(mut log_window) = self.log_handler.log_window.write()
+                        {
+                            log_window.prune_incomplete_messages();
+                            continue 'attempts;
+                        }
+                        GLOBAL_EXECUTION_HANDLER.notify_on_main_thread(
+                            format!("error occurred while streaming response from LLM: {}", e),
+                            LogLevel::Error,
+                        );
+                    }
                 }
             }
+
+            break;
         }
 
         self.tool_context
@@ -383,6 +398,13 @@ mod tests {
     use crate::chat::TenonChoreoLog;
     use crate::clients::{OllamaProviderConfig, ProviderConfig, SupportedModels};
     use crate::tools::resolve_tools;
+    use std::net::SocketAddr;
+    use std::panic::AssertUnwindSafe;
+    use std::sync::atomic::AtomicUsize;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    use futures::FutureExt;
 
     fn test_model() -> SupportedModels {
         SupportedModels {
@@ -554,5 +576,211 @@ mod tests {
             let active_choreo = engine.active_choreo.read().unwrap();
             assert!(active_choreo.is_none());
         }
+    }
+
+    /// Minimal Ollama /api/chat mock over raw TCP. The first `fail_times`
+    /// connections serve a valid response head plus a truncated ndjson body
+    /// (partial content reaches the chat, then the connection drops
+    /// mid-body); every later connection serves the full body.
+    async fn spawn_flaky_ollama_mock(
+        body: &'static str,
+        fail_times: usize,
+    ) -> (SocketAddr, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("mock binds");
+        let addr = listener.local_addr().expect("mock address");
+        let connections = Arc::new(AtomicUsize::new(0));
+        let counter = connections.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let count = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                tokio::spawn(async move {
+                    if !drain_http_request(&mut socket).await {
+                        return;
+                    }
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = socket.write_all(head.as_bytes()).await;
+                    if count <= fail_times {
+                        // Cut mid-body after the first complete line so partial
+                        // content is delivered before the failure.
+                        let cut = body.find('\n').map_or(body.len(), |i| i + 1 + 10);
+                        let _ = socket.write_all(&body.as_bytes()[..cut]).await;
+                    } else {
+                        let _ = socket.write_all(body.as_bytes()).await;
+                    }
+                });
+            }
+        });
+        (addr, connections)
+    }
+
+    /// Reads one HTTP request (head + Content-Length body) off the socket.
+    async fn drain_http_request(socket: &mut TcpStream) -> bool {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let head_end = loop {
+            match socket.read(&mut chunk).await {
+                Ok(0) => return false,
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(_) => return false,
+            }
+            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+        };
+        let content_length = String::from_utf8_lossy(&buf[..head_end])
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                if name.trim().eq_ignore_ascii_case("content-length") {
+                    value.trim().parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+        while buf.len() < head_end + content_length {
+            match socket.read(&mut chunk).await {
+                Ok(0) => return false,
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(_) => return false,
+            }
+        }
+        true
+    }
+
+    #[tokio::test]
+    async fn mid_stream_failure_is_retried_with_complete_response() {
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().expect("test cwd"))
+            .ok();
+        let body = concat!(
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"Hello \"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"world\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
+        );
+        let (addr, connections) = spawn_flaky_ollama_mock(body, 1).await;
+
+        let model = SupportedModels {
+            connector_name: "test".to_string(),
+            config: ProviderConfig::Ollama(OllamaProviderConfig {
+                base_url: format!("http://{addr}"),
+                bearer: None,
+            }),
+            model_name: "test".to_string(),
+            default_parameters: serde_json::Map::new(),
+            vision: false,
+        };
+        let mut engine =
+            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+
+        let cancel = AtomicBool::new(false);
+        engine
+            .process_turn("Say hello".to_string(), &cancel, |_| {}, 1)
+            .await;
+
+        let assistant_text = engine
+            .log_handler
+            .log_window
+            .read()
+            .expect("log window readable")
+            .logs
+            .iter()
+            .filter_map(|indexed| {
+                let log = indexed.log.read().ok()?;
+                let TenonLogData::Assistant(message) = log.data() else {
+                    return None;
+                };
+                Some(
+                    message
+                        .content
+                        .iter()
+                        .map(|content| match content {
+                            TenonAssistantMessageContent::Text(text) => text.as_str(),
+                        })
+                        .collect::<String>(),
+                )
+            })
+            .collect::<String>();
+        assert_eq!(
+            assistant_text, "Hello Hello world",
+            "the retried turn must deliver the complete response after the partial one"
+        );
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            2,
+            "a transient mid-stream failure must be retried"
+        );
+    }
+
+    #[tokio::test]
+    async fn persistent_mid_stream_failure_is_bounded_and_surfaces_error() {
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().expect("test cwd"))
+            .ok();
+        let body = concat!(
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"Hello \"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"world\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
+        );
+        // Every connection truncates mid-body, so every attempt fails.
+        let (addr, connections) = spawn_flaky_ollama_mock(body, usize::MAX).await;
+
+        let model = SupportedModels {
+            connector_name: "test".to_string(),
+            config: ProviderConfig::Ollama(OllamaProviderConfig {
+                base_url: format!("http://{addr}"),
+                bearer: None,
+            }),
+            model_name: "test".to_string(),
+            default_parameters: serde_json::Map::new(),
+            vision: false,
+        };
+        let mut engine =
+            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+
+        let cancel = AtomicBool::new(false);
+        // The surfaced error notifies through the Neovim execution handler,
+        // whose initialization panics outside Neovim. Catch the unwind so the
+        // assertions below report the bounded-retry behavior instead of the
+        // environment panic.
+        let _ = AssertUnwindSafe(engine.process_turn("Say hello".to_string(), &cancel, |_| {}, 1))
+            .catch_unwind()
+            .await;
+
+        let assistant_text = engine
+            .log_handler
+            .log_window
+            .read()
+            .expect("log window readable")
+            .logs
+            .iter()
+            .filter_map(|indexed| {
+                let log = indexed.log.read().ok()?;
+                let TenonLogData::Assistant(message) = log.data() else {
+                    return None;
+                };
+                Some(
+                    message
+                        .content
+                        .iter()
+                        .map(|content| match content {
+                            TenonAssistantMessageContent::Text(text) => text.as_str(),
+                        })
+                        .collect::<String>(),
+                )
+            })
+            .collect::<String>();
+        assert_eq!(
+            assistant_text, "Hello Hello Hello ",
+            "each attempt's partial response accumulates when the error surfaces"
+        );
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            3,
+            "persistent mid-stream failures must stop after the attempt bound"
+        );
     }
 }
