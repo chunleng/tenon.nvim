@@ -111,16 +111,14 @@ fn rasterize_if_svg(original_bytes: &[u8]) -> Vec<u8> {
     }
 }
 
-/// Loads an image file into a base64 rig `Image`, rasterizing SVG to PNG first.
-/// The file is re-read on each call, so persisted logs only need the path.
-pub fn load_image_file(path: &str) -> Result<rig::message::Image, String> {
+/// Builds a base64 rig `Image` from raw image bytes, rasterizing SVG to PNG
+/// first. Shared by file and URL loading so both go through the same
+/// processing.
+fn load_image_bytes(bytes: &[u8]) -> Result<rig::message::Image, String> {
     use base64::Engine;
     use rig::message::MimeType;
 
-    let image_path = path_from_str(path);
-    let bytes = std::fs::read(&image_path)
-        .map_err(|e| format!("Failed to read image '{}': {}", path, e))?;
-    let processed = rasterize_if_svg(&bytes);
+    let processed = rasterize_if_svg(bytes);
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&processed);
 
     let mime = match image::guess_format(&processed) {
@@ -138,6 +136,36 @@ pub fn load_image_file(path: &str) -> Result<rig::message::Image, String> {
         media_type: Some(media_type),
         ..Default::default()
     })
+}
+
+/// Loads an image file into a base64 rig `Image`, rasterizing SVG to PNG first.
+/// The file is re-read on each call, so persisted logs only need the path.
+pub fn load_image_file(path: &str) -> Result<rig::message::Image, String> {
+    let image_path = path_from_str(path);
+    let bytes = std::fs::read(&image_path)
+        .map_err(|e| format!("Failed to read image '{}': {}", path, e))?;
+    load_image_bytes(&bytes)
+}
+
+/// Fetches an image over HTTP(S) and builds a base64 rig `Image` from the
+/// downloaded bytes. Providers like Ollama only accept base64 images, so URLs
+/// cannot be passed through as a URL source.
+pub async fn load_image_url(url: &str) -> Result<rig::message::Image, String> {
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| format!("Failed to fetch image '{}': {}", url, e))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Failed to fetch image '{}': HTTP {}",
+            url,
+            response.status()
+        ));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read image body '{}': {}", url, e))?;
+    load_image_bytes(&bytes)
 }
 
 /// Check whether a string is an http(s) URL.

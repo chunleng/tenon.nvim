@@ -4,14 +4,14 @@ use std::sync::{Arc, RwLock};
 use crate::agent::engine::agentic::ContinueSignal;
 use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::clients::SupportedModels;
-use rig::message::{DocumentSourceKind, Image, Message, ToolResultContent, UserContent};
+use rig::message::{Image, Message, ToolResultContent, UserContent};
 use rig::tool::{ToolContext, ToolExecutionError, ToolOutput};
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::chat::{TenonImageLog, TenonLog, TenonLogData};
 use crate::tools::{ToolCore, ToolCoreCall};
-use crate::utils::{is_url, load_image_file};
+use crate::utils::{is_url, load_image_file, load_image_url};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,16 +49,13 @@ pub struct ReadImageCall {
 }
 
 impl ReadImageCall {
-    /// The image to deliver. URLs are passed through as a URL source so the
-    /// provider fetches them; local paths are read from disk.
-    fn image(&self) -> Result<Image, ToolExecutionError> {
+    /// The image to deliver. URLs are fetched and base64-encoded because some providers only accept
+    /// base64 images; local paths are read from disk.
+    async fn image(&self) -> Result<Image, ToolExecutionError> {
         if is_url(&self.filepath) {
-            return Ok(Image {
-                data: DocumentSourceKind::Url(self.filepath.clone()),
-                media_type: None,
-                detail: None,
-                native: None,
-            });
+            return load_image_url(&self.filepath)
+                .await
+                .map_err(ToolExecutionError::other);
         }
         load_image_file(&self.filepath).map_err(ToolExecutionError::other)
     }
@@ -67,7 +64,10 @@ impl ReadImageCall {
     /// caller's context, the image itself never does.
     async fn analyze(&self, prompt: &str) -> Result<ToolOutput, ToolExecutionError> {
         let message = Message::User {
-            content: vec![UserContent::text(prompt), UserContent::Image(self.image()?)],
+            content: vec![
+                UserContent::text(prompt),
+                UserContent::Image(self.image().await?),
+            ],
         };
 
         let worker = SimpleTenonWorkerAgent::new(
@@ -94,7 +94,7 @@ impl ToolCoreCall for ReadImageCall {
             return self.analyze(prompt).await;
         }
 
-        let image = self.image()?;
+        let image = self.image().await?;
         // End the current stream and start a new request: the log is swapped
         // to a user image log, so the image is delivered as a user message
         if let Some(signal) = context.scope::<ContinueSignal>() {
@@ -217,6 +217,7 @@ mod tests {
     use crate::agent::engine::agentic::ContinueSignal;
     use crate::chat::log::{TenonImageLog, TenonToolCall, TenonToolLog, TenonToolResult};
     use crate::clients::{OllamaProviderConfig, ProviderConfig};
+    use rig::message::DocumentSourceKind;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     fn test_model(vision: bool) -> SupportedModels {
@@ -313,38 +314,72 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_result_url_is_passed_through_without_reading_a_file() {
+    async fn test_result_url_fetches_and_base64_encodes() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_bytes(utils_test_png()))
+            .mount(&server)
+            .await;
+
         let (mut context, signal) = context_with_signal();
         let call = ReadImageCall {
-            filepath: "https://example.com/image.png".to_string(),
+            filepath: format!("{}/image.png", server.uri()),
             prompt: None,
             worker_model: test_model(true),
         };
         let output = call.result(&mut context).await.unwrap();
         match output.as_content() {
             [ToolResultContent::Image(image)] => {
-                assert_eq!(
-                    image.data,
-                    DocumentSourceKind::Url("https://example.com/image.png".to_string())
+                assert!(
+                    matches!(image.data, DocumentSourceKind::Base64(_)),
+                    "URL images must be base64-encoded, got {:?}",
+                    image.data
                 );
+                assert_eq!(image.media_type, Some(rig::message::ImageMediaType::PNG));
             }
             other => panic!("expected a single image content, got {other:?}"),
         }
         assert!(signal.0.load(Ordering::SeqCst));
     }
 
-    #[test]
-    fn test_image_url_source_is_used_for_prompt_mode() {
+    #[tokio::test]
+    async fn test_image_url_is_base64_encoded_in_prompt_mode() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_bytes(utils_test_png()))
+            .mount(&server)
+            .await;
+
         let call = ReadImageCall {
-            filepath: "https://example.com/image.png".to_string(),
+            filepath: format!("{}/image.png", server.uri()),
             prompt: Some("What color?".to_string()),
             worker_model: test_model(true),
         };
-        let image = call.image().unwrap();
-        assert_eq!(
-            image.data,
-            DocumentSourceKind::Url("https://example.com/image.png".to_string())
+        let image = call.image().await.unwrap();
+        assert!(
+            matches!(image.data, DocumentSourceKind::Base64(_)),
+            "URL images must be base64-encoded, got {:?}",
+            image.data
         );
+        assert_eq!(image.media_type, Some(rig::message::ImageMediaType::PNG));
+    }
+
+    #[tokio::test]
+    async fn test_result_url_fetch_failure_is_error_and_does_not_signal() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .respond_with(wiremock::ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let (mut context, signal) = context_with_signal();
+        let call = ReadImageCall {
+            filepath: format!("{}/missing.png", server.uri()),
+            prompt: None,
+            worker_model: test_model(true),
+        };
+        assert!(call.result(&mut context).await.is_err());
+        assert!(!signal.0.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
