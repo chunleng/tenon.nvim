@@ -54,8 +54,7 @@ impl ToolCore for AskQuestion {
     fn description(&self) -> String {
         "Ask question with options and return the user's response. \
          Single answer only (no multi-select); call multiple times for more questions. \
-         Use when you can either enumerate options that cover the likely answers, \
-         or offer options you can strongly recommend. \
+         Offer options you can strongly recommend. \
          Open-ended questions also work: a \"Type your answer..\" option is always appended \
          automatically."
             .to_string()
@@ -84,10 +83,9 @@ impl ToolCore for AskQuestion {
                         "required": ["text"]
                     },
                     "description": "Answer choices. Every option must be a genuine, distinct choice. \
-                        Omit (or pass an empty list) to ask free-form: the user types the answer \
-                        directly. When provided, a \"Type your answer..\" option is appended \
-                        automatically. Never add an option that just leads back to typing \
-                        (e.g. \"Something else\", \"Others\")"
+                        Omit to ask free-form: the user types the answer directly. \
+                        A \"Type your answer..\" option is appended automatically. \
+                        Never add an option that just leads back to typing"
                 }
             },
             "required": ["question"]
