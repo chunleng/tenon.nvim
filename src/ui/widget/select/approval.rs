@@ -5,10 +5,7 @@ use tokio::sync::oneshot;
 
 use super::SelectWidget;
 use crate::tools::ask_question::AskQuestionOption;
-use crate::ui::{
-    nvim_primitives::buffer::{NvimBuffer, NvimKeymap},
-    widget::Widget,
-};
+use crate::ui::{nvim_primitives::buffer::NvimBuffer, widget::Widget};
 use crate::utils::approval::{Approval, ApprovalResult, deny_message};
 
 /// Sends an `ApprovalResult` through `response_tx`. First caller wins via
@@ -49,11 +46,7 @@ pub struct ApprovalWidget {
 }
 
 impl ApprovalWidget {
-    pub fn new(
-        action: Approval,
-        completion_tx: oneshot::Sender<()>,
-        base_keymaps: Vec<NvimKeymap>,
-    ) -> OxiResult<Self> {
+    pub fn new(action: Approval, completion_tx: oneshot::Sender<()>) -> OxiResult<Self> {
         let Approval {
             tool,
             args,
@@ -97,7 +90,7 @@ impl ApprovalWidget {
             signal_completion(&cancel_comp);
         }));
 
-        let select = SelectWidget::new(&title, &options, on_select, on_cancel, base_keymaps)?;
+        let select = SelectWidget::new(&title, &options, on_select, on_cancel)?;
 
         Ok(Self { select })
     }

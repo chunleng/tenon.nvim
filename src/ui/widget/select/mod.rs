@@ -11,7 +11,8 @@ use nvim_oxi::{
 
 use crate::tools::ask_question::AskQuestionOption;
 use crate::ui::{
-    nvim_primitives::buffer::{NvimBuffer, NvimBufferOption, NvimKeymap},
+    global_input_keymaps,
+    nvim_primitives::buffer::{NvimBuffer, NvimBufferOption},
     widget::Widget,
 };
 
@@ -35,7 +36,6 @@ impl SelectWidget {
         // input requiring current input to be reused again
         on_select: Option<Box<dyn FnMut(usize) + Send + Sync>>,
         on_cancel: Option<Box<dyn FnOnce() + Send + Sync>>,
-        base_keymaps: Vec<NvimKeymap>,
     ) -> OxiResult<Self> {
         let title_lines: Vec<String> = title.lines().map(String::from).collect();
         let title_line_count = title_lines.len();
@@ -102,8 +102,7 @@ impl SelectWidget {
             let _ = buffer.inner.set_extmark(title_ns, 0, 0, &opts);
         }
 
-        // Apply base keymaps first; SelectWidget's own <cr>/<c-c> below override on conflict.
-        for keymap in base_keymaps {
+        for keymap in global_input_keymaps() {
             for mode in &keymap.modes {
                 buffer
                     .inner

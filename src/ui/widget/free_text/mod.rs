@@ -11,7 +11,8 @@ use nvim_oxi::{
 };
 
 use crate::ui::{
-    nvim_primitives::buffer::{NvimBuffer, NvimBufferOption, NvimKeymap},
+    global_input_keymaps,
+    nvim_primitives::buffer::{NvimBuffer, NvimBufferOption},
     nvim_primitives::window::NvimWindow,
     widget::Widget,
 };
@@ -63,11 +64,10 @@ impl FreeTextWidget {
         // input requiring current input to be reused again
         on_submit: Option<Box<dyn FnMut(String) + Send + Sync>>,
         on_cancel: Option<Box<dyn FnOnce() + Send + Sync>>,
-        base_keymaps: Vec<NvimKeymap>,
     ) -> OxiResult<Self> {
         let mut buffer = NvimBuffer::new(NvimBufferOption {
             file_type: "markdown".to_string(),
-            buf_keymaps: base_keymaps,
+            buf_keymaps: global_input_keymaps(),
             ..Default::default()
         })?;
 

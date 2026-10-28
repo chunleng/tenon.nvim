@@ -6,7 +6,7 @@ use tokio::sync::oneshot;
 use super::SelectWidget;
 use crate::tools::ask_question::{AskQuestionOption, Question, QuestionResult};
 use crate::ui::{
-    nvim_primitives::buffer::{NvimBuffer, NvimKeymap},
+    nvim_primitives::buffer::NvimBuffer,
     nvim_primitives::window::NvimWindow,
     widget::Widget,
     widget::free_text::{FreeTextWidget, FreeTextWidgetOption},
@@ -73,14 +73,11 @@ fn open_free_text_input(
     }));
 
     let result: OxiResult<()> = (|| {
-        // Runs on the main thread, so the keymaps (not Send) are built here.
-        let base_keymaps = crate::ui::input_buffer_keymaps();
         let widget = FreeTextWidget::new(
             question,
             FreeTextWidgetOption::default(),
             on_submit,
             on_cancel,
-            base_keymaps,
         )?;
         get_chat_window()
             .lock()
@@ -120,7 +117,6 @@ impl QuestionWidget {
         action: Question,
         chat_key: &str,
         completion_tx: oneshot::Sender<()>,
-        base_keymaps: Vec<NvimKeymap>,
     ) -> OxiResult<Self> {
         let Question {
             question,
@@ -152,7 +148,6 @@ impl QuestionWidget {
                 FreeTextWidgetOption::default(),
                 on_submit,
                 on_cancel,
-                base_keymaps,
             )?;
             return Ok(Self {
                 inner: QuestionInner::FreeText(widget),
@@ -207,8 +202,7 @@ impl QuestionWidget {
             }
         }));
 
-        let select =
-            SelectWidget::new(&question, &all_options, on_select, on_cancel, base_keymaps)?;
+        let select = SelectWidget::new(&question, &all_options, on_select, on_cancel)?;
 
         Ok(Self {
             inner: QuestionInner::Select(select),

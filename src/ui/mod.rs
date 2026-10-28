@@ -600,9 +600,30 @@ impl ChatWindow {
 
     /// Creates a new input buffer with the standard keymaps and filetype.
     fn create_input_buffer(&self) -> OxiResult<NvimBuffer> {
+        let mut keymaps = global_input_keymaps();
+        keymaps.extend([
+            NvimKeymap {
+                modes: vec![Mode::Insert, Mode::Normal],
+                lhs: "<c-cr>".to_string(),
+                rhs: "<cmd>lua require('tenon').action.send()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Insert, Mode::Normal],
+                lhs: "<c-c>".to_string(),
+                rhs: "<cmd>lua require('tenon').action.stop_streaming()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+            NvimKeymap {
+                modes: vec![Mode::Normal],
+                lhs: "gC".to_string(),
+                rhs: "<cmd>lua require('tenon').action.continue_chat()<cr>".to_string(),
+                opts: SetKeymapOpts::default(),
+            },
+        ]);
         NvimBuffer::new(NvimBufferOption {
             file_type: "markdown".to_string(),
-            buf_keymaps: input_buffer_keymaps(),
+            buf_keymaps: keymaps,
             ..Default::default()
         })
     }
@@ -938,21 +959,9 @@ fn push_hooks_keymap(keymaps: &mut Vec<NvimKeymap>) {
     });
 }
 
-/// Returns the standard keymaps shared by the input buffer and question widgets.
-pub fn input_buffer_keymaps() -> Vec<NvimKeymap> {
+/// Returns the keymaps shared by every input buffer
+pub fn global_input_keymaps() -> Vec<NvimKeymap> {
     let mut keymaps = vec![
-        NvimKeymap {
-            modes: vec![Mode::Insert, Mode::Normal],
-            lhs: "<c-cr>".to_string(),
-            rhs: "<cmd>lua require('tenon').action.send()<cr>".to_string(),
-            opts: SetKeymapOpts::default(),
-        },
-        NvimKeymap {
-            modes: vec![Mode::Insert, Mode::Normal],
-            lhs: "<c-c>".to_string(),
-            rhs: "<cmd>lua require('tenon').action.stop_streaming()<cr>".to_string(),
-            opts: SetKeymapOpts::default(),
-        },
         NvimKeymap {
             modes: vec![Mode::Normal],
             lhs: "q".to_string(),
@@ -1023,12 +1032,6 @@ pub fn input_buffer_keymaps() -> Vec<NvimKeymap> {
             modes: vec![Mode::Normal],
             lhs: "<cr>".to_string(),
             rhs: "<cmd>lua require('tenon').action.select_chat()<cr>".to_string(),
-            opts: SetKeymapOpts::default(),
-        },
-        NvimKeymap {
-            modes: vec![Mode::Normal],
-            lhs: "gC".to_string(),
-            rhs: "<cmd>lua require('tenon').action.continue_chat()<cr>".to_string(),
             opts: SetKeymapOpts::default(),
         },
     ];
@@ -1133,16 +1136,14 @@ fn chat_window_loop(
                     let _ = api::command("stopinsert");
                 }
 
-                let base_keymaps = input_buffer_keymaps();
                 let widget: Box<dyn Widget> = match event {
                     PendingAction::Question(question) => Box::new(QuestionWidget::new(
                         question,
                         &chat_key_for_push,
                         completion_tx,
-                        base_keymaps,
                     )?),
                     PendingAction::Approval(approval) => {
-                        Box::new(ApprovalWidget::new(approval, completion_tx, base_keymaps)?)
+                        Box::new(ApprovalWidget::new(approval, completion_tx)?)
                     }
                 };
 
@@ -1263,12 +1264,25 @@ mod tests {
     #[test]
     fn test_no_hooks_keymap_when_no_hooks_configured() {
         // Test binary config defaults to no hooks, so gH must be absent.
-        assert!(!input_buffer_keymaps().iter().any(|km| km.lhs == "gH"));
+        assert!(!global_input_keymaps().iter().any(|km| km.lhs == "gH"));
         assert!(
             !ChatWindow::output_keymaps("<cr>")
                 .iter()
                 .any(|km| km.lhs == "gH")
         );
+    }
+
+    #[test]
+    fn test_global_keymaps_exclude_main_input_only_keys() {
+        // Send, stop streaming, and continue chat apply to the main input
+        // buffer only; stacked inputs (question/approval/free text) must not
+        // receive them.
+        for lhs in ["<c-cr>", "<c-c>", "gC"] {
+            assert!(
+                !global_input_keymaps().iter().any(|km| km.lhs == lhs),
+                "{lhs} in global"
+            );
+        }
     }
 
     #[test]
