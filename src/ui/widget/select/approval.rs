@@ -4,7 +4,7 @@ use nvim_oxi::Result as OxiResult;
 use tokio::sync::oneshot;
 
 use super::SelectWidget;
-use crate::tools::ask_question::AskQuestionOption;
+use super::SelectOption;
 use crate::ui::{nvim_primitives::buffer::NvimBuffer, widget::Widget};
 use crate::utils::approval::{Approval, ApprovalResult, deny_message};
 
@@ -62,13 +62,15 @@ impl ApprovalWidget {
 
         let reject_text = format!("Reject: {reject_message}");
         let options = vec![
-            AskQuestionOption {
+            SelectOption {
                 text: "Approve".to_string(),
                 recommended: false,
+                free_text: false,
             },
-            AskQuestionOption {
+            SelectOption {
                 text: reject_text,
                 recommended: false,
+                free_text: false,
             },
         ];
 

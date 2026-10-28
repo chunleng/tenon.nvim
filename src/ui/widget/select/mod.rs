@@ -8,8 +8,8 @@ use nvim_oxi::{
         types::Mode,
     },
 };
+use serde::Deserialize;
 
-use crate::tools::ask_question::AskQuestionOption;
 use crate::ui::{
     global_input_keymaps,
     nvim_primitives::buffer::{NvimBuffer, NvimBufferOption},
@@ -19,9 +19,22 @@ use crate::ui::{
 pub mod approval;
 pub mod question;
 
+/// An option displayed by a select widget.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelectOption {
+    pub text: String,
+    #[serde(default)]
+    pub recommended: bool,
+    /// Marks the always-appended open-ended option. Not agent-facing: skipped
+    /// in deserialization; set by `QuestionWidget` when appending it.
+    #[serde(skip)]
+    pub free_text: bool,
+}
+
 /// A selection widget that displays a title followed by a list of options.
 /// Each option gets a bullet sign; recommended options additionally get a
-/// star sign in the sign column.
+/// star sign and free-text options a pencil sign in the sign column.
 /// Supports hover highlighting and selection via `<cr>` / `<c-c>` callbacks.
 #[derive(Clone)]
 pub struct SelectWidget {
@@ -31,7 +44,7 @@ pub struct SelectWidget {
 impl SelectWidget {
     pub fn new(
         title: &str,
-        options: &[AskQuestionOption],
+        options: &[SelectOption],
         // Using FnMut, instead of FnOnce, for allowing reusability in case of multi-layer
         // input requiring current input to be reused again
         on_select: Option<Box<dyn FnMut(usize) + Send + Sync>>,
@@ -68,10 +81,9 @@ impl SelectWidget {
         api::set_option_value("modifiable", false, &buf_opts)?;
 
         // Every option gets a bullet sign; recommended options additionally get
-        // a star sign. Signs on a line render highest-priority first (leftmost),
-        // so the bullet outranks the star to appear left of it. Own namespace so
-        // the hover autocmd below, which clears its namespace on CursorMoved,
-        // never removes them.
+        // a star sign and free-text options a pencil sign. Signs on a line
+        // render highest-priority first (leftmost), so the bullet outranks the
+        // others to appear left of them.
         let sign_ns = api::create_namespace("TenonSelectSign");
         for ((start, _, _), option) in option_ranges.iter().zip(options) {
             let opts = SetExtmarkOpts::builder()
@@ -84,6 +96,14 @@ impl SelectWidget {
                 let opts = SetExtmarkOpts::builder()
                     .sign_text("*")
                     .sign_hl_group("TenonSignSelectRecommended")
+                    .priority(10)
+                    .build();
+                let _ = buffer.inner.set_extmark(sign_ns, start - 1, 0, &opts);
+            }
+            if option.free_text {
+                let opts = SetExtmarkOpts::builder()
+                    .sign_text("\u{f0cb6}")
+                    .sign_hl_group("TenonSignSelectFreeText")
                     .priority(10)
                     .build();
                 let _ = buffer.inner.set_extmark(sign_ns, start - 1, 0, &opts);

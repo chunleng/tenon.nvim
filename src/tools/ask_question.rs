@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use crate::chat::{EventChannel, PendingAction};
 use crate::tools::{ToolCore, ToolCoreCall};
+use crate::ui::SelectOption;
 
 /// Result of a question action.
 /// `Some(text)` = user selected/typed an answer, `None` = cancelled.
@@ -15,7 +16,8 @@ pub struct QuestionResult {
 #[derive(Clone)]
 pub struct Question {
     pub question: String,
-    pub options: Vec<AskQuestionOption>,
+    pub open_ended_text: Option<String>,
+    pub options: Vec<SelectOption>,
     pub response_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<QuestionResult>>>>,
 }
 
@@ -24,16 +26,9 @@ pub struct Question {
 pub struct AskQuestionArgs {
     pub question: String,
     #[serde(default)]
-    pub options: Option<Vec<AskQuestionOption>>,
-}
-
-/// An answer choice.
-#[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AskQuestionOption {
-    pub text: String,
+    pub open_ended_text: Option<String>,
     #[serde(default)]
-    pub recommended: bool,
+    pub options: Option<Vec<SelectOption>>,
 }
 
 pub struct AskQuestion;
@@ -52,11 +47,9 @@ impl ToolCore for AskQuestion {
     type Call = AskQuestionCall;
 
     fn description(&self) -> String {
-        "Ask question with options and return the user's response. \
-         Single answer only (no multi-select); call multiple times for more questions. \
-         Offer options you can strongly recommend. \
-         Open-ended questions also work: a \"Type your answer..\" option is always appended \
-         automatically."
+        "Ask question with/without options. Returns user's response. \
+         Single question, single answer only (no multi-select). \
+         Offer options you can strongly recommend"
             .to_string()
     }
 
@@ -68,12 +61,20 @@ impl ToolCore for AskQuestion {
                     "type": "string",
                     "description": "Question to ask"
                 },
+                "open_ended_text": {
+                    "type": "string",
+                    "description": "Text label for the open-ended option that is always appended \
+                        for user to type in free-form answer"
+                },
                 "options": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "text": {"type": "string"},
+                            "text": {
+                                "type": "string",
+                                "description": "Option text"
+                            },
                             "recommended": {
                                 "type": "boolean",
                                 "description": "Mark option as good default choice",
@@ -82,10 +83,10 @@ impl ToolCore for AskQuestion {
                         },
                         "required": ["text"]
                     },
-                    "description": "Answer choices. Every option must be a genuine, distinct choice. \
-                        Omit to ask free-form: the user types the answer directly. \
-                        A \"Type your answer..\" option is appended automatically. \
-                        Never add an option that just leads back to typing"
+                    "description": "Answer choices. Every option must be a genuine, distinct choice \
+                        that fully answers the question on its own. Never add options that carry \
+                        no answer and would force a follow-up question (e.g. 'Other', 'Decline', \
+                        'None of these')"
                 }
             },
             "required": ["question"]
@@ -117,6 +118,7 @@ impl ToolCore for AskQuestion {
             options.sort_by_key(|option| std::cmp::Reverse(option.recommended));
             event_channel.push(PendingAction::Question(Question {
                 question: args.question,
+                open_ended_text: args.open_ended_text,
                 options,
                 response_tx: Arc::new(Mutex::new(Some(tx))),
             }));
@@ -156,12 +158,14 @@ mod tests {
     fn args(question: &str, options: &[&str]) -> AskQuestionArgs {
         AskQuestionArgs {
             question: question.to_string(),
+            open_ended_text: None,
             options: Some(
                 options
                     .iter()
-                    .map(|text| AskQuestionOption {
+                    .map(|text| SelectOption {
                         text: (*text).to_string(),
                         recommended: false,
+                        free_text: false,
                     })
                     .collect(),
             ),
@@ -188,14 +192,44 @@ mod tests {
     }
 
     #[test]
-    fn test_options_omitted_or_null_deserializes_to_empty() {
+    fn test_optional_fields_omitted_or_null_deserialize_to_none() {
         let missing: AskQuestionArgs =
-            serde_json::from_str(r#"{"question": "Q?"}"#).expect("missing options should parse");
+            serde_json::from_str(r#"{"question": "Q?"}"#).expect("missing fields should parse");
         assert!(missing.options.is_none());
+        assert!(missing.open_ended_text.is_none());
 
-        let null: AskQuestionArgs = serde_json::from_str(r#"{"question": "Q?", "options": null}"#)
-            .expect("null options should parse");
+        let null: AskQuestionArgs =
+            serde_json::from_str(r#"{"question": "Q?", "options": null, "open_ended_text": null}"#)
+                .expect("null fields should parse");
         assert!(null.options.is_none());
+        assert!(null.open_ended_text.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_open_ended_text_flows_to_question() {
+        let channel = new_channel();
+        let tool = AskQuestion;
+        let mut context = ToolContext::new().with_scope(Arc::new(Arc::downgrade(&channel)));
+
+        let args: AskQuestionArgs = serde_json::from_str(
+            r#"{"question": "Confirm the implementation?",
+                "options": [{"text": "Approve"}],
+                "open_ended_text": "Decline and explain what's wrong.."}"#,
+        )
+        .expect("args with open_ended_text should parse");
+
+        tool.init_call(&mut context, args)
+            .await
+            .expect("init_call should succeed");
+
+        let PendingAction::Question(question) = channel.peek().expect("question should be pushed")
+        else {
+            panic!("front pending action should be a question");
+        };
+        assert_eq!(
+            question.open_ended_text.as_deref(),
+            Some("Decline and explain what's wrong..")
+        );
     }
 
     #[tokio::test]

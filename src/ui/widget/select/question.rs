@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use nvim_oxi::{Result as OxiResult, api::types::LogLevel};
 use tokio::sync::oneshot;
 
-use super::SelectWidget;
-use crate::tools::ask_question::{AskQuestionOption, Question, QuestionResult};
+use super::{SelectOption, SelectWidget};
+use crate::tools::ask_question::{Question, QuestionResult};
 use crate::ui::{
     nvim_primitives::buffer::NvimBuffer,
     nvim_primitives::window::NvimWindow,
@@ -120,6 +120,7 @@ impl QuestionWidget {
     ) -> OxiResult<Self> {
         let Question {
             question,
+            open_ended_text,
             options,
             response_tx,
         } = action;
@@ -155,9 +156,10 @@ impl QuestionWidget {
         }
 
         let mut all_options = options;
-        all_options.push(AskQuestionOption {
-            text: "Type your answer..".to_string(),
+        all_options.push(SelectOption {
+            text: open_ended_text.unwrap_or_else(|| "Type your answer..".to_string()),
             recommended: false,
+            free_text: true,
         });
 
         let free_text_idx = all_options.len() - 1;

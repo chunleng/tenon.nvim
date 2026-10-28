@@ -3,6 +3,8 @@ mod panels;
 pub mod picker;
 mod widget;
 
+pub use widget::select::SelectOption;
+
 use std::sync::{
     Arc, Mutex, RwLock,
     atomic::{AtomicUsize, Ordering},
