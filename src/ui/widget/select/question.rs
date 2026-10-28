@@ -94,6 +94,27 @@ fn open_free_text_input(
     }
 }
 
+/// Collapses options with duplicate texts. Winner per text: free-text beats everything, then
+/// recommended beats non-recommended, then first occurrence wins. The result is ordered recommended
+/// first, then non-recommended, then free-text, preserving the original order within each tier.
+fn dedupe_options(options: Vec<SelectOption>) -> Vec<SelectOption> {
+    let mut result: Vec<SelectOption> = Vec::new();
+    for opt in options {
+        if let Some(existing) = result.iter_mut().find(|o| o.text == opt.text) {
+            if opt.free_text || (!existing.free_text && opt.recommended && !existing.recommended) {
+                *existing = opt;
+            }
+        } else {
+            result.push(opt);
+        }
+    }
+    // A dedupe winner can inherit a position from a higher tier (e.g. a free-text option beating a
+    // recommended duplicate at the top), so re-sort into tiers. Stable, so within-tier order is
+    // preserved.
+    result.sort_by_key(|opt| (opt.free_text, std::cmp::Reverse(opt.recommended)));
+    result
+}
+
 /// Inner presentation of a `QuestionWidget`: a select list when options are
 /// provided, or a direct free text input for free-form questions.
 #[derive(Clone)]
@@ -161,13 +182,12 @@ impl QuestionWidget {
             recommended: false,
             free_text: true,
         });
+        let all_options = dedupe_options(all_options);
 
-        let free_text_idx = all_options.len() - 1;
         let handlers: Vec<Option<Box<dyn Fn() + Send + Sync>>> = all_options
             .iter()
-            .enumerate()
-            .map(|(idx, opt)| {
-                if idx == free_text_idx {
+            .map(|opt| {
+                if opt.free_text {
                     let resp_tx = Arc::clone(&response_tx);
                     let comp = Arc::clone(&shared_completion);
                     let question = question.clone();
@@ -232,5 +252,51 @@ impl Widget for QuestionWidget {
             QuestionInner::Select(select) => select.set_window(window),
             QuestionInner::FreeText(free_text) => free_text.set_window(window),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opt(text: &str, recommended: bool) -> SelectOption {
+        SelectOption {
+            text: text.to_string(),
+            recommended,
+            free_text: false,
+        }
+    }
+
+    fn free_opt(text: &str) -> SelectOption {
+        SelectOption {
+            text: text.to_string(),
+            recommended: false,
+            free_text: true,
+        }
+    }
+
+    /// Covers all dedupe priorities in one scenario chain:
+    /// free-text beats recommended duplicate, recommended beats
+    /// non-recommended duplicate, first occurrence wins among same tier,
+    /// and the winner is placed in its own tier (free-text last even when
+    /// it beat a recommended duplicate at the top).
+    #[test]
+    fn test_dedupe_options_priority() {
+        let options = vec![
+            opt("Type your answer..", true), // free-text wins, but demoted to free-text tier
+            opt("Approve", false),
+            opt("Approve", true), // recommended beats first occurrence
+            opt("Decline", true),
+            opt("Decline", true), // first occurrence wins among recommended
+            free_opt("Type your answer.."),
+        ];
+
+        let result = dedupe_options(options);
+
+        let texts: Vec<&str> = result.iter().map(|o| o.text.as_str()).collect();
+        assert_eq!(texts, vec!["Approve", "Decline", "Type your answer.."]);
+        assert!(result[0].recommended);
+        assert!(result[1].recommended);
+        assert!(result[2].free_text);
     }
 }

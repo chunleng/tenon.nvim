@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use nvim_oxi::Result as OxiResult;
 use tokio::sync::oneshot;
 
-use super::SelectWidget;
 use super::SelectOption;
+use super::SelectWidget;
 use crate::ui::{nvim_primitives::buffer::NvimBuffer, widget::Widget};
 use crate::utils::approval::{Approval, ApprovalResult, deny_message};
 
