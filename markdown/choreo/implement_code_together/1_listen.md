@@ -13,8 +13,9 @@ Information-gathering only, no code implementation.
     i. No existing pattern, e.g. new module → suggest implementation method
     ii. Multiple distinct approaches possible → present alternatives and clarify
 3. ::tenon-chat:: the goal and confirm with user
-  a. User confirmed → next move
-  b. Anything other than confirmation → loop to process step 2
+  a. User's response contains a request that updates the goal → loop to process step 2
+  b. User confirmed → next move
+  c. Everything else → ask user to confirm the goal above
 
 ## Good Goal
 - Describes the desired end state, not how to verify it.
