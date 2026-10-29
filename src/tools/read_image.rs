@@ -217,6 +217,8 @@ mod tests {
     use crate::agent::engine::agentic::ContinueSignal;
     use crate::chat::log::{TenonImageLog, TenonToolCall, TenonToolLog, TenonToolResult};
     use crate::clients::{OllamaProviderConfig, ProviderConfig, ProviderKind};
+    use std::collections::HashMap;
+
     use rig::message::DocumentSourceKind;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -225,6 +227,7 @@ mod tests {
             connector_name: "test".to_string(),
             config: ProviderConfig {
                 kind: ProviderKind::Ollama(OllamaProviderConfig::default()),
+                parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),

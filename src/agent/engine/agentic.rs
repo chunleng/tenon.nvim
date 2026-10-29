@@ -529,6 +529,7 @@ mod tests {
     use crate::chat::TenonChoreoLog;
     use crate::clients::{OllamaProviderConfig, ProviderConfig, ProviderKind, SupportedModels};
     use crate::tools::resolve_tools;
+    use std::collections::HashMap;
     use std::net::SocketAddr;
     use std::panic::AssertUnwindSafe;
     use std::sync::atomic::AtomicUsize;
@@ -542,6 +543,7 @@ mod tests {
             connector_name: "test".to_string(),
             config: ProviderConfig {
                 kind: ProviderKind::Ollama(OllamaProviderConfig::default()),
+                parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
@@ -804,6 +806,7 @@ mod tests {
                     base_url: format!("http://{addr}"),
                     bearer: None,
                 }),
+                parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
@@ -870,6 +873,7 @@ mod tests {
                     base_url: format!("http://{addr}"),
                     bearer: None,
                 }),
+                parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
@@ -919,6 +923,7 @@ mod tests {
                     base_url: format!("http://{addr}"),
                     bearer: None,
                 }),
+                parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
@@ -1009,6 +1014,7 @@ mod tests {
                     base_url: format!("http://{addr}"),
                     bearer: None,
                 }),
+                parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),

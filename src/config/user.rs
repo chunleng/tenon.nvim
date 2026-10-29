@@ -396,6 +396,7 @@ mod tests {
             "ollama".to_string(),
             ProviderConfig {
                 kind: ProviderKind::Ollama(Default::default()),
+                parameters: HashMap::new(),
             },
         );
 
@@ -454,6 +455,7 @@ mod tests {
             "ollama".to_string(),
             ProviderConfig {
                 kind: ProviderKind::Ollama(Default::default()),
+                parameters: HashMap::new(),
             },
         );
 
@@ -538,6 +540,7 @@ mod tests {
             "ollama".to_string(),
             ProviderConfig {
                 kind: ProviderKind::Ollama(Default::default()),
+                parameters: HashMap::new(),
             },
         );
 
@@ -618,6 +621,7 @@ mod tests {
             "ollama".to_string(),
             ProviderConfig {
                 kind: ProviderKind::Ollama(Default::default()),
+                parameters: HashMap::new(),
             },
         );
 
@@ -686,6 +690,7 @@ mod tests {
             "ollama".to_string(),
             ProviderConfig {
                 kind: ProviderKind::Ollama(Default::default()),
+                parameters: HashMap::new(),
             },
         );
 

@@ -91,6 +91,7 @@ impl Default for TenonConfig {
                 base_url: "https://ollama.com".to_string(),
                 ..Default::default()
             }),
+            parameters: HashMap::new(),
         };
         let mut default_providers: HashMap<String, ProviderConfig> = HashMap::new();
         default_providers.insert("ollama_cloud".to_string(), ollama_cloud_provider.clone());
@@ -103,6 +104,7 @@ impl Default for TenonConfig {
                         env: "ZAI_API_KEY".to_string(),
                     },
                 }),
+                parameters: HashMap::new(),
             },
         );
         let default_model = SupportedModels {

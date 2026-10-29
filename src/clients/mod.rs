@@ -4,6 +4,8 @@ mod gemini;
 mod ollama;
 mod openai;
 
+use std::collections::HashMap;
+
 use rig::agent::{
     AgentHook, HookContext, InvalidToolCallAction, InvalidToolCallContext, StepEventKind,
 };
@@ -115,6 +117,13 @@ pub enum ProviderKind {
 pub struct ProviderConfig {
     #[serde(flatten)]
     pub kind: ProviderKind,
+    #[serde(default)]
+    pub parameters: HashMap<String, ParameterConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ParameterConfig {
+    pub default_value: serde_json::Value,
 }
 
 #[cfg(test)]
@@ -208,5 +217,36 @@ mod tests {
             }
             other => panic!("expected ollama kind, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn provider_config_parameters_deserializes() {
+        let config: ProviderConfig = serde_json::from_str(
+            r#"{"type":"ollama","base_url":"http://127.0.0.1:11434","parameters":{"temperature":{"default_value":0.7},"top_k":{"default_value":40}}}"#,
+        )
+        .expect("provider config with parameters deserializes");
+        match &config.kind {
+            ProviderKind::Ollama(ollama) => {
+                assert_eq!(ollama.base_url, "http://127.0.0.1:11434");
+            }
+            other => panic!("expected ollama kind, got: {other:?}"),
+        }
+        assert_eq!(
+            config
+                .parameters
+                .get("temperature")
+                .map(|parameter| &parameter.default_value),
+            Some(&serde_json::json!(0.7)),
+            "parameters must round-trip through deserialization"
+        );
+
+        let bare: ProviderConfig =
+            serde_json::from_str(r#"{"type":"ollama","base_url":"http://127.0.0.1:11434"}"#)
+                .expect("provider config without parameters deserializes");
+        assert!(
+            bare.parameters.is_empty(),
+            "parameters should default to empty, got: {:?}",
+            bare.parameters
+        );
     }
 }

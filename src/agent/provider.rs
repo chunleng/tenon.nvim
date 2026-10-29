@@ -113,7 +113,21 @@ pub fn get_agent(
                 .join("\n"),
         )
     };
-    let params = override_params.unwrap_or_else(|| model.default_parameters.clone());
+    let params = override_params.unwrap_or_else(|| {
+        // Start from `ProviderConfig.parameters` (provider defaults), then
+        // `SupportedModels.default_parameters` overrides matching keys while
+        // base-only keys are kept.
+        let mut params: serde_json::Map<String, serde_json::Value> = model
+            .config
+            .parameters
+            .iter()
+            .map(|(key, parameter)| (key.clone(), parameter.default_value.clone()))
+            .collect();
+        for (key, value) in &model.default_parameters {
+            params.insert(key.clone(), value.clone());
+        }
+        params
+    });
     match model.config.kind {
         ProviderKind::Ollama(config) => {
             get_ollama_agent(config, model.model_name, resolved_directive, tools, params)
