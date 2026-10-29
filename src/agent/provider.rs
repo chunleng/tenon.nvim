@@ -1,5 +1,5 @@
 use crate::clients::{
-    ProviderConfig, SupportedModels, get_anthropic_agent, get_bedrock_agent, get_gemini_agent,
+    ProviderKind, SupportedModels, get_anthropic_agent, get_bedrock_agent, get_gemini_agent,
     get_ollama_agent, get_openai_completion_api_agent, get_openai_response_api_agent,
 };
 use crate::directive::Directive;
@@ -114,31 +114,31 @@ pub fn get_agent(
         )
     };
     let params = override_params.unwrap_or_else(|| model.default_parameters.clone());
-    match model.config {
-        ProviderConfig::Ollama(config) => {
+    match model.config.kind {
+        ProviderKind::Ollama(config) => {
             get_ollama_agent(config, model.model_name, resolved_directive, tools, params)
         }
-        ProviderConfig::Gemini(config) => {
+        ProviderKind::Gemini(config) => {
             get_gemini_agent(config, model.model_name, resolved_directive, tools, params)
         }
-        ProviderConfig::OpenAICompletion(config) => get_openai_completion_api_agent(
+        ProviderKind::OpenAICompletion(config) => get_openai_completion_api_agent(
             config,
             model.model_name,
             resolved_directive,
             tools,
             params,
         ),
-        ProviderConfig::OpenAIResponse(config) => get_openai_response_api_agent(
+        ProviderKind::OpenAIResponse(config) => get_openai_response_api_agent(
             config,
             model.model_name,
             resolved_directive,
             tools,
             params,
         ),
-        ProviderConfig::Anthropic(config) => {
+        ProviderKind::Anthropic(config) => {
             get_anthropic_agent(config, model.model_name, resolved_directive, tools, params)
         }
-        ProviderConfig::Bedrock(_config) => {
+        ProviderKind::Bedrock(_config) => {
             get_bedrock_agent(model.model_name, resolved_directive, tools, params)
         }
     }

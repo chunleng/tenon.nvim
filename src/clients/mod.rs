@@ -100,7 +100,7 @@ pub struct NoProviderConfig;
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
-pub enum ProviderConfig {
+pub enum ProviderKind {
     Ollama(OllamaProviderConfig),
     Gemini(GeminiProviderConfig),
     #[serde(rename = "openai_completion")]
@@ -111,9 +111,15 @@ pub enum ProviderConfig {
     Bedrock(NoProviderConfig),
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProviderConfig {
+    #[serde(flatten)]
+    pub kind: ProviderKind,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::InvalidToolCallHook;
+    use super::{InvalidToolCallHook, ProviderConfig, ProviderKind, SupportedModels};
     use futures::StreamExt;
     use rig::agent::{AgentBuilder, MultiTurnStreamItem};
     use rig::completion::PromptError;
@@ -168,5 +174,39 @@ mod tests {
              not a fatal streaming error. Got: {:?}",
             streaming_error
         );
+    }
+
+    /// `ProviderConfig` is a struct with the provider enum flattened into it,
+    /// and `SupportedModels.config` still holds that struct. Deserialization
+    /// must keep consuming the `type` tag through the flatten, both when the
+    /// config stands alone and when nested inside `SupportedModels`.
+    #[test]
+    fn provider_config_deserializes_flattened_kind() {
+        let config: ProviderConfig =
+            serde_json::from_str(r#"{"type":"ollama","base_url":"http://127.0.0.1:11434"}"#)
+                .expect("provider config deserializes");
+        match config.kind {
+            ProviderKind::Ollama(ollama) => {
+                assert_eq!(ollama.base_url, "http://127.0.0.1:11434");
+            }
+            other => panic!("expected ollama kind, got: {other:?}"),
+        }
+
+        let model = SupportedModels {
+            connector_name: "test".to_string(),
+            config: serde_json::from_str(
+                r#"{"type":"ollama","base_url":"http://127.0.0.1:11434"}"#,
+            )
+            .expect("supported model config deserializes"),
+            model_name: "glm-5.1".to_string(),
+            default_parameters: serde_json::Map::new(),
+            vision: false,
+        };
+        match model.config.kind {
+            ProviderKind::Ollama(ollama) => {
+                assert_eq!(ollama.base_url, "http://127.0.0.1:11434");
+            }
+            other => panic!("expected ollama kind, got: {other:?}"),
+        }
     }
 }

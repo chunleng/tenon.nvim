@@ -527,7 +527,7 @@ impl AgenticStreamEngine {
 mod tests {
     use super::*;
     use crate::chat::TenonChoreoLog;
-    use crate::clients::{OllamaProviderConfig, ProviderConfig, SupportedModels};
+    use crate::clients::{OllamaProviderConfig, ProviderConfig, ProviderKind, SupportedModels};
     use crate::tools::resolve_tools;
     use std::net::SocketAddr;
     use std::panic::AssertUnwindSafe;
@@ -540,7 +540,9 @@ mod tests {
     fn test_model() -> SupportedModels {
         SupportedModels {
             connector_name: "test".to_string(),
-            config: ProviderConfig::Ollama(OllamaProviderConfig::default()),
+            config: ProviderConfig {
+                kind: ProviderKind::Ollama(OllamaProviderConfig::default()),
+            },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
             vision: false,
@@ -797,10 +799,12 @@ mod tests {
 
         let model = SupportedModels {
             connector_name: "test".to_string(),
-            config: ProviderConfig::Ollama(OllamaProviderConfig {
-                base_url: format!("http://{addr}"),
-                bearer: None,
-            }),
+            config: ProviderConfig {
+                kind: ProviderKind::Ollama(OllamaProviderConfig {
+                    base_url: format!("http://{addr}"),
+                    bearer: None,
+                }),
+            },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
             vision: false,
@@ -861,10 +865,12 @@ mod tests {
 
         let model = SupportedModels {
             connector_name: "test".to_string(),
-            config: ProviderConfig::Ollama(OllamaProviderConfig {
-                base_url: format!("http://{addr}"),
-                bearer: None,
-            }),
+            config: ProviderConfig {
+                kind: ProviderKind::Ollama(OllamaProviderConfig {
+                    base_url: format!("http://{addr}"),
+                    bearer: None,
+                }),
+            },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
             vision: false,
@@ -908,10 +914,12 @@ mod tests {
 
         let model = SupportedModels {
             connector_name: "test".to_string(),
-            config: ProviderConfig::Ollama(OllamaProviderConfig {
-                base_url: format!("http://{addr}"),
-                bearer: None,
-            }),
+            config: ProviderConfig {
+                kind: ProviderKind::Ollama(OllamaProviderConfig {
+                    base_url: format!("http://{addr}"),
+                    bearer: None,
+                }),
+            },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
             vision: false,
@@ -996,10 +1004,12 @@ mod tests {
         let (addr, _connections) = spawn_ollama_mock(body, 0).await;
         let model = SupportedModels {
             connector_name: "test".to_string(),
-            config: ProviderConfig::Ollama(OllamaProviderConfig {
-                base_url: format!("http://{addr}"),
-                bearer: None,
-            }),
+            config: ProviderConfig {
+                kind: ProviderKind::Ollama(OllamaProviderConfig {
+                    base_url: format!("http://{addr}"),
+                    bearer: None,
+                }),
+            },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
             vision: false,

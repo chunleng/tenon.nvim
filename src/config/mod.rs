@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use crate::{
     chat::TenonAgent,
     clients::{
-        AnthropicProviderConfig, ApiKey, OllamaProviderConfig, ProviderConfig, SupportedModels,
+        AnthropicProviderConfig, ApiKey, OllamaProviderConfig, ProviderConfig, ProviderKind,
+        SupportedModels,
     },
 };
 
@@ -85,20 +86,24 @@ pub struct TenonConfig {
 
 impl Default for TenonConfig {
     fn default() -> Self {
-        let ollama_cloud_provider = ProviderConfig::Ollama(OllamaProviderConfig {
-            base_url: "https://ollama.com".to_string(),
-            ..Default::default()
-        });
+        let ollama_cloud_provider = ProviderConfig {
+            kind: ProviderKind::Ollama(OllamaProviderConfig {
+                base_url: "https://ollama.com".to_string(),
+                ..Default::default()
+            }),
+        };
         let mut default_providers: HashMap<String, ProviderConfig> = HashMap::new();
         default_providers.insert("ollama_cloud".to_string(), ollama_cloud_provider.clone());
         default_providers.insert(
             "zai".to_string(),
-            ProviderConfig::Anthropic(AnthropicProviderConfig {
-                base_url: "https://api.z.ai/api/anthropic".to_string(),
-                api_key: ApiKey::Env {
-                    env: "ZAI_API_KEY".to_string(),
-                },
-            }),
+            ProviderConfig {
+                kind: ProviderKind::Anthropic(AnthropicProviderConfig {
+                    base_url: "https://api.z.ai/api/anthropic".to_string(),
+                    api_key: ApiKey::Env {
+                        env: "ZAI_API_KEY".to_string(),
+                    },
+                }),
+            },
         );
         let default_model = SupportedModels {
             connector_name: "ollama_cloud".to_string(),

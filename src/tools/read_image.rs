@@ -216,14 +216,16 @@ mod tests {
     use super::*;
     use crate::agent::engine::agentic::ContinueSignal;
     use crate::chat::log::{TenonImageLog, TenonToolCall, TenonToolLog, TenonToolResult};
-    use crate::clients::{OllamaProviderConfig, ProviderConfig};
+    use crate::clients::{OllamaProviderConfig, ProviderConfig, ProviderKind};
     use rig::message::DocumentSourceKind;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     fn test_model(vision: bool) -> SupportedModels {
         SupportedModels {
             connector_name: "test".to_string(),
-            config: ProviderConfig::Ollama(OllamaProviderConfig::default()),
+            config: ProviderConfig {
+                kind: ProviderKind::Ollama(OllamaProviderConfig::default()),
+            },
             model_name: "test".to_string(),
             default_parameters: serde_json::Map::new(),
             vision,

@@ -386,6 +386,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clients::ProviderKind;
 
     #[test]
     fn try_from_models_builds_hashmap_with_names() {
@@ -393,7 +394,9 @@ mod tests {
         let mut connectors = HashMap::new();
         connectors.insert(
             "ollama".to_string(),
-            ProviderConfig::Ollama(Default::default()),
+            ProviderConfig {
+                kind: ProviderKind::Ollama(Default::default()),
+            },
         );
 
         let mut models = HashMap::new();
@@ -449,7 +452,9 @@ mod tests {
         let mut connectors = HashMap::new();
         connectors.insert(
             "ollama".to_string(),
-            ProviderConfig::Ollama(Default::default()),
+            ProviderConfig {
+                kind: ProviderKind::Ollama(Default::default()),
+            },
         );
 
         let mut models = HashMap::new();
@@ -531,7 +536,9 @@ mod tests {
         let mut connectors = HashMap::new();
         connectors.insert(
             "ollama".to_string(),
-            ProviderConfig::Ollama(Default::default()),
+            ProviderConfig {
+                kind: ProviderKind::Ollama(Default::default()),
+            },
         );
 
         let mut models = HashMap::new();
@@ -609,7 +616,9 @@ mod tests {
         let mut connectors = HashMap::new();
         connectors.insert(
             "ollama".to_string(),
-            ProviderConfig::Ollama(Default::default()),
+            ProviderConfig {
+                kind: ProviderKind::Ollama(Default::default()),
+            },
         );
 
         let mut models = HashMap::new();
@@ -675,7 +684,9 @@ mod tests {
         let mut connectors = HashMap::new();
         connectors.insert(
             "ollama".to_string(),
-            ProviderConfig::Ollama(Default::default()),
+            ProviderConfig {
+                kind: ProviderKind::Ollama(Default::default()),
+            },
         );
 
         let mut models = HashMap::new();
