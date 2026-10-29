@@ -215,7 +215,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                                 connector_name: m.connector.clone(),
                                 config: provider_config.to_owned(),
                                 model_name: m.name,
-                                default_parameters: m.default_parameters,
+                                parameters: m.default_parameters,
                                 vision: m.vision,
                             },
                         ))
@@ -439,7 +439,7 @@ mod tests {
         assert_eq!(fast.connector_name, "ollama");
         assert_eq!(fast.model_name, "llama3");
         assert_eq!(
-            fast.default_parameters.get("temperature").unwrap(),
+            fast.parameters.get("temperature").unwrap(),
             &serde_json::json!(0.7)
         );
 

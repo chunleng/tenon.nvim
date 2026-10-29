@@ -230,7 +230,7 @@ mod tests {
                 parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
-            default_parameters: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
             vision,
         }
     }

@@ -275,7 +275,7 @@ impl AgenticStreamEngine {
         }
     }
 
-    fn build_chat_adapter(&self) -> Agent {
+    fn build_chat_adapter(&mut self) -> Agent {
         let mut combined = vec![Directive {
             condition: None,
             source: DirectiveSource::Preset {
@@ -546,7 +546,7 @@ mod tests {
                 parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
-            default_parameters: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
             vision: false,
         }
     }
@@ -559,17 +559,17 @@ mod tests {
             &["read_file".to_string(), "edit_file".to_string()],
             log_handler.log_window.clone(),
         );
-        let engine =
+        let mut engine =
             AgenticStreamEngine::new(test_model(), vec![], tools, vec![], ToolContext::new());
         let names: Vec<String> = engine.tools.iter().map(|t| t.name().to_string()).collect();
         assert_eq!(names, vec!["read_file", "edit_file"]);
         // Caller-provided tools must be wired into the chat adapter.
-        let adapter_names = agent_tool_names(&engine).await;
+        let adapter_names = agent_tool_names(&mut engine).await;
         assert!(adapter_names.contains(&"read_file".to_string()));
         assert!(adapter_names.contains(&"edit_file".to_string()));
     }
 
-    async fn agent_tool_names(engine: &AgenticStreamEngine) -> Vec<String> {
+    async fn agent_tool_names(engine: &mut AgenticStreamEngine) -> Vec<String> {
         engine
             .build_chat_adapter()
             .tool_server_handle()
@@ -583,9 +583,10 @@ mod tests {
     async fn test_vision_model_auto_enables_read_image() {
         let mut model = test_model();
         model.vision = true;
-        let engine = AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+        let mut engine =
+            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
         assert!(
-            agent_tool_names(&engine)
+            agent_tool_names(&mut engine)
                 .await
                 .contains(&"read_image".to_string()),
             "vision model should have read_image as a system tool"
@@ -594,10 +595,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_non_vision_model_does_not_enable_read_image() {
-        let engine =
+        let mut engine =
             AgenticStreamEngine::new(test_model(), vec![], vec![], vec![], ToolContext::new());
         assert!(
-            !agent_tool_names(&engine)
+            !agent_tool_names(&mut engine)
                 .await
                 .contains(&"read_image".to_string()),
             "non-vision model should not have read_image"
@@ -615,10 +616,10 @@ mod tests {
         config.tools.read_image.fallback_model = Some(fallback);
         let _config = crate::ConfigOverride::set(config);
 
-        let engine =
+        let mut engine =
             AgenticStreamEngine::new(test_model(), vec![], vec![], vec![], ToolContext::new());
         assert!(
-            agent_tool_names(&engine)
+            agent_tool_names(&mut engine)
                 .await
                 .contains(&"read_image".to_string()),
             "non-vision model with a fallback vision model should have read_image"
@@ -632,7 +633,7 @@ mod tests {
         let mut engine =
             AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
         assert!(
-            agent_tool_names(&engine)
+            agent_tool_names(&mut engine)
                 .await
                 .contains(&"read_image".to_string()),
             "vision model should have read_image as a system tool"
@@ -641,7 +642,7 @@ mod tests {
         // Simulate a model switch to a non-vision model
         engine.model = test_model();
         assert!(
-            !agent_tool_names(&engine)
+            !agent_tool_names(&mut engine)
                 .await
                 .contains(&"read_image".to_string()),
             "switching to a non-vision model should drop read_image"
@@ -650,7 +651,7 @@ mod tests {
         // And back to a vision model
         engine.model.vision = true;
         assert!(
-            agent_tool_names(&engine)
+            agent_tool_names(&mut engine)
                 .await
                 .contains(&"read_image".to_string()),
             "switching back to a vision model should restore read_image"
@@ -809,7 +810,7 @@ mod tests {
                 parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
-            default_parameters: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
             vision: false,
         };
         let mut engine =
@@ -876,7 +877,7 @@ mod tests {
                 parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
-            default_parameters: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
             vision: false,
         };
         let mut engine =
@@ -926,7 +927,7 @@ mod tests {
                 parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
-            default_parameters: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
             vision: false,
         };
         let mut engine =
@@ -1017,7 +1018,7 @@ mod tests {
                 parameters: HashMap::new(),
             },
             model_name: "test".to_string(),
-            default_parameters: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
             vision: false,
         };
         let mut engine =

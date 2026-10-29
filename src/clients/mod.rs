@@ -85,7 +85,8 @@ pub struct SupportedModels {
     pub connector_name: String,
     pub config: ProviderConfig,
     pub model_name: String,
-    pub default_parameters: serde_json::Map<String, serde_json::Value>,
+    /// Live/latest parameter state of the selected model; used at request time.
+    pub parameters: serde_json::Map<String, serde_json::Value>,
     /// Whether the model supports vision (image input).
     pub vision: bool,
 }
@@ -208,7 +209,7 @@ mod tests {
             )
             .expect("supported model config deserializes"),
             model_name: "glm-5.1".to_string(),
-            default_parameters: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
             vision: false,
         };
         match model.config.kind {
