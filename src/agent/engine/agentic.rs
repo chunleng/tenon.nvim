@@ -25,6 +25,110 @@ use rig::agent::Agent;
 /// context clones; setters write it, `process_turn` reads and resets it.
 pub struct ContinueSignal(pub AtomicBool);
 
+/// Enforcement keyword that must never reach the user in assistant chat.
+const TENON_CHAT_KEYWORD: &str = "::tenon-chat::";
+
+/// Realtime filter that drops `::tenon-chat::` from streamed assistant text. Only line-start
+/// occurrences (message start or after a newline) are filtered; mid-line occurrences are legitimate
+/// content and pass through.
+enum ChatKeywordFilter {
+    /// At a line start, accumulating text whose fate is not yet decidable.
+    Checking(String),
+    /// Mid-line: no match possible until the next line start.
+    MidLine,
+}
+
+impl Default for ChatKeywordFilter {
+    fn default() -> Self {
+        Self::Checking(String::new())
+    }
+}
+
+/// Strips the keyword and one following space, returning the remainder.
+fn keyword_remainder(line: &str) -> Option<&str> {
+    line.strip_prefix(TENON_CHAT_KEYWORD)
+        .map(|remainder| remainder.strip_prefix(' ').unwrap_or(remainder))
+}
+
+impl ChatKeywordFilter {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Consumes streamed text and returns the part that is safe to display.
+    fn feed(&mut self, text: &str) -> String {
+        let mut out = String::new();
+        let mut rest = text;
+        while !rest.is_empty() {
+            // Take the state out so every branch can reassign it freely.
+            match std::mem::take(self) {
+                Self::Checking(mut held) => match rest.find('\n') {
+                    Some(pos) => {
+                        // A newline-terminated line's fate is decidable now.
+                        held.push_str(&rest[..pos]);
+                        rest = &rest[pos + 1..];
+                        let line = std::mem::take(&mut held);
+                        match keyword_remainder(&line) {
+                            Some(remainder) => out.push_str(remainder),
+                            None => out.push_str(&line),
+                        }
+                        out.push('\n');
+                        // The next character starts a new line to check.
+                        *self = Self::Checking(held);
+                    }
+                    None => {
+                        // No newline yet: the line may still become the keyword, so hold and wait
+                        // for more text.
+                        held.push_str(rest);
+                        rest = "";
+                        if TENON_CHAT_KEYWORD.starts_with(held.as_str()) {
+                            // Still a potential prefix (including the
+                            // complete keyword): keep holding.
+                            *self = Self::Checking(held);
+                        } else if let Some(remainder) = keyword_remainder(&held) {
+                            out.push_str(remainder);
+                            *self = Self::MidLine;
+                        } else {
+                            out.push_str(&held);
+                            *self = Self::MidLine;
+                        }
+                    }
+                },
+                Self::MidLine => {
+                    // Mid-line text is safe up to the first newline; after it a
+                    // new line starts and must be checked.
+                    match rest.find('\n') {
+                        Some(pos) => {
+                            let (safe, pending) = rest.split_at(pos + 1);
+                            out.push_str(safe);
+                            *self = Self::Checking(String::new());
+                            rest = pending;
+                        }
+                        None => {
+                            out.push_str(rest);
+                            rest = "";
+                            *self = Self::MidLine;
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Resolves text still held when the stream ends: a confirmed keyword is dropped, anything else
+    /// is released.
+    fn flush(&mut self) -> String {
+        match std::mem::take(self) {
+            Self::Checking(held) => match keyword_remainder(&held) {
+                Some(remainder) => remainder.to_string(),
+                None => held,
+            },
+            Self::MidLine => String::new(),
+        }
+    }
+}
+
 /// Streaming engine for agentic chat with tools, choreos, and multi-turn loops.
 /// Session-state interfaces (log handler, usage, cancel token, etc.) are injected per request.
 #[derive(Clone)]
@@ -142,6 +246,35 @@ impl AgenticStreamEngine {
         }
     }
 
+    /// Appends streamed assistant text to the log, creating a new Assistant
+    /// log when the last log cannot be appended to. Empty text is skipped so
+    /// no empty log is created.
+    fn append_stream_text(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        if let Ok(mut log_window) = self.log_handler.log_window.write() {
+            let mut updated = false;
+            if let Some(indexed_log) = log_window.logs.last_mut()
+                && let Ok(mut log) = indexed_log.log.write()
+            {
+                updated = log.append_text(text);
+            }
+            if !updated {
+                log_window.add_log(crate::chat::log::indexer::IndexedLog {
+                    log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Assistant(
+                        TenonAssistantMessage {
+                            reasoning: None,
+                            content: vec![TenonAssistantMessageContent::Text(text.to_string())],
+                            complete: false,
+                        },
+                    )))),
+                    active: true,
+                });
+            }
+        }
+    }
+
     fn build_chat_adapter(&self) -> Agent {
         let mut combined = vec![Directive {
             condition: None,
@@ -243,6 +376,9 @@ impl AgenticStreamEngine {
         const MAX_STREAM_ATTEMPTS: usize = 3;
 
         'attempts: for attempt in 0..MAX_STREAM_ATTEMPTS {
+            // Filter state is per attempt: a retry prunes the incomplete
+            // messages, so held text from a failed attempt is discarded.
+            let mut keyword_filter = ChatKeywordFilter::new();
             let agent = self.build_chat_adapter();
             let mut chat_history = self.log_handler.get_chat_history(&prompt);
             let mut messages = build_choreo_messages(
@@ -272,26 +408,8 @@ impl AgenticStreamEngine {
                 }
                 match result {
                     Ok(StreamItem::Text { text }) => {
-                        if let Ok(mut log_window) = self.log_handler.log_window.write() {
-                            let mut updated = false;
-                            if let Some(indexed_log) = log_window.logs.last_mut()
-                                && let Ok(mut log) = indexed_log.log.write()
-                            {
-                                updated = log.append_text(&text);
-                            }
-                            if !updated {
-                                log_window.add_log(crate::chat::log::indexer::IndexedLog {
-                                    log: Arc::new(RwLock::new(TenonLog::new(
-                                        TenonLogData::Assistant(TenonAssistantMessage {
-                                            reasoning: None,
-                                            content: vec![TenonAssistantMessageContent::Text(text)],
-                                            complete: false,
-                                        }),
-                                    ))),
-                                    active: true,
-                                });
-                            }
-                        }
+                        let text = keyword_filter.feed(&text);
+                        self.append_stream_text(&text);
                     }
                     Ok(StreamItem::ReasoningDelta { reasoning }) => {
                         if let Ok(mut log_window) = self.log_handler.log_window.write() {
@@ -391,6 +509,10 @@ impl AgenticStreamEngine {
                     }
                 }
             }
+
+            // The stream ended: resolve whatever the filter still holds.
+            let flushed = keyword_filter.flush();
+            self.append_stream_text(&flushed);
 
             break;
         }
@@ -837,6 +959,109 @@ mod tests {
             connections.load(Ordering::SeqCst),
             3,
             "persistent mid-stream failures must stop after the attempt bound"
+        );
+    }
+
+    /// Concatenates the text content of every assistant log into one string.
+    fn assistant_text_of(engine: &AgenticStreamEngine) -> String {
+        engine
+            .log_handler
+            .log_window
+            .read()
+            .expect("log window readable")
+            .logs
+            .iter()
+            .filter_map(|indexed| {
+                let log = indexed.log.read().ok()?;
+                let TenonLogData::Assistant(message) = log.data() else {
+                    return None;
+                };
+                Some(
+                    message
+                        .content
+                        .iter()
+                        .map(|content| match content {
+                            TenonAssistantMessageContent::Text(text) => text.as_str(),
+                        })
+                        .collect::<String>(),
+                )
+            })
+            .collect()
+    }
+
+    async fn engine_streaming(body: &'static str) -> AgenticStreamEngine {
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().expect("test cwd"))
+            .ok();
+        let (addr, _connections) = spawn_ollama_mock(body, 0).await;
+        let model = SupportedModels {
+            connector_name: "test".to_string(),
+            config: ProviderConfig::Ollama(OllamaProviderConfig {
+                base_url: format!("http://{addr}"),
+                bearer: None,
+            }),
+            model_name: "test".to_string(),
+            default_parameters: serde_json::Map::new(),
+            vision: false,
+        };
+        let mut engine =
+            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+        let cancel = AtomicBool::new(false);
+        engine
+            .process_turn("Say hello".to_string(), &cancel, |_| {}, 1)
+            .await;
+        engine
+    }
+
+    #[tokio::test]
+    async fn tenon_chat_keyword_is_filtered_from_streamed_text() {
+        // The keyword is only filtered at line starts: message start and
+        // after a newline. Mid-line occurrences are legitimate content and
+        // pass through untouched.
+        let body = concat!(
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"::tenon\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"-chat:: \"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"::tenon-chat::\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\\n\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"::tenon\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"-chat::Bye\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
+        );
+        let engine = engine_streaming(body).await;
+        assert_eq!(
+            assistant_text_of(&engine),
+            "Hello::tenon-chat::\nBye",
+            "line-start ::tenon-chat:: must be dropped (with one trailing space); mid-line occurrences pass through"
+        );
+    }
+
+    #[tokio::test]
+    async fn keyword_prefix_that_never_completes_is_released() {
+        let body = concat!(
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"::tenon\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"-chat is fine\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
+        );
+        let engine = engine_streaming(body).await;
+        assert_eq!(
+            assistant_text_of(&engine),
+            "::tenon-chat is fine",
+            "held text that turns out not to be the keyword must be released"
+        );
+    }
+
+    #[tokio::test]
+    async fn held_text_is_released_when_turn_ends() {
+        let body = concat!(
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"::tenon\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
+        );
+        let engine = engine_streaming(body).await;
+        assert_eq!(
+            assistant_text_of(&engine),
+            "::tenon",
+            "text still held when the turn ends must be resolved instead of dropped"
         );
     }
 }
