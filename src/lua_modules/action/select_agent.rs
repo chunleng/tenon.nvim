@@ -29,7 +29,7 @@ pub fn select_agent_fn() -> Function<(), ()> {
                 &options,
                 FzfOption {
                     prompt: "Select Agent".to_string(),
-                    select_mode: SelectMode::single(current_agent_name),
+                    select_mode: SelectMode::single(current_agent_name, false),
                     callback: box_single_select(|selected| {
                         if let Some(name) = selected {
                             let config = get_application_config();

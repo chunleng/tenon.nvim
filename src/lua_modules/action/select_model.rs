@@ -51,7 +51,7 @@ pub fn select_model_fn() -> Function<(), ()> {
                 &options,
                 FzfOption {
                     prompt: "Select Model".to_string(),
-                    select_mode: SelectMode::single(current_model_display),
+                    select_mode: SelectMode::single(current_model_display, false),
                     callback: box_single_select(move |selected| {
                         if let Some(display) = selected
                             && let Some((name, _)) = entries

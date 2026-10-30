@@ -58,7 +58,7 @@ pub fn select_chat_fn() -> Function<(), ()> {
                     &options_refs,
                     FzfOption {
                         prompt: "Select Chat".to_string(),
-                        select_mode: SelectMode::single(current_selection),
+                        select_mode: SelectMode::single(current_selection, false),
                         callback: box_single_select(move |selected| {
                             if let Some(selection) = selected {
                                 let idx = options_clone.iter().position(|s| *s == selection);

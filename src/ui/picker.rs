@@ -52,14 +52,20 @@ impl FzfAction {
 
 #[derive(Clone)]
 pub enum SelectMode {
-    Single { current_selected: Option<String> },
-    Multi { current_selected: Vec<String> },
+    Single {
+        current_selected: Option<String>,
+        current_selectable: bool,
+    },
+    Multi {
+        current_selected: Vec<String>,
+    },
 }
 
 impl SelectMode {
-    pub fn single(current: Option<impl ToString>) -> Self {
+    pub fn single(current: Option<impl ToString>, current_selectable: bool) -> Self {
         SelectMode::Single {
             current_selected: current.map(|c| c.to_string()),
+            current_selectable,
         }
     }
 
@@ -86,6 +92,7 @@ impl Default for FzfOption {
             sorting: true,
             select_mode: SelectMode::Single {
                 current_selected: None,
+                current_selectable: false,
             },
             marker: " ".to_string(),
             actions: HashMap::new(),
@@ -218,16 +225,35 @@ async fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<(
                             },
                         );
                     }
-                    SelectMode::Single { current_selected } => {
+                    SelectMode::Single {
+                        current_selected,
+                        current_selectable,
+                    } => {
                         fzf_opts.set("--no-multi", "")?;
-                        if let Some(current) = current_selected {
-                            // Current is shown on the header, not as a choice.
+                        if let Some(current) = current_selected.as_deref() {
                             options.retain(|opt| current != opt.as_str());
-                            header_description = Some(format!("{}{}", fzf_option.marker, current));
+                            if current_selectable {
+                                // Current stays as a selectable choice: first in the
+                                // list, marked so it is recognizable as the current value.
+                                options.insert(0, current.to_string());
+                            } else {
+                                // Current is shown on the header, not as a choice.
+                                header_description =
+                                    Some(format!("{}{}", fzf_option.marker, current));
+                            }
                         }
                         options = options
                             .into_iter()
-                            .map(|opt| format!("{}{}{}", opt, DELIMITER, opt))
+                            .map(|opt| {
+                                let display = if current_selectable
+                                    && current_selected.as_deref() == Some(opt.as_str())
+                                {
+                                    format!("{}{}", fzf_option.marker, opt)
+                                } else {
+                                    opt.clone()
+                                };
+                                format!("{}{}{}", opt, DELIMITER, display)
+                            })
                             .collect();
                     }
                 }
