@@ -170,6 +170,10 @@ impl LogWindow {
     /// Finds the last checkpoint index in the log.
     /// Uses history_log() so the last user message is excluded from the search
     /// (it's the current prompt, not part of history to search for checkpoints).
+    ///
+    /// - Inside a choreo, only choreo logs with move are checkpoints.
+    /// - Outside a choreo, a checkpoint is a user message, a choreo move log, or a successful
+    ///   `pop_task` log.
     pub fn find_last_checkpoint(&self, before: Option<usize>) -> Option<usize> {
         let logs = self.history_log();
         let end = before.unwrap_or(logs.len());
@@ -188,10 +192,17 @@ impl LogWindow {
             })
         } else {
             log_to_search.iter().rposition(|indexed| {
-                indexed
-                    .read()
-                    .ok()
-                    .is_some_and(|log| matches!(log.data(), TenonLogData::User(_)))
+                indexed.read().ok().is_some_and(|log| match log.data() {
+                    TenonLogData::User(_) => true,
+                    TenonLogData::Choreo(choreo_log) => choreo_log.r#move.is_some(),
+                    // A successful pop hands a new task to the agent, the same
+                    // way a user message starts a new request.
+                    TenonLogData::Tool(tool_log) => {
+                        tool_log.tool_call.name == "pop_task"
+                            && matches!(tool_log.tool_result, Some(Ok(_)))
+                    }
+                    _ => false,
+                })
             })
         }
     }
@@ -203,8 +214,8 @@ mod tests {
     use crate::chat::{
         TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog,
         log::{
-            TenonImageLog, TenonLog, TenonLogData, TenonToolCall, TenonToolLog, TenonToolResult,
-            TenonUserMessage,
+            TenonImageLog, TenonLog, TenonLogData, TenonToolCall, TenonToolError, TenonToolLog,
+            TenonToolResult, TenonUserMessage,
         },
     };
 
@@ -263,6 +274,23 @@ mod tests {
                 progress: vec![],
             },
         )))
+    }
+
+    fn create_tool_log(
+        name: &str,
+        tool_result: Option<Result<TenonToolResult, TenonToolError>>,
+    ) -> TenonLog {
+        TenonLog::new(TenonLogData::Tool(TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "call-1".to_string(),
+                internal_call_id: "call-1".to_string(),
+                item_id: None,
+                name: name.to_string(),
+                args: serde_json::json!({ "group": "bugs" }),
+            },
+            tool_result,
+            progress: vec![],
+        }))
     }
 
     fn create_log_window(logs: Vec<TenonLog>) -> LogWindow {
@@ -336,6 +364,112 @@ mod tests {
             create_user_log(1),
             create_choreo_log("test_choreo", None), // end
             create_user_log(1),
+        ];
+        let log_window = create_log_window(logs);
+        assert_eq!(log_window.find_last_checkpoint(None), Some(0));
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_outside_choreo_uses_choreo_move_log() {
+        let logs = vec![
+            create_user_log(1),
+            create_choreo_log("test_choreo", Some(1)), // start, after last user message
+        ];
+        let log_window = create_log_window(logs);
+        assert_eq!(log_window.find_last_checkpoint(None), Some(1));
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_outside_choreo_ignores_choreo_end_log() {
+        let logs = vec![
+            create_user_log(1),
+            create_choreo_log("test_choreo", None), // end, after last user message
+        ];
+        let log_window = create_log_window(logs);
+        assert_eq!(log_window.find_last_checkpoint(None), Some(0));
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_outside_choreo_prefers_later_user_message() {
+        let logs = vec![
+            create_user_log(1),
+            create_choreo_log("test_choreo", Some(1)), // start
+            create_user_log(1),                        // later checkpoint
+            create_choreo_log("test_choreo", None),    // end
+            create_assistant_log(1),
+        ];
+        let log_window = create_log_window(logs);
+        assert_eq!(log_window.find_last_checkpoint(None), Some(2));
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_second_checkpoint_inside_choreo_window() {
+        // A finished choreo dominates the window: the 1x boundary is its last
+        // move log, and searching before it lands inside the choreo, so the 2x
+        // boundary is the choreo start log rather than an earlier user message.
+        let logs = vec![
+            create_user_log(1),               // 0
+            create_assistant_log(1),          // 1
+            create_choreo_log("wf", Some(1)), // 2: start
+            create_assistant_log(1),          // 3
+            create_choreo_log("wf", Some(2)), // 4: navigate
+            create_choreo_log("wf", None),    // 5: end
+            create_assistant_log(1),          // 6
+        ];
+        let log_window = create_log_window(logs);
+        let first = log_window.find_last_checkpoint(None);
+        assert_eq!(first, Some(4));
+        assert_eq!(log_window.find_last_checkpoint(first), Some(2));
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_outside_choreo_uses_successful_pop_task() {
+        let logs = vec![
+            create_user_log(1),      // 0
+            create_assistant_log(1), // 1
+            create_tool_log(
+                "pop_task",
+                Some(Ok(TenonToolResult::Text(rig::agent::Text::new("ok")))),
+            ), // 2
+            create_assistant_log(1), // 3
+        ];
+        let log_window = create_log_window(logs);
+        assert_eq!(log_window.find_last_checkpoint(None), Some(2));
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_outside_choreo_ignores_other_tool_logs() {
+        // A failed pop (empty or unknown group) leaves the queue untouched, and
+        // pushing tasks is not a hand-off either: neither is a checkpoint.
+        let cases: Vec<TenonLog> = vec![
+            create_tool_log("pop_task", Some(Err(TenonToolError("no tasks".into())))),
+            create_tool_log("pop_task", None),
+            create_tool_log(
+                "push_tasks",
+                Some(Ok(TenonToolResult::Text(rig::agent::Text::new("ok")))),
+            ),
+        ];
+        for tool_log in cases {
+            let log_window = create_log_window(vec![
+                create_user_log(1),      // 0
+                create_assistant_log(1), // 1
+                tool_log,                // 2
+            ]);
+            assert_eq!(log_window.find_last_checkpoint(None), Some(0));
+        }
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_in_choreo_ignores_pop_task() {
+        // Inside a choreo only move logs count, so the pop at index 2 is skipped
+        // and the boundary stays on the choreo start log.
+        let logs = vec![
+            create_choreo_log("wf", Some(1)), // 0: start
+            create_user_log(1),               // 1
+            create_tool_log(
+                "pop_task",
+                Some(Ok(TenonToolResult::Text(rig::agent::Text::new("ok")))),
+            ), // 2
         ];
         let log_window = create_log_window(logs);
         assert_eq!(log_window.find_last_checkpoint(None), Some(0));
