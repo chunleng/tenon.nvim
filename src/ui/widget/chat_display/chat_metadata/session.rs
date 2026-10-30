@@ -5,6 +5,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     chat::log::indexer::ChatLogIndexer,
+    clients::SelectedModel,
     get_application_config,
     tools::resolve_tool_names,
     ui::{
@@ -21,6 +22,9 @@ pub struct SessionLineParts {
     /// Model display name when it differs from the agent default; empty
     /// otherwise
     pub model_display: String,
+    /// Parameter diff vs the baseline, e.g. "temperature=0.2, top_p=0.9";
+    /// empty when no diff
+    pub param_suffix: String,
     /// Tool diff vs the agent default, e.g. "󰣖 +1/-7"; empty when no diff
     pub tool_suffix: String,
     pub input: String,
@@ -35,6 +39,9 @@ pub struct SessionLineParts {
 #[derive(Clone)]
 pub struct AgentDefaultsCache {
     pub default_model_display: String,
+    /// Agent's resolved parameters for the default model: provider base +
+    /// model base + agent override
+    pub default_model_parameters: serde_json::Map<String, serde_json::Value>,
     pub resolved_tool_names: Vec<String>,
 }
 
@@ -46,6 +53,40 @@ impl SessionLineParts {
             } else {
                 String::new()
             };
+
+        // Baseline for the parameter diff: the agent's resolved parameters
+        // when the chat is on the agent's default model; the chat model's
+        // own resolved defaults (provider base + model base, no agent
+        // overrides) when the chat switched models. Only keys in the
+        // chat's map are compared, baseline-only keys are ignored.
+        let param_diff = |baseline: &serde_json::Map<String, serde_json::Value>| -> String {
+            values
+                .model_parameters
+                .iter()
+                .filter(|(key, value)| baseline.get(key.as_str()) != Some(*value))
+                .map(|(key, value)| match value {
+                    // String values show bare, not JSON-quoted
+                    serde_json::Value::String(s) => format!("{}={}", key, s),
+                    _ => format!("{}={}", key, value),
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let param_suffix = match defaults {
+            Some(c) if c.default_model_display == values.model_display => {
+                param_diff(&c.default_model_parameters)
+            }
+            // Chat switched models: that model's resolved defaults are the
+            // baseline; unknown models show no diff
+            Some(_) => get_application_config()
+                .models
+                .get(values.model_display.as_str())
+                .map(|definition| {
+                    param_diff(&SelectedModel::select(&values.model_display, definition).parameters)
+                })
+                .unwrap_or_default(),
+            None => String::new(),
+        };
 
         let current_resolved = resolve_tool_names(&values.current_tool_names);
         let (added, removed) = match defaults.map(|c| &c.resolved_tool_names) {
@@ -74,6 +115,7 @@ impl SessionLineParts {
         Self {
             agent_name: values.agent_name.clone(),
             model_display,
+            param_suffix,
             tool_suffix,
             input: format_token_count(values.input_tokens),
             output: format_token_count(values.output_tokens),
@@ -86,29 +128,45 @@ impl SessionLineParts {
         }
     }
 
-    /// Left-aligned agent segment: "\u{ed35}  {name}" plus the model/tool diff
-    /// meta. `include_model` drops the model display, used when the winbar
-    /// is too narrow.
+    /// Left-aligned agent segment: "\u{ed35}  {name}" plus the model/param/
+    /// tool diff meta. `include_model` drops the model display and the
+    /// param diff together in one step, used when the winbar is too narrow;
+    /// the robot sign stays as a hint.
     pub fn agent_segment(&self, include_model: bool) -> String {
         let model = if include_model {
             self.model_display.as_str()
         } else {
             ""
         };
-        match (!model.is_empty(), !self.tool_suffix.is_empty()) {
+        let params = if include_model {
+            self.param_suffix.as_str()
+        } else {
+            ""
+        };
+        // Robot sign meta: the param diff sits inline after the model name
+        let robot_meta = match (model.is_empty(), params.is_empty()) {
+            (false, false) => format!("{} {}", model, params),
+            (false, true) => model.to_string(),
+            (true, false) => params.to_string(),
+            (true, true) => String::new(),
+        };
+        // Robot meta exists but was dropped by truncation
+        let robot_dropped =
+            !include_model && (!self.model_display.is_empty() || !self.param_suffix.is_empty());
+        match (!robot_meta.is_empty(), !self.tool_suffix.is_empty()) {
             (true, true) => format!(
                 "\u{ed35}  {} (󰚩 {} | {})",
-                self.agent_name, model, self.tool_suffix
+                self.agent_name, robot_meta, self.tool_suffix
             ),
-            (true, false) => format!("\u{ed35}  {} (󰚩 {})", self.agent_name, model),
-            // Model dropped by truncation: robot sign and separator kept
-            (false, true) if !self.model_display.is_empty() => {
+            (true, false) => format!("\u{ed35}  {} (󰚩 {})", self.agent_name, robot_meta),
+            // Robot meta dropped by truncation: robot sign and separator kept
+            (false, true) if robot_dropped => {
                 format!("\u{ed35}  {} (󰚩 | {})", self.agent_name, self.tool_suffix)
             }
-            // No model change: tool diff only, no robot sign
+            // No robot meta: tool diff only, no robot sign
             (false, true) => format!("\u{ed35}  {} ({})", self.agent_name, self.tool_suffix),
-            // Model dropped by truncation: robot sign kept
-            (false, false) if !self.model_display.is_empty() => {
+            // Robot meta dropped by truncation: robot sign kept
+            (false, false) if robot_dropped => {
                 format!("\u{ed35}  {} (󰚩 )", self.agent_name)
             }
             (false, false) => format!("\u{ed35}  {}", self.agent_name),
@@ -154,6 +212,7 @@ impl MetadataSessionState {
             Some(prev) => {
                 prev.agent_name != current.agent_name
                     || prev.model_display != current.model_display
+                    || prev.model_parameters != current.model_parameters
                     || prev.current_tool_names != current.current_tool_names
                     || prev.input_tokens != current.input_tokens
                     || prev.output_tokens != current.output_tokens
@@ -177,6 +236,7 @@ impl MetadataSessionState {
                         .get(&current.agent_name)
                         .map(|a| AgentDefaultsCache {
                             default_model_display: a.model.display_name(),
+                            default_model_parameters: a.model.parameters.clone(),
                             resolved_tool_names: resolve_tool_names(&a.tool_names),
                         });
             }
@@ -191,8 +251,9 @@ impl MetadataSessionState {
 
 /// Builds the input window winbar: the agent segment, gauge bars and session
 /// info right-aligned via `%=`. When the full line exceeds `max_width`, the
-/// model display drops from the agent segment first; if it is still too
-/// narrow, the token count drops and the gauge bars stay.
+/// model display and the param diff drop from the agent segment together
+/// first; if it is still too narrow, the token count drops and the gauge
+/// bars stay.
 /// Active gauge bars and session info use the WinBar default highlight
 /// (`%*`); dim and critical bars use Tenon groups referenced inline via
 /// `%#Group#`.
@@ -323,6 +384,7 @@ mod tests {
         SessionLineParts {
             agent_name: "default".to_string(),
             model_display: String::new(),
+            param_suffix: String::new(),
             tool_suffix: String::new(),
             input: "100".to_string(),
             output: "50".to_string(),
@@ -398,6 +460,127 @@ mod tests {
         // No model change: tool diff only, no robot sign
         assert_eq!(parts.agent_segment(true), "\u{ed35}  default (󰣖 -7)");
         assert_eq!(parts.join(), "0 󰕒, 0 󰇚, 0 total");
+    }
+
+    #[test]
+    fn test_session_line_agent_param_diff() {
+        let mut baseline = serde_json::Map::new();
+        baseline.insert("temperature".to_string(), serde_json::json!(0.2));
+        baseline.insert("think".to_string(), serde_json::json!("medium"));
+        baseline.insert("top_p".to_string(), serde_json::json!(0.9));
+        baseline.insert("extra".to_string(), serde_json::json!("x"));
+
+        let defaults = AgentDefaultsCache {
+            default_model_display: "default".to_string(),
+            default_model_parameters: baseline.clone(),
+            resolved_tool_names: Vec::new(),
+        };
+
+        let mut params = serde_json::Map::new();
+        params.insert("temperature".to_string(), serde_json::json!(0.7));
+        params.insert("think".to_string(), serde_json::json!("high"));
+        params.insert("top_p".to_string(), serde_json::json!(0.9));
+        params.insert("new_key".to_string(), serde_json::json!(5));
+
+        let values = MetadataValues {
+            model_display: "default".to_string(),
+            model_parameters: params,
+            ..MetadataValues::test_default()
+        };
+
+        let parts = SessionLineParts::from_values(&values, Some(&defaults));
+
+        // Differing/absent keys show the chat's current value (strings bare,
+        // not JSON-quoted); matching and baseline-only keys are omitted
+        assert_eq!(parts.param_suffix, "temperature=0.7, think=high, new_key=5");
+
+        // Param diff without a model diff: robot sign with the diff, plus
+        // the +1 tool diff from the empty default tool list in this cache
+        assert_eq!(
+            parts.agent_segment(true),
+            "\u{ed35}  default (󰚩 temperature=0.7, think=high, new_key=5 | 󰣖 +1)"
+        );
+        // Truncation drops the param diff, robot sign kept as hint
+        assert_eq!(parts.agent_segment(false), "\u{ed35}  default (󰚩 | 󰣖 +1)");
+
+        // Chat matches the baseline - no diff
+        let values = MetadataValues {
+            model_display: "default".to_string(),
+            model_parameters: baseline,
+            ..MetadataValues::test_default()
+        };
+
+        let parts = SessionLineParts::from_values(&values, Some(&defaults));
+        assert_eq!(parts.param_suffix, "");
+    }
+
+    #[test]
+    fn test_session_line_agent_param_diff_non_default_model() {
+        // Registry entry for "other": provider base temperature=0.7,
+        // model base think="medium"
+        let mut provider_parameters = std::collections::HashMap::new();
+        provider_parameters.insert(
+            "temperature".to_string(),
+            crate::clients::ParameterConfig {
+                default_value: serde_json::json!(0.7),
+            },
+        );
+        let mut model_base = serde_json::Map::new();
+        model_base.insert("think".to_string(), serde_json::json!("medium"));
+        let other_model = crate::clients::SupportedModels {
+            connector_name: "test".to_string(),
+            config: crate::clients::ProviderConfig {
+                kind: crate::clients::ProviderKind::Bedrock(crate::clients::NoProviderConfig),
+                parameters: provider_parameters,
+            },
+            model_name: "other".to_string(),
+            parameters: model_base,
+            vision: false,
+        };
+        let mut config = crate::config::TenonConfig::default();
+        config.models.insert("other".to_string(), other_model);
+        let _override = crate::ConfigOverride::set(config);
+
+        // The agent's resolved parameters must not be the baseline here
+        let mut agent_params = serde_json::Map::new();
+        agent_params.insert("temperature".to_string(), serde_json::json!(0.2));
+
+        let defaults = AgentDefaultsCache {
+            default_model_display: "default".to_string(),
+            default_model_parameters: agent_params,
+            resolved_tool_names: Vec::new(),
+        };
+
+        let mut params = serde_json::Map::new();
+        params.insert("temperature".to_string(), serde_json::json!(0.7));
+        params.insert("think".to_string(), serde_json::json!("high"));
+        params.insert("new_key".to_string(), serde_json::json!(5));
+
+        let values = MetadataValues {
+            model_display: "other".to_string(),
+            model_parameters: params,
+            ..MetadataValues::test_default()
+        };
+
+        let parts = SessionLineParts::from_values(&values, Some(&defaults));
+
+        // temperature matches "other"'s resolved defaults, so only the
+        // drifted keys show; an agent-override baseline would wrongly add
+        // temperature=0.7
+        assert_eq!(parts.param_suffix, "think=high, new_key=5");
+
+        // Chat on the model's resolved defaults - no diff
+        let mut params = serde_json::Map::new();
+        params.insert("temperature".to_string(), serde_json::json!(0.7));
+        params.insert("think".to_string(), serde_json::json!("medium"));
+        let values = MetadataValues {
+            model_display: "other".to_string(),
+            model_parameters: params,
+            ..MetadataValues::test_default()
+        };
+
+        let parts = SessionLineParts::from_values(&values, Some(&defaults));
+        assert_eq!(parts.param_suffix, "");
     }
 
     #[test]
@@ -481,6 +664,22 @@ mod tests {
 
         // Model-only change, truncated: robot sign kept, no separator
         assert_eq!(parts.agent_segment(false), "\u{ed35}  default (󰚩 )");
+    }
+
+    #[test]
+    fn test_session_line_agent_model_and_param_diff() {
+        let mut parts = session_parts(0);
+        parts.model_display = "claude-3-5-sonnet".to_string();
+        parts.param_suffix = "temperature=0.7".to_string();
+        parts.tool_suffix = "󰣖 -6".to_string();
+
+        // Param diff inline right after the model name
+        assert_eq!(
+            parts.agent_segment(true),
+            "\u{ed35}  default (󰚩 claude-3-5-sonnet temperature=0.7 | 󰣖 -6)"
+        );
+        // Truncation drops the param diff and model together, robot sign kept
+        assert_eq!(parts.agent_segment(false), "\u{ed35}  default (󰚩 | 󰣖 -6)");
     }
 
     #[test]

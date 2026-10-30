@@ -24,6 +24,8 @@ pub struct MetadataValues {
     pub total_count: usize,
     pub agent_name: String,
     pub model_display: String,
+    /// Current parameter map of the chat's selected model
+    pub model_parameters: serde_json::Map<String, serde_json::Value>,
     pub current_tool_names: Vec<String>,
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -47,6 +49,7 @@ impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
             let total_count = chat_session_count();
             let agent_name = session.active_agent_name.clone();
             let model_display = session.engine.model.display_name();
+            let model_parameters = session.engine.model.parameters.clone();
             let current_tool_names: Vec<String> = session
                 .engine
                 .tools
@@ -96,6 +99,7 @@ impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
                 total_count,
                 agent_name,
                 model_display,
+                model_parameters,
                 current_tool_names,
                 input_tokens,
                 output_tokens,
@@ -114,6 +118,7 @@ impl From<Arc<RwLock<ChatDisplayData>>> for MetadataValues {
             total_count: 0,
             agent_name: String::new(),
             model_display: String::new(),
+            model_parameters: serde_json::Map::new(),
             current_tool_names: Vec::new(),
             input_tokens: 0,
             output_tokens: 0,
@@ -136,6 +141,7 @@ impl MetadataValues {
             total_count: 1,
             agent_name: "default".to_string(),
             model_display: "claude-3-5-sonnet".to_string(),
+            model_parameters: serde_json::Map::new(),
             current_tool_names: vec!["read_file".to_string()],
             input_tokens: 0,
             output_tokens: 0,
