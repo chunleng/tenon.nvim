@@ -1020,6 +1020,12 @@ pub fn global_input_keymaps() -> Vec<NvimKeymap> {
         },
         NvimKeymap {
             modes: vec![Mode::Normal],
+            lhs: "gp".to_string(),
+            rhs: "<cmd>lua require('tenon').action.select_parameters()<cr>".to_string(),
+            opts: SetKeymapOpts::default(),
+        },
+        NvimKeymap {
+            modes: vec![Mode::Normal],
             lhs: "gh".to_string(),
             rhs: "<cmd>lua require('tenon').action.select_history()<cr>".to_string(),
             opts: SetKeymapOpts::default(),

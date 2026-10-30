@@ -10,6 +10,7 @@ mod select_chat;
 mod select_history;
 mod select_hooks;
 mod select_model;
+mod select_parameters;
 mod select_tools;
 mod send;
 mod show_chat;
@@ -55,6 +56,10 @@ pub fn create_lua_action_module() -> Dictionary {
     action_dict.insert(
         "select_tools",
         Object::from(select_tools::select_tools_fn()),
+    );
+    action_dict.insert(
+        "select_parameters",
+        Object::from(select_parameters::select_parameters_fn()),
     );
     action_dict.insert(
         "toggle_focus",

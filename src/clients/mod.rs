@@ -170,6 +170,9 @@ pub struct ProviderConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ParameterConfig {
     pub default_value: serde_json::Value,
+
+    #[serde(default)]
+    pub options: Option<Vec<serde_json::Value>>,
 }
 
 #[cfg(test)]

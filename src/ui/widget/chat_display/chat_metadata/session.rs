@@ -523,6 +523,7 @@ mod tests {
             "temperature".to_string(),
             crate::clients::ParameterConfig {
                 default_value: serde_json::json!(0.7),
+                options: None,
             },
         );
         let mut model_base = serde_json::Map::new();
