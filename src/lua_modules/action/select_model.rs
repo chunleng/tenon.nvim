@@ -1,7 +1,7 @@
 use nvim_oxi::{Function, api::types::LogLevel};
 
 use crate::{
-    clients::SupportedModels,
+    clients::{SelectedModel, SupportedModels},
     get_application_config, get_chat_window,
     ui::picker::{FzfOption, SelectMode, box_single_select, pick},
     utils::GLOBAL_EXECUTION_HANDLER,
@@ -41,9 +41,7 @@ pub fn select_model_fn() -> Function<(), ()> {
                 let session = loaded.read().ok()?;
                 let current = &session.engine.model;
                 entries.iter().find_map(|(name, m)| {
-                    (m.connector_name == current.connector_name
-                        && m.model_name == current.model_name)
-                        .then(|| format_model_display(name, m))
+                    (name == &current.id).then(|| format_model_display(name, m))
                 })
             })();
 
@@ -56,7 +54,7 @@ pub fn select_model_fn() -> Function<(), ()> {
                     select_mode: SelectMode::single(current_model_display),
                     callback: box_single_select(move |selected| {
                         if let Some(display) = selected
-                            && let Some((_, model)) = entries
+                            && let Some((name, _)) = entries
                                 .iter()
                                 .find(|(name, m)| format_model_display(name, m) == display)
                         {
@@ -65,7 +63,7 @@ pub fn select_model_fn() -> Function<(), ()> {
                                 && let Ok(loaded) = win.loaded_chat_session.read()
                                 && let Ok(mut session) = loaded.write()
                             {
-                                session.engine.model = model.clone();
+                                session.engine.model = SelectedModel::new(name.clone());
                                 win.force_render();
                             }
                         }

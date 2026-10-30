@@ -16,7 +16,7 @@ use serde::Deserialize;
 /// Supports two formats in configuration:
 /// - Direct string: `api_key = "sk-..."`
 /// - Env reference: `api_key = { env = "MY_API_KEY" }`
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum ApiKey {
     /// Direct API key value.
@@ -85,15 +85,60 @@ pub struct SupportedModels {
     pub connector_name: String,
     pub config: ProviderConfig,
     pub model_name: String,
-    /// Live/latest parameter state of the selected model; used at request time.
+    /// Model-level default parameters
     pub parameters: serde_json::Map<String, serde_json::Value>,
     /// Whether the model supports vision (image input).
     pub vision: bool,
 }
 
-impl SupportedModels {
+/// Stores necessary information for calling to provider
+#[derive(Debug, Clone)]
+pub struct SelectedModel {
+    /// ID of the registered model
+    pub id: String,
+
+    /// Latest parameter state
+    pub parameters: serde_json::Map<String, serde_json::Value>,
+}
+
+impl SelectedModel {
+    pub fn new(id: impl Into<String>) -> Self {
+        let id = id.into();
+        let definition = Self::lookup(&id);
+        Self::select(id, &definition)
+    }
+
+    /// Creates a selection from a registry entry, resolving the request-time parameters once:
+    /// provider defaults overlaid by the definition's model-level defaults.
+    pub fn select(id: impl Into<String>, definition: &SupportedModels) -> Self {
+        let mut parameters: serde_json::Map<String, serde_json::Value> = definition
+            .config
+            .parameters
+            .iter()
+            .map(|(key, parameter)| (key.clone(), parameter.default_value.clone()))
+            .collect();
+        parameters.extend(definition.parameters.clone());
+        Self {
+            id: id.into(),
+            parameters,
+        }
+    }
+
     pub fn display_name(&self) -> String {
-        format!("{}: {}", self.connector_name, self.model_name)
+        self.id.clone()
+    }
+
+    /// Resolves the model definition from the registry at use time.
+    pub fn definition(&self) -> SupportedModels {
+        Self::lookup(&self.id)
+    }
+
+    fn lookup(id: &str) -> SupportedModels {
+        crate::get_application_config()
+            .models
+            .get(id)
+            .cloned()
+            .expect("selected model must exist in the models registry")
     }
 }
 

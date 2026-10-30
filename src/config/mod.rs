@@ -4,7 +4,7 @@ use crate::{
     chat::TenonAgent,
     clients::{
         AnthropicProviderConfig, ApiKey, OllamaProviderConfig, ProviderConfig, ProviderKind,
-        SupportedModels,
+        SelectedModel, SupportedModels,
     },
 };
 
@@ -38,19 +38,19 @@ impl Default for ToolsConfig {
 
 #[derive(Debug, Clone, Default)]
 pub struct FetchWebpageConfig {
-    pub model: Option<SupportedModels>,
+    pub model: Option<SelectedModel>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct ReadImageConfig {
     /// Vision model used when the chat's model has no vision.
-    pub fallback_model: Option<SupportedModels>,
+    pub fallback_model: Option<SelectedModel>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct RunCommandConfig {
     pub whitelist: Vec<String>,
-    pub check_models: Vec<SupportedModels>,
+    pub check_models: Vec<SelectedModel>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,7 +68,7 @@ impl Default for HistoryConfig {
 
 #[derive(Debug, Clone, Default)]
 pub struct TitleConfig {
-    pub model: Option<SupportedModels>,
+    pub model: Option<SelectedModel>,
     pub prompt: Option<String>,
 }
 
@@ -119,7 +119,7 @@ impl Default for TenonConfig {
         default_agents.insert(
             default_agent_name.clone(),
             TenonAgent::new(
-                default_model.clone(),
+                SelectedModel::select("default", &default_model),
                 vec![],
                 &[
                     "edit_file",

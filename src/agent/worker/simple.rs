@@ -1,7 +1,7 @@
 use std::io;
 
 use crate::agent::engine::SingleTextResponseEngine;
-use crate::clients::SupportedModels;
+use crate::clients::SelectedModel;
 use crate::directive::{Directive, DirectiveSource, PresetContent};
 use crate::get_application_config;
 use rig::message::Message;
@@ -11,15 +11,11 @@ pub struct SimpleTenonWorkerAgent {
 }
 
 impl SimpleTenonWorkerAgent {
-    pub fn new(
-        model: Option<SupportedModels>,
-        directive_text: &str,
-        override_params: Option<serde_json::Map<String, serde_json::Value>>,
-    ) -> io::Result<Self> {
-        let config = get_application_config();
-        let model = match model {
-            Some(m) => m,
+    pub fn new(model: Option<SelectedModel>, directive_text: &str) -> io::Result<Self> {
+        let selected = match model {
+            Some(selected) => selected,
             None => {
+                let config = get_application_config();
                 let agent_config = config
                     .agents
                     .get(&config.default_agent)
@@ -36,7 +32,7 @@ impl SimpleTenonWorkerAgent {
             },
         };
 
-        let engine = SingleTextResponseEngine::new(model, vec![directive], override_params);
+        let engine = SingleTextResponseEngine::new(selected, vec![directive]);
         Ok(Self { engine })
     }
 

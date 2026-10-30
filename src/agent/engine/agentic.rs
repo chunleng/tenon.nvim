@@ -14,7 +14,7 @@ use crate::chat::{
     TenonAssistantMessageContent, TenonLog, TenonLogData, TenonToolCall, TenonToolError,
     TenonToolLog, WorkQueue,
 };
-use crate::clients::SupportedModels;
+use crate::clients::SelectedModel;
 use crate::directive::{Directive, DirectiveSource, PresetContent, directive_path};
 use crate::tools::{AskQuestion, TenonTool};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
@@ -133,7 +133,7 @@ impl ChatKeywordFilter {
 /// Session-state interfaces (log handler, usage, cancel token, etc.) are injected per request.
 #[derive(Clone)]
 pub struct AgenticStreamEngine {
-    pub model: SupportedModels,
+    pub model: SelectedModel,
     pub directive: Vec<Directive>,
     pub tools: Vec<DynamicTool>,
     pub choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
@@ -146,7 +146,7 @@ pub struct AgenticStreamEngine {
 
 impl AgenticStreamEngine {
     pub fn new(
-        model: SupportedModels,
+        model: SelectedModel,
         directive: Vec<Directive>,
         tools: Vec<DynamicTool>,
         choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
@@ -163,7 +163,7 @@ impl AgenticStreamEngine {
     }
 
     pub fn with_log_handler(
-        model: SupportedModels,
+        model: SelectedModel,
         directive: Vec<Directive>,
         tools: Vec<DynamicTool>,
         choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
@@ -287,7 +287,7 @@ impl AgenticStreamEngine {
 
         // System tools must be resolved first
         let mut tools = self.system_tools.clone();
-        if self.model.vision {
+        if self.model.definition().vision {
             tools.push(
                 TenonTool::new(
                     crate::tools::ReadImage::Vision {
@@ -357,7 +357,7 @@ impl AgenticStreamEngine {
             );
         }
 
-        get_agent(self.model.clone(), combined, tools, None)
+        get_agent(&self.model, combined, tools)
     }
 
     /// Process one turn of streaming chat.
@@ -538,7 +538,7 @@ mod tests {
 
     use futures::FutureExt;
 
-    fn test_model() -> SupportedModels {
+    fn test_model(vision: bool) -> SupportedModels {
         SupportedModels {
             connector_name: "test".to_string(),
             config: ProviderConfig {
@@ -547,8 +547,34 @@ mod tests {
             },
             model_name: "test".to_string(),
             parameters: serde_json::Map::new(),
-            vision: false,
+            vision,
         }
+    }
+
+    fn test_model_with_base_url(base_url: String, vision: bool) -> SupportedModels {
+        SupportedModels {
+            connector_name: "test".to_string(),
+            config: ProviderConfig {
+                kind: ProviderKind::Ollama(OllamaProviderConfig {
+                    base_url,
+                    bearer: None,
+                }),
+                parameters: HashMap::new(),
+            },
+            model_name: "test".to_string(),
+            parameters: serde_json::Map::new(),
+            vision,
+        }
+    }
+
+    /// Registers models in the application config so the engine-side
+    /// definition lookup (`SelectedModel::definition`) resolves during the test.
+    fn register_models(entries: Vec<(&str, SupportedModels)>) -> crate::ConfigOverride {
+        let mut config = crate::config::TenonConfig::default();
+        for (id, model) in entries {
+            config.models.insert(id.to_string(), model);
+        }
+        crate::ConfigOverride::set(config)
     }
 
     #[tokio::test]
@@ -559,8 +585,14 @@ mod tests {
             &["read_file".to_string(), "edit_file".to_string()],
             log_handler.log_window.clone(),
         );
-        let mut engine =
-            AgenticStreamEngine::new(test_model(), vec![], tools, vec![], ToolContext::new());
+        let _override = register_models(vec![("test", test_model(false))]);
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("test"),
+            vec![],
+            tools,
+            vec![],
+            ToolContext::new(),
+        );
         let names: Vec<String> = engine.tools.iter().map(|t| t.name().to_string()).collect();
         assert_eq!(names, vec!["read_file", "edit_file"]);
         // Caller-provided tools must be wired into the chat adapter.
@@ -581,10 +613,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_vision_model_auto_enables_read_image() {
-        let mut model = test_model();
-        model.vision = true;
-        let mut engine =
-            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+        let _override = register_models(vec![("vision", test_model(true))]);
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("vision"),
+            vec![],
+            vec![],
+            vec![],
+            ToolContext::new(),
+        );
         assert!(
             agent_tool_names(&mut engine)
                 .await
@@ -595,8 +631,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_non_vision_model_does_not_enable_read_image() {
-        let mut engine =
-            AgenticStreamEngine::new(test_model(), vec![], vec![], vec![], ToolContext::new());
+        let _override = register_models(vec![("test", test_model(false))]);
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("test"),
+            vec![],
+            vec![],
+            vec![],
+            ToolContext::new(),
+        );
         assert!(
             !agent_tool_names(&mut engine)
                 .await
@@ -611,13 +653,18 @@ mod tests {
             .set(std::env::current_dir().unwrap())
             .ok();
         let mut config = crate::config::TenonConfig::default();
-        let mut fallback = test_model();
-        fallback.vision = true;
-        config.tools.read_image.fallback_model = Some(fallback);
+        config.models.insert("test".to_string(), test_model(false));
+        config.tools.read_image.fallback_model =
+            Some(SelectedModel::select("test", &test_model(true)));
         let _config = crate::ConfigOverride::set(config);
 
-        let mut engine =
-            AgenticStreamEngine::new(test_model(), vec![], vec![], vec![], ToolContext::new());
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("test"),
+            vec![],
+            vec![],
+            vec![],
+            ToolContext::new(),
+        );
         assert!(
             agent_tool_names(&mut engine)
                 .await
@@ -628,10 +675,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_switching_model_updates_read_image_availability() {
-        let mut model = test_model();
-        model.vision = true;
-        let mut engine =
-            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+        let _override = register_models(vec![
+            ("vision", test_model(true)),
+            ("plain", test_model(false)),
+        ]);
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("vision"),
+            vec![],
+            vec![],
+            vec![],
+            ToolContext::new(),
+        );
         assert!(
             agent_tool_names(&mut engine)
                 .await
@@ -640,7 +694,7 @@ mod tests {
         );
 
         // Simulate a model switch to a non-vision model
-        engine.model = test_model();
+        engine.model = SelectedModel::new("plain");
         assert!(
             !agent_tool_names(&mut engine)
                 .await
@@ -649,7 +703,7 @@ mod tests {
         );
 
         // And back to a vision model
-        engine.model.vision = true;
+        engine.model = SelectedModel::new("vision");
         assert!(
             agent_tool_names(&mut engine)
                 .await
@@ -663,14 +717,21 @@ mod tests {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();
+        // SelectedModel::new resolves the definition from the registry.
+        let _override = register_models(vec![("test", test_model(false))]);
 
         let log_handler = ChatLogHandler::new();
         let tools = resolve_tools(
             &["read_file".to_string(), "edit_file".to_string()],
             log_handler.log_window.clone(),
         );
-        let mut engine =
-            AgenticStreamEngine::new(test_model(), vec![], tools, vec![], ToolContext::new());
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("test"),
+            vec![],
+            tools,
+            vec![],
+            ToolContext::new(),
+        );
 
         // Navigate to move 2
         let move1_log = TenonLog::new(TenonLogData::Choreo(TenonChoreoLog {
@@ -800,21 +861,15 @@ mod tests {
         );
         let (addr, connections) = spawn_ollama_mock(body, 1).await;
 
-        let model = SupportedModels {
-            connector_name: "test".to_string(),
-            config: ProviderConfig {
-                kind: ProviderKind::Ollama(OllamaProviderConfig {
-                    base_url: format!("http://{addr}"),
-                    bearer: None,
-                }),
-                parameters: HashMap::new(),
-            },
-            model_name: "test".to_string(),
-            parameters: serde_json::Map::new(),
-            vision: false,
-        };
-        let mut engine =
-            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+        let model = test_model_with_base_url(format!("http://{addr}"), false);
+        let _override = register_models(vec![("test", model)]);
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("test"),
+            vec![],
+            vec![],
+            vec![],
+            ToolContext::new(),
+        );
 
         let cancel = AtomicBool::new(false);
         engine
@@ -867,21 +922,15 @@ mod tests {
         );
         let (addr, _connections) = spawn_ollama_mock(body, 0).await;
 
-        let model = SupportedModels {
-            connector_name: "test".to_string(),
-            config: ProviderConfig {
-                kind: ProviderKind::Ollama(OllamaProviderConfig {
-                    base_url: format!("http://{addr}"),
-                    bearer: None,
-                }),
-                parameters: HashMap::new(),
-            },
-            model_name: "test".to_string(),
-            parameters: serde_json::Map::new(),
-            vision: false,
-        };
-        let mut engine =
-            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+        let model = test_model_with_base_url(format!("http://{addr}"), false);
+        let _override = register_models(vec![("test", model)]);
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("test"),
+            vec![],
+            vec![],
+            vec![],
+            ToolContext::new(),
+        );
 
         let cancel = AtomicBool::new(false);
         engine
@@ -917,21 +966,15 @@ mod tests {
         // Every connection truncates mid-body, so every attempt fails.
         let (addr, connections) = spawn_ollama_mock(body, usize::MAX).await;
 
-        let model = SupportedModels {
-            connector_name: "test".to_string(),
-            config: ProviderConfig {
-                kind: ProviderKind::Ollama(OllamaProviderConfig {
-                    base_url: format!("http://{addr}"),
-                    bearer: None,
-                }),
-                parameters: HashMap::new(),
-            },
-            model_name: "test".to_string(),
-            parameters: serde_json::Map::new(),
-            vision: false,
-        };
-        let mut engine =
-            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+        let model = test_model_with_base_url(format!("http://{addr}"), false);
+        let _override = register_models(vec![("test", model)]);
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("test"),
+            vec![],
+            vec![],
+            vec![],
+            ToolContext::new(),
+        );
 
         let cancel = AtomicBool::new(false);
         // The surfaced error notifies through the Neovim execution handler,
@@ -1008,21 +1051,15 @@ mod tests {
             .set(std::env::current_dir().expect("test cwd"))
             .ok();
         let (addr, _connections) = spawn_ollama_mock(body, 0).await;
-        let model = SupportedModels {
-            connector_name: "test".to_string(),
-            config: ProviderConfig {
-                kind: ProviderKind::Ollama(OllamaProviderConfig {
-                    base_url: format!("http://{addr}"),
-                    bearer: None,
-                }),
-                parameters: HashMap::new(),
-            },
-            model_name: "test".to_string(),
-            parameters: serde_json::Map::new(),
-            vision: false,
-        };
-        let mut engine =
-            AgenticStreamEngine::new(model, vec![], vec![], vec![], ToolContext::new());
+        let model = test_model_with_base_url(format!("http://{addr}"), false);
+        let _override = register_models(vec![("test", model)]);
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("test"),
+            vec![],
+            vec![],
+            vec![],
+            ToolContext::new(),
+        );
         let cancel = AtomicBool::new(false);
         engine
             .process_turn("Say hello".to_string(), &cancel, |_| {}, 1)

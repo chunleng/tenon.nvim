@@ -9,11 +9,11 @@ use crate::agent::engine::AgenticStreamEngine;
 use crate::chat::ChatLogHandler;
 use crate::chat::log::window::LogWindow;
 use crate::tools::{TenonTool, ToolCore, ToolCoreCall};
-use crate::{chat::choreo::Choreo, clients::SupportedModels, directive::Directive};
+use crate::{chat::choreo::Choreo, clients::SelectedModel, directive::Directive};
 
 #[derive(Debug, Clone)]
 pub struct TenonAgent {
-    pub model: SupportedModels,
+    pub model: SelectedModel,
     pub directive: Vec<Directive>,
     pub tool_names: Vec<String>,
     pub choreos: Vec<Arc<Choreo>>,
@@ -21,7 +21,7 @@ pub struct TenonAgent {
 
 impl TenonAgent {
     pub fn new(
-        model: SupportedModels,
+        model: SelectedModel,
         directive: Vec<Directive>,
         tools: &[impl AsRef<str>],
         choreos: Vec<Arc<Choreo>>,
@@ -150,7 +150,7 @@ pub struct GoalOrientedWorker {
 
 impl GoalOrientedWorker {
     pub fn new(
-        model: SupportedModels,
+        model: SelectedModel,
         directive: Vec<Directive>,
         tools: Vec<DynamicTool>,
         log_handler: ChatLogHandler,

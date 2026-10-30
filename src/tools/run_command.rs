@@ -1,4 +1,5 @@
 use crate::agent::worker::simple::SimpleTenonWorkerAgent;
+use crate::clients::SelectedModel;
 use crate::get_application_config;
 use crate::utils::format_yaml_block_scalars;
 use futures::stream::{self, BoxStream, StreamExt};
@@ -156,7 +157,7 @@ struct CommandSafetyResponse {
 /// Returns Ok(true) if allowed, Ok(false) with reason if denied, or Err on failure.
 async fn check_command_safety_with_llm(
     args_yaml: &str,
-    model: &crate::clients::SupportedModels,
+    model: &SelectedModel,
 ) -> Result<(bool, Option<String>), ToolExecutionError> {
     let worker = SimpleTenonWorkerAgent::new(
         Some(model.clone()),
@@ -204,7 +205,6 @@ decision: allow
 Output (deny):
 decision: deny
 reason: ..."#,
-        None,
     )
     .map_err(|e| {
         ToolExecutionError::from_error(e)

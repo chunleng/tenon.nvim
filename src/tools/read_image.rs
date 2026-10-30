@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::agent::engine::agentic::ContinueSignal;
 use crate::agent::worker::simple::SimpleTenonWorkerAgent;
-use crate::clients::SupportedModels;
+use crate::clients::SelectedModel;
 use rig::message::{Image, Message, ToolResultContent, UserContent};
 use rig::tool::{ToolContext, ToolExecutionError, ToolOutput};
 use serde::Deserialize;
@@ -26,14 +26,14 @@ pub struct ReadImageArgs {
 #[derive(Clone)]
 pub enum ReadImage {
     /// Session model has vision: allow image loading or subagent
-    Vision { model: SupportedModels },
+    Vision { model: SelectedModel },
     /// Session model lacks vision: only subagent with `fallback_model`
-    NonVision { fallback_model: SupportedModels },
+    NonVision { fallback_model: SelectedModel },
 }
 
 impl ReadImage {
     /// Vision model for prompt mode.
-    fn worker_model(&self) -> SupportedModels {
+    fn worker_model(&self) -> SelectedModel {
         match self {
             ReadImage::Vision { model } => model.clone(),
             ReadImage::NonVision { fallback_model } => fallback_model.clone(),
@@ -45,7 +45,7 @@ pub struct ReadImageCall {
     filepath: String,
     prompt: Option<String>,
     /// Vision model that answers in prompt mode.
-    worker_model: SupportedModels,
+    worker_model: SelectedModel,
 }
 
 impl ReadImageCall {
@@ -73,7 +73,6 @@ impl ReadImageCall {
         let worker = SimpleTenonWorkerAgent::new(
             Some(self.worker_model.clone()),
             "Answer based on the image content. No preamble or hedge.",
-            None,
         )
         .map_err(ToolExecutionError::from_error)?;
 
@@ -216,23 +215,26 @@ mod tests {
     use super::*;
     use crate::agent::engine::agentic::ContinueSignal;
     use crate::chat::log::{TenonImageLog, TenonToolCall, TenonToolLog, TenonToolResult};
-    use crate::clients::{OllamaProviderConfig, ProviderConfig, ProviderKind};
+    use crate::clients::{OllamaProviderConfig, ProviderConfig, ProviderKind, SupportedModels};
     use std::collections::HashMap;
 
     use rig::message::DocumentSourceKind;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    fn test_model(vision: bool) -> SupportedModels {
-        SupportedModels {
-            connector_name: "test".to_string(),
-            config: ProviderConfig {
-                kind: ProviderKind::Ollama(OllamaProviderConfig::default()),
-                parameters: HashMap::new(),
+    fn test_model(vision: bool) -> SelectedModel {
+        SelectedModel::select(
+            "test",
+            &SupportedModels {
+                connector_name: "test".to_string(),
+                config: ProviderConfig {
+                    kind: ProviderKind::Ollama(OllamaProviderConfig::default()),
+                    parameters: HashMap::new(),
+                },
+                model_name: "test".to_string(),
+                parameters: serde_json::Map::new(),
+                vision,
             },
-            model_name: "test".to_string(),
-            parameters: serde_json::Map::new(),
-            vision,
-        }
+        )
     }
 
     fn vision_tool() -> ReadImage {
@@ -449,7 +451,7 @@ mod tests {
             )
             .await
             .expect("prompt mode should be allowed with a fallback model");
-        assert!(call.worker_model.vision);
+        assert_eq!(call.worker_model.id, "test");
     }
 
     #[test]

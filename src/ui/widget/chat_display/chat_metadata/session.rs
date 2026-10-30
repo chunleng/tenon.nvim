@@ -388,7 +388,7 @@ mod tests {
         let mut state = MetadataSessionState::new();
         // Model matches default, 7 tools removed from default's 8 tools
         let values = MetadataValues {
-            model_display: "ollama_cloud: glm-5.1".to_string(),
+            model_display: "default".to_string(),
             current_tool_names: vec!["read_file".to_string()],
             ..MetadataValues::test_default()
         };
@@ -405,7 +405,7 @@ mod tests {
         let mut state = MetadataSessionState::new();
         // Default model and all default tools - no meta
         let values = MetadataValues {
-            model_display: "ollama_cloud: glm-5.1".to_string(),
+            model_display: "default".to_string(),
             current_tool_names: vec![
                 "edit_file".to_string(),
                 "fetch_webpage".to_string(),
@@ -430,7 +430,7 @@ mod tests {
         // 1 added (mcp_server____custom_tool), 6 removed (default's 8 minus
         // read_file, edit_file)
         let values = MetadataValues {
-            model_display: "ollama_cloud: glm-5.1".to_string(),
+            model_display: "default".to_string(),
             current_tool_names: vec![
                 "read_file".to_string(),
                 "edit_file".to_string(),

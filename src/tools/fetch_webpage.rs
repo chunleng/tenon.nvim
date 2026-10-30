@@ -203,7 +203,6 @@ async fn answer_with_prompt(markdown: &str, prompt: &str) -> Result<String, Tool
         Do not infer or fabricate. Webpage content only. No preamble/hedge/commentary. \
         If the answer references a link from the page, include the link itself. \
         Preserve format: code→code blocks, steps→numbered lists, comparisons→tables, items→bullets.",
-        None,
     )
     .map_err(|e| {
         ToolExecutionError::from_error(e)

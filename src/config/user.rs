@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 use crate::{
     chat::TenonAgent,
-    clients::{ApiKey, ProviderConfig, SupportedModels},
+    clients::{ApiKey, ProviderConfig, SelectedModel, SupportedModels},
     config::{TenonConfig, WebSearchConfig},
     directive::{Directive, DirectiveSource, PresetContent},
     utils::notify,
@@ -129,10 +129,34 @@ pub struct ModelConfig {
     vision: bool,
 }
 
-/// A named reference to a model in the models registry.
+/// A named reference to a model in the models registry, with optional request parameter overrides.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(transparent)]
-pub struct Model(pub String);
+pub struct Model {
+    pub id: String,
+
+    #[serde(default)]
+    pub parameter_overrides: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+impl Model {
+    /// Resolves against a registry definition, applying this reference's parameter overrides (if
+    /// any) on top of the definition's defaults.
+    fn to_selected(&self, definition: &SupportedModels) -> SelectedModel {
+        let mut selected = SelectedModel::select(&self.id, definition);
+        if let Some(overrides) = &self.parameter_overrides {
+            selected.parameters.extend(overrides.clone());
+        }
+        selected
+    }
+
+    #[cfg(test)]
+    fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            parameter_overrides: None,
+        }
+    }
+}
 
 /// Describes a directive source as provided in user configuration.
 #[derive(Debug, Clone, Deserialize)]
@@ -233,12 +257,12 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
             conf.agents = agents
                 .into_iter()
                 .map(|(k, v)| -> Result<_, nvim_oxi::Error> {
-                    let model = conf
-                        .models
-                        .get(&v.model.0)
-                        .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                            msg: format!("unknown model: {}", v.model.0),
-                        }))?;
+                    let model =
+                        conf.models
+                            .get(&v.model.id)
+                            .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                                msg: format!("unknown model: {}", v.model.id),
+                            }))?;
                     if v.default {
                         match &default_agent {
                             Some(agent) => {
@@ -273,7 +297,12 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         .collect();
                     Ok((
                         k,
-                        TenonAgent::new(model.clone(), directives, &v.tool_names, choreos),
+                        TenonAgent::new(
+                            v.model.to_selected(model),
+                            directives,
+                            &v.tool_names,
+                            choreos,
+                        ),
                     ))
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?;
@@ -291,43 +320,49 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
             if let Some(fetch_webpage) = tools.fetch_webpage
                 && let Some(model) = fetch_webpage.model
             {
-                conf.tools.fetch_webpage.model = Some(conf.models.get(&model.0).cloned().ok_or(
-                    nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                        msg: format!("unknown model for fetch_webpage: {}", model.0),
-                    }),
-                )?);
+                let definition =
+                    conf.models
+                        .get(&model.id)
+                        .cloned()
+                        .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                            msg: format!("unknown model for fetch_webpage: {}", model.id),
+                        }))?;
+                conf.tools.fetch_webpage.model = Some(model.to_selected(&definition));
             }
             if let Some(read_image) = tools.read_image
                 && let Some(model) = read_image.fallback_model
             {
                 let fallback =
                     conf.models
-                        .get(&model.0)
+                        .get(&model.id)
                         .cloned()
                         .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                            msg: format!("unknown model for read_image fallback: {}", model.0),
+                            msg: format!("unknown model for read_image fallback: {}", model.id),
                         }))?;
                 if !fallback.vision {
                     return Err(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                        msg: format!("read_image fallback_model must support vision: {}", model.0),
+                        msg: format!(
+                            "read_image fallback_model must support vision: {}",
+                            model.id
+                        ),
                     }));
                 }
-                conf.tools.read_image.fallback_model = Some(fallback);
+                conf.tools.read_image.fallback_model = Some(model.to_selected(&fallback));
             }
             if let Some(run) = tools.run_command {
                 conf.tools.run_command.whitelist = run.whitelist;
-                conf.tools.run_command.check_models = run
-                    .check_models
-                    .into_iter()
-                    .map(|m| -> Result<_, nvim_oxi::Error> {
-                        conf.models
-                            .get(&m.0)
-                            .cloned()
-                            .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                                msg: format!("unknown model for run_command check: {}", m.0),
-                            }))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                conf.tools.run_command.check_models =
+                    run.check_models
+                        .into_iter()
+                        .map(|m| -> Result<_, nvim_oxi::Error> {
+                            let definition = conf.models.get(&m.id).cloned().ok_or(
+                                nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                                    msg: format!("unknown model for run_command check: {}", m.id),
+                                }),
+                            )?;
+                            Ok(m.to_selected(&definition))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
             }
             conf.tools.web_search = match tools.web_search {
                 Some(WebSearchProviderConfig::Brave { api_key }) => match api_key.resolve() {
@@ -361,11 +396,14 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
 
         if let Some(title) = value.title {
             if let Some(model) = title.model {
-                conf.title.model = Some(conf.models.get(&model.0).cloned().ok_or(
-                    nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                        msg: format!("unknown model for title: {}", model.0),
-                    }),
-                )?);
+                let definition =
+                    conf.models
+                        .get(&model.id)
+                        .cloned()
+                        .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                            msg: format!("unknown model for title: {}", model.id),
+                        }))?;
+                conf.title.model = Some(model.to_selected(&definition));
             }
             if let Some(prompt) = title.prompt {
                 conf.title.prompt = Some(prompt);
@@ -387,6 +425,22 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
 mod tests {
     use super::*;
     use crate::clients::ProviderKind;
+
+    /// A bare user-selected model reference: registry id with no overrides.
+    fn model_ref(id: &str) -> Model {
+        Model::new(id)
+    }
+
+    /// A user-selected model reference with parameter overrides.
+    fn model_ref_with(
+        id: &str,
+        parameter_overrides: serde_json::Map<String, serde_json::Value>,
+    ) -> Model {
+        Model {
+            id: id.to_string(),
+            parameter_overrides: Some(parameter_overrides),
+        }
+    }
 
     #[test]
     fn try_from_models_builds_hashmap_with_names() {
@@ -524,7 +578,7 @@ mod tests {
     fn choreos_config_key_deserializes() {
         // The user-facing Lua config key for per-agent choreos is "choreos".
         let config: TenonUserConfig = serde_json::from_str(
-            r#"{"agents":{"main":{"model":"fast","choreos":["implement_code_together"]}}}"#,
+            r#"{"agents":{"main":{"model":{"id":"fast"},"choreos":["implement_code_together"]}}}"#,
         )
         .unwrap();
         let agent = config.agents.as_ref().unwrap().get("main").unwrap();
@@ -545,12 +599,14 @@ mod tests {
         );
 
         let mut models = HashMap::new();
+        let mut default_params = serde_json::Map::new();
+        default_params.insert("temperature".to_string(), serde_json::json!(0.7));
         models.insert(
             "fast".to_string(),
             ModelConfig {
                 connector: "ollama".to_string(),
                 name: "llama3".to_string(),
-                default_parameters: serde_json::Map::new(),
+                default_parameters: default_params,
                 vision: false,
             },
         );
@@ -559,7 +615,7 @@ mod tests {
         agents.insert(
             "main".to_string(),
             TenonAgentConfig {
-                model: Model("fast".to_string()),
+                model: model_ref("fast"),
                 directive: vec![],
                 tool_names: vec![],
                 default: true,
@@ -579,8 +635,13 @@ mod tests {
 
         let result = TenonConfig::try_from(config).unwrap();
         let agent = result.agents.get("main").unwrap();
-        assert_eq!(agent.model.connector_name, "ollama");
-        assert_eq!(agent.model.model_name, "llama3");
+        // The agent holds the selected model by its registry ID, with the
+        // model's default parameters as the starting live state.
+        assert_eq!(agent.model.id, "fast");
+        assert_eq!(
+            agent.model.parameters.get("temperature").unwrap(),
+            &serde_json::json!(0.7)
+        );
     }
 
     #[test]
@@ -591,7 +652,7 @@ mod tests {
         agents.insert(
             "main".to_string(),
             TenonAgentConfig {
-                model: Model("nonexistent".to_string()),
+                model: model_ref("nonexistent"),
                 directive: vec![],
                 tool_names: vec![],
                 default: true,
@@ -639,20 +700,20 @@ mod tests {
 
         let tools = ToolsUserConfig {
             fetch_webpage: Some(FetchWebpageUserConfig {
-                model: Some(Model("fast".to_string())),
+                model: Some(model_ref("fast")),
             }),
             read_image: Some(ReadImageUserConfig {
-                fallback_model: Some(Model("fast".to_string())),
+                fallback_model: Some(model_ref("fast")),
             }),
             run_command: Some(RunCommandUserConfig {
                 whitelist: vec![],
-                check_models: vec![Model("fast".to_string())],
+                check_models: vec![model_ref("fast")],
             }),
             web_search: None,
         };
 
         let title = TitleUserConfig {
-            model: Some(Model("fast".to_string())),
+            model: Some(model_ref("fast")),
             prompt: None,
         };
 
@@ -669,17 +730,98 @@ mod tests {
         let result = TenonConfig::try_from(config).unwrap();
 
         let fw = result.tools.fetch_webpage.model.unwrap();
-        assert_eq!(fw.model_name, "llama3");
+        assert_eq!(fw.id, "fast");
 
         let ri = result.tools.read_image.fallback_model.unwrap();
-        assert_eq!(ri.model_name, "llama3");
+        assert_eq!(ri.id, "fast");
 
         let rc = &result.tools.run_command.check_models;
         assert_eq!(rc.len(), 1);
-        assert_eq!(rc[0].model_name, "llama3");
+        assert_eq!(rc[0].id, "fast");
 
         let title_model = result.title.model.unwrap();
-        assert_eq!(title_model.model_name, "llama3");
+        assert_eq!(title_model.id, "fast");
+    }
+
+    #[test]
+    fn try_from_tools_applies_model_parameter_overrides() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+        let mut connectors = HashMap::new();
+        connectors.insert(
+            "ollama".to_string(),
+            ProviderConfig {
+                kind: ProviderKind::Ollama(Default::default()),
+                parameters: HashMap::new(),
+            },
+        );
+
+        let mut models = HashMap::new();
+        let mut default_parameters = serde_json::Map::new();
+        default_parameters.insert("temperature".to_string(), serde_json::json!(0.7));
+        models.insert(
+            "fast".to_string(),
+            ModelConfig {
+                connector: "ollama".to_string(),
+                name: "llama3".to_string(),
+                default_parameters,
+                vision: false,
+            },
+        );
+
+        let mut overrides = serde_json::Map::new();
+        overrides.insert("temperature".to_string(), serde_json::json!(0.2));
+        overrides.insert("top_p".to_string(), serde_json::json!(0.9));
+
+        let tools = ToolsUserConfig {
+            fetch_webpage: Some(FetchWebpageUserConfig {
+                model: Some(model_ref_with("fast", overrides)),
+            }),
+            read_image: None,
+            run_command: None,
+            web_search: None,
+        };
+
+        let config = TenonUserConfig {
+            connectors: Some(connectors),
+            agents: None,
+            models: Some(models),
+            tools: Some(tools),
+            history: None,
+            title: None,
+            hooks: None,
+        };
+
+        let result = TenonConfig::try_from(config).unwrap();
+        let selected = result.tools.fetch_webpage.model.unwrap();
+        // Overrides win over the definition's model-level defaults.
+        assert_eq!(
+            selected.parameters.get("temperature").unwrap(),
+            &serde_json::json!(0.2)
+        );
+        assert_eq!(
+            selected.parameters.get("top_p").unwrap(),
+            &serde_json::json!(0.9)
+        );
+    }
+
+    #[test]
+    fn model_deserializes_table_with_and_without_parameters() {
+        let with: Model =
+            serde_json::from_str(r#"{"id": "fast", "parameter_overrides": {"temperature": 0.2}}"#)
+                .unwrap();
+        assert_eq!(with.id, "fast");
+        assert_eq!(
+            with.parameter_overrides
+                .as_ref()
+                .unwrap()
+                .get("temperature")
+                .unwrap(),
+            &serde_json::json!(0.2)
+        );
+
+        let without: Model = serde_json::from_str(r#"{"id": "fast"}"#).unwrap();
+        assert_eq!(without.id, "fast");
+        assert!(without.parameter_overrides.is_none());
     }
 
     #[test]
@@ -708,7 +850,7 @@ mod tests {
         let tools = ToolsUserConfig {
             fetch_webpage: None,
             read_image: Some(ReadImageUserConfig {
-                fallback_model: Some(Model("fast".to_string())),
+                fallback_model: Some(model_ref("fast")),
             }),
             run_command: None,
             web_search: None,
@@ -737,7 +879,7 @@ mod tests {
 
         let tools = ToolsUserConfig {
             fetch_webpage: Some(FetchWebpageUserConfig {
-                model: Some(Model("nonexistent".to_string())),
+                model: Some(model_ref("nonexistent")),
             }),
             read_image: None,
             run_command: None,

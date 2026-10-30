@@ -1,7 +1,7 @@
 use rig::message::Message;
 
 use crate::agent::provider::{ChatStream, StreamItem, get_agent};
-use crate::clients::SupportedModels;
+use crate::clients::SelectedModel;
 use crate::directive::Directive;
 use rig::agent::Agent;
 use rig::tool::ToolContext;
@@ -14,12 +14,8 @@ pub struct SingleTextResponseEngine {
 }
 
 impl SingleTextResponseEngine {
-    pub fn new(
-        model: SupportedModels,
-        directive: Vec<Directive>,
-        override_params: Option<serde_json::Map<String, serde_json::Value>>,
-    ) -> Self {
-        let agent = get_agent(model, directive, vec![], override_params);
+    pub fn new(model: SelectedModel, directive: Vec<Directive>) -> Self {
+        let agent = get_agent(&model, directive, vec![]);
         Self { agent }
     }
 

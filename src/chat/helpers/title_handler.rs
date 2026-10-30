@@ -71,17 +71,8 @@ impl TitleHandler {
 
         let config = get_application_config();
 
-        let model = config.title.model.clone().or_else(|| {
-            config
-                .agents
-                .get(&config.default_agent)
-                .map(|a| a.model.clone())
-        });
-
-        let model = match model {
-            Some(m) => m,
-            None => return,
-        };
+        // The worker falls back to the default agent's model when `None`.
+        let model = config.title.model.clone();
 
         let title = Arc::clone(&self.title);
 
@@ -105,7 +96,7 @@ impl TitleHandler {
                         .to_string()
                 });
 
-                let worker = match SimpleTenonWorkerAgent::new(Some(model), &directive_text, Some(serde_json::Map::new())) {
+                let worker = match SimpleTenonWorkerAgent::new(model, &directive_text) {
                     Ok(w) => w,
                     Err(_) => return,
                 };
