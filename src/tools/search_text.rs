@@ -1,5 +1,8 @@
 use crate::tools::{ToolCore, ToolCoreCall};
-use crate::utils::{format_yaml_block_scalars, is_within_directory, normalize_glob, path_from_str};
+use crate::utils::{
+    format_yaml_block_scalars, has_hidden_component, is_within_directory, normalize_glob,
+    path_from_str,
+};
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
@@ -44,8 +47,15 @@ struct MatchEntry {
 #[derive(Serialize)]
 struct FileEntry {
     path: String,
+    /// Hidden files are reported as matching without revealing any line content
+    #[serde(skip_serializing_if = "is_false")]
+    redacted: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     matches: Vec<MatchEntry>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Serialize)]
@@ -102,19 +112,17 @@ impl ToolCoreCall for SearchTextCall {
                 search_path.display()
             )));
         }
-        if self.restrict_to_working_directory {
-            // `None` restricts to the process cwd
-            let base = match &self.working_directory {
-                Some(dir) => dir.clone(),
-                None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
-            };
-            if !is_within_directory(&search_path, &base) {
-                return Err(ToolExecutionError::invalid_args(format!(
-                    "Path '{}' is outside the working directory '{}'",
-                    search_path.display(),
-                    base.display()
-                )));
-            }
+        // `None` resolves against the process cwd
+        let base = match &self.working_directory {
+            Some(dir) => dir.clone(),
+            None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+        };
+        if self.restrict_to_working_directory && !is_within_directory(&search_path, &base) {
+            return Err(ToolExecutionError::invalid_args(format!(
+                "Path '{}' is outside the working directory '{}'",
+                search_path.display(),
+                base.display()
+            )));
         }
 
         let ignore_case = args.ignore_case.unwrap_or(false);
@@ -234,7 +242,11 @@ impl ToolCoreCall for SearchTextCall {
                 relative
             };
             let path_str = out.to_str().unwrap_or_default().to_string();
-            files.push((path_str, text));
+
+            let redacted =
+                has_hidden_component(entry.path().strip_prefix(&base).unwrap_or(entry.path()));
+
+            files.push((path_str, text, redacted));
         }
 
         let result = perform_search(files, &re, context_lines, max_files);
@@ -323,7 +335,7 @@ impl ToolCore for SearchText {
 }
 
 fn perform_search(
-    files: Vec<(String, String)>,
+    files: Vec<(String, String, bool)>,
     re: &regex::Regex,
     context_lines: usize,
     max_files: Option<usize>,
@@ -332,7 +344,7 @@ fn perform_search(
     let mut total_line_matches: usize = 0;
     let files_searched = files.len();
 
-    for (path, text) in files {
+    for (path, text, redacted) in files {
         let lines: Vec<&str> = text.lines().collect();
         let mut file_matches: Vec<MatchEntry> = Vec::new();
 
@@ -371,10 +383,21 @@ fn perform_search(
             });
         }
 
-        if !file_matches.is_empty() {
+        if file_matches.is_empty() {
+            continue;
+        }
+
+        if redacted {
+            file_results.push(FileEntry {
+                path,
+                redacted: true,
+                matches: Vec::new(),
+            });
+        } else {
             total_line_matches += file_matches.len();
             file_results.push(FileEntry {
                 path,
+                redacted: false,
                 matches: file_matches,
             });
         }
@@ -417,8 +440,16 @@ mod tests {
         #[test]
         fn basic_search() {
             let files = vec![
-                ("file1.txt".to_string(), "hello world\nfoo bar".to_string()),
-                ("file2.txt".to_string(), "hello rust\nfoo baz".to_string()),
+                (
+                    "file1.txt".to_string(),
+                    "hello world\nfoo bar".to_string(),
+                    false,
+                ),
+                (
+                    "file2.txt".to_string(),
+                    "hello rust\nfoo baz".to_string(),
+                    false,
+                ),
             ];
             let re = regex::Regex::new("hello").unwrap();
             let result = perform_search(files, &re, 0, None);
@@ -431,7 +462,11 @@ mod tests {
 
         #[test]
         fn regex_search() {
-            let files = vec![("file1.txt".to_string(), "123 hello\n456 world".to_string())];
+            let files = vec![(
+                "file1.txt".to_string(),
+                "123 hello\n456 world".to_string(),
+                false,
+            )];
             let re = regex::Regex::new(r"\d+").unwrap();
             let result = perform_search(files, &re, 0, None);
 
@@ -444,6 +479,7 @@ mod tests {
             let files = vec![(
                 "file1.txt".to_string(),
                 "line1\nline2\nline3\nline4\nline5".to_string(),
+                false,
             )];
             let re = regex::Regex::new("line3").unwrap();
             let result = perform_search(files, &re, 1, None);
@@ -456,9 +492,9 @@ mod tests {
         #[test]
         fn max_files_truncation() {
             let files = vec![
-                ("a.txt".to_string(), "match".to_string()),
-                ("b.txt".to_string(), "match".to_string()),
-                ("c.txt".to_string(), "match".to_string()),
+                ("a.txt".to_string(), "match".to_string(), false),
+                ("b.txt".to_string(), "match".to_string(), false),
+                ("c.txt".to_string(), "match".to_string(), false),
             ];
             let re = regex::Regex::new("match").unwrap();
             let result = perform_search(files, &re, 0, Some(2));
@@ -470,7 +506,11 @@ mod tests {
         #[test]
         fn match_limit_clears_matches() {
             let files = vec![
-                ("file1.txt".to_string(), "a\n".repeat(120).to_string()), // > 100 matched lines
+                (
+                    "file1.txt".to_string(),
+                    "a\n".repeat(120).to_string(),
+                    false,
+                ), // > 100 matched lines
             ];
             let re = regex::Regex::new("a").unwrap();
             let result = perform_search(files, &re, 0, None);
@@ -556,6 +596,7 @@ mod tests {
             let result = SearchResult {
                 files: vec![FileEntry {
                     path: "test.rs".to_string(),
+                    redacted: false,
                     matches: vec![MatchEntry {
                         line_number: 1,
                         line: "test".to_string(),
@@ -581,12 +622,12 @@ mod tests {
         fn file_entry_empty_matches_skipped() {
             let entry = FileEntry {
                 path: "test.rs".to_string(),
+                redacted: false,
                 matches: vec![],
             };
             let json = serde_json::to_string(&entry).unwrap();
-            // Empty matches array is skipped due to #[serde(skip_serializing_if)]
-            assert!(!json.contains("matches"));
-            assert!(json.contains("\"path\":\"test.rs\""));
+            // Empty matches array and false `redacted` are skipped
+            assert_eq!(json, r#"{"path":"test.rs"}"#);
         }
 
         #[test]
@@ -732,6 +773,106 @@ mod tests {
 
             std::fs::remove_dir_all(&dir).ok();
             std::fs::remove_dir_all(&other).ok();
+        }
+    }
+
+    mod hidden_redaction {
+        use super::*;
+        use rig::tool::ToolContext;
+
+        /// Working directory is `<temp>/.cfg`: the hidden ancestor is part of the
+        /// fixture, so redaction must be decided on paths relative to it.
+        fn make_tree(tag: &str) -> std::path::PathBuf {
+            let dir = std::env::temp_dir()
+                .join(format!(
+                    "tenon_search_text_hidden_{}_{}",
+                    tag,
+                    std::process::id()
+                ))
+                .join(".cfg");
+            std::fs::create_dir_all(dir.join(".hidden_dir")).unwrap();
+            std::fs::write(dir.join("visible.txt"), "visible needle").unwrap();
+            std::fs::write(dir.join(".hidden.txt"), "hidden needle").unwrap();
+            std::fs::write(
+                dir.join(".hidden_dir").join("inner.txt"),
+                "nested hidden needle",
+            )
+            .unwrap();
+            dir
+        }
+
+        async fn run_search(
+            working_directory: Option<std::path::PathBuf>,
+            path: Option<String>,
+        ) -> String {
+            let mut context = ToolContext::new();
+            let call = SearchText {
+                working_directory,
+                restrict_to_working_directory: false,
+            }
+            .init_call(
+                &mut context,
+                SearchTextArgs {
+                    pattern: None,
+                    literal: Some("needle".to_string()),
+                    path,
+                    glob: None,
+                    ignore_case: None,
+                    context_lines: None,
+                    max_files: None,
+                },
+            )
+            .await
+            .expect("init_call should succeed");
+            call.result(&mut context)
+                .await
+                .expect("search should succeed")
+        }
+
+        fn file_entry<'a>(result: &'a serde_yaml::Value, path: &str) -> &'a serde_yaml::Value {
+            result["files"]
+                .as_sequence()
+                .expect("files should be a sequence")
+                .iter()
+                .find(|f| f["path"].as_str() == Some(path))
+                .unwrap_or_else(|| panic!("missing file entry for {path}"))
+        }
+
+        #[tokio::test]
+        async fn test_hidden_files_redacted() {
+            let dir = make_tree("shape");
+            let output = run_search(Some(dir.clone()), None).await;
+            let result: serde_yaml::Value = serde_yaml::from_str(&output).unwrap();
+
+            // Visible file under a hidden working directory: nothing to redact
+            let visible = file_entry(&result, "visible.txt");
+            assert_eq!(
+                visible["matches"][0]["line"].as_str(),
+                Some("visible needle")
+            );
+            assert!(
+                visible.get("redacted").is_none(),
+                "non-hidden entry must not carry `redacted`: {visible:?}"
+            );
+
+            // Redacted entries carry only the path, no matches and no line numbers
+            let hidden = file_entry(&result, ".hidden.txt");
+            assert_eq!(hidden["redacted"].as_bool(), Some(true));
+            assert_eq!(hidden.as_mapping().map(|m| m.len()), Some(2), "{hidden:?}");
+
+            let nested = file_entry(&result, ".hidden_dir/inner.txt");
+            assert_eq!(nested["redacted"].as_bool(), Some(true));
+            assert_eq!(nested.as_mapping().map(|m| m.len()), Some(2), "{nested:?}");
+
+            // Hidden files are still searched, but their lines never reach the output
+            assert!(output.contains("visible needle"), "got: {output}");
+            assert!(!output.contains("hidden needle"), "got: {output}");
+
+            assert_eq!(result["total_line_matches"].as_u64(), Some(1));
+            assert_eq!(result["files_with_matches"].as_u64(), Some(3));
+            assert_eq!(result["files_searched"].as_u64(), Some(3));
+
+            std::fs::remove_dir_all(&dir).ok();
         }
     }
 
