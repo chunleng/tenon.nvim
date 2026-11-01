@@ -9,3 +9,6 @@
 4. Present the directive to the user: summarize what it does and how it addresses the root cause
 5. If the user requests changes, loop back to process step 3 with the feedback
 6. If the user confirms, the choreo ends
+
+## Drafting Guidelines
+- Write each paragraph as a single unbroken line (soft wrap), not a fixed column width such as 80 characters
