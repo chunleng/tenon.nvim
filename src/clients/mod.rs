@@ -208,13 +208,26 @@ mod tests {
 
         let mut stream = agent.prompt("use record_choreo").max_turns(3).stream();
 
-        let mut saw_tool_result = false;
+        let mut tool_result_count = 0;
         let mut streaming_error: Option<PromptError> = None;
 
         while let Some(item) = stream.next().await {
             match item {
-                Ok(MultiTurnStreamItem::ToolResult { .. }) => {
-                    saw_tool_result = true;
+                Ok(MultiTurnStreamItem::ToolResult { tool_result }) => {
+                    tool_result_count += 1;
+                    // The engine (agentic.rs) reconstructs the skipped call from
+                    // the exact "ToolCallError: " prefix of the first content
+                    // block, so the skip reason must arrive there verbatim.
+                    let text = match tool_result.content.first() {
+                        Some(rig::message::ToolResultContent::Text(text)) => Some(&text.text),
+                        _ => None,
+                    };
+                    assert!(
+                        text.is_some_and(|text| text.starts_with(
+                            "ToolCallError: `record_choreo` is not an available tool."
+                        )),
+                        "skip reason must be the first content block verbatim, got: {text:?}"
+                    );
                 }
                 Ok(MultiTurnStreamItem::StreamAssistantItem(_)) => {}
                 Ok(MultiTurnStreamItem::FinalResponse(_)) => break,
@@ -227,9 +240,10 @@ mod tests {
         }
 
         assert!(
-            saw_tool_result,
-            "unknown tool call should yield a synthetic tool result so the model can recover, \
-             not a fatal streaming error. Got: {:?}",
+            tool_result_count == 1,
+            "unknown tool call should yield exactly one synthetic tool result so the model \
+             can recover, not a fatal streaming error (count: {}, got: {:?})",
+            tool_result_count,
             streaming_error
         );
     }

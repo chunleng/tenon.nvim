@@ -562,7 +562,8 @@ mod tests {
         ) -> rig::tool::ToolResult {
             let name = tool.inner.name();
             let dynamic: DynamicTool = tool.into();
-            let set = ToolSet::from_dynamic_tools(vec![dynamic]);
+            let mut set = ToolSet::default();
+            set.add_dynamic_tool(dynamic);
             set.execute(&name, args, &mut ToolContext::new()).await
         }
 

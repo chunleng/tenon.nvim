@@ -602,13 +602,13 @@ mod tests {
     }
 
     async fn agent_tool_names(engine: &mut AgenticStreamEngine) -> Vec<String> {
-        engine
+        let defs = engine
             .build_chat_adapter()
             .tool_server_handle()
-            .static_tool_defs()
-            .into_iter()
-            .map(|def| def.name.to_string())
-            .collect()
+            .tool_defs(None)
+            .await
+            .expect("tool_defs with no prompt never runs retrieval");
+        defs.into_iter().map(|def| def.name.to_string()).collect()
     }
 
     #[tokio::test]
