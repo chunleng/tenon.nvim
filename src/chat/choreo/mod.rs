@@ -2,12 +2,12 @@ mod analyze_software_request;
 mod assess_project_doc_needs;
 mod compact_prompt;
 mod create_pr_description;
-mod create_software_specification;
 mod edit_choreo;
 mod edit_directive;
 mod edit_explanation_document;
 mod edit_howto_document;
 mod edit_reference_document;
+mod edit_software_specification;
 mod edit_tutorial_document;
 mod find_software_bug_root_cause;
 mod implement_code;
@@ -72,7 +72,7 @@ pub fn load_system_choreos() -> Vec<Arc<Choreo>> {
     vec![
         Arc::new(find_software_bug_root_cause::choreo()),
         Arc::new(create_pr_description::choreo()),
-        Arc::new(create_software_specification::choreo()),
+        Arc::new(edit_software_specification::choreo()),
         Arc::new(edit_choreo::choreo()),
         Arc::new(edit_directive::choreo()),
         Arc::new(implement_code::choreo()),
