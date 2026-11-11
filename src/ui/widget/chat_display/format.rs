@@ -1,3 +1,8 @@
+use crate::constants::special_chars::{
+    ASSISTANT, ASSISTANT_REASONING, CHOREO, IMAGE, TOOL, TOOL_ERROR, TOOL_PENDING, TOOL_SUCCESS,
+    USER,
+};
+
 pub trait DisplayChatFormatter {
     fn lines(&self) -> Vec<String>;
     fn line_hl_group(&self) -> String;
@@ -40,9 +45,9 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             }
             TenonLogData::Tool(log) => {
                 let prefix = match &log.tool_result {
-                    None => " ",
-                    Some(Ok(_)) => " ",
-                    Some(Err(_)) => " ",
+                    None => TOOL_PENDING,
+                    Some(Ok(_)) => TOOL_SUCCESS,
+                    Some(Err(_)) => TOOL_ERROR,
                 };
                 let summary = crate::tools::tool_display_summary(
                     &log.tool_call.name,
@@ -89,19 +94,20 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
 
     fn sign(&self) -> String {
         use crate::chat::TenonLogData;
-        match self {
-            TenonLogData::Image { .. } => " ".to_string(),
-            TenonLogData::User(_) => " ".to_string(),
+        let icon = match self {
+            TenonLogData::Image { .. } => IMAGE,
+            TenonLogData::User(_) => USER,
             TenonLogData::Assistant(msg) => {
                 if msg.chat_is_empty() {
-                    " ".to_string()
+                    ASSISTANT_REASONING
                 } else {
-                    "󰚩 ".to_string()
+                    ASSISTANT
                 }
             }
-            TenonLogData::Tool(_) => "󰣖 ".to_string(),
-            TenonLogData::Choreo(_) => " ".to_string(),
-        }
+            TenonLogData::Tool(_) => TOOL,
+            TenonLogData::Choreo(_) => CHOREO,
+        };
+        icon.to_string()
     }
 
     fn sign_hl_group(&self) -> String {
@@ -166,7 +172,7 @@ mod tests {
         let data = TenonLogData::User(msg);
 
         assert_eq!(data.lines(), vec!["Hello", "World"]);
-        assert_eq!(data.sign(), " ");
+        assert_eq!(data.sign(), USER);
         assert_eq!(data.sign_hl_group(), "TenonSignUser");
         assert_eq!(data.line_hl_group(), "");
     }
@@ -179,7 +185,7 @@ mod tests {
         )));
 
         assert_eq!(data.lines(), vec!["image loaded: ./img/diagram.png"]);
-        assert_eq!(data.sign(), " ");
+        assert_eq!(data.sign(), IMAGE);
         assert_eq!(data.sign_hl_group(), "TenonSignImage");
         assert_eq!(data.line_hl_group(), "");
     }
@@ -194,7 +200,7 @@ mod tests {
         let data = TenonLogData::Assistant(msg);
 
         assert_eq!(data.lines(), vec!["thinking..."]);
-        assert_eq!(data.sign(), " ");
+        assert_eq!(data.sign(), ASSISTANT_REASONING);
         assert_eq!(data.sign_hl_group(), "TenonSignAssistantReasoning");
         assert_eq!(data.line_hl_group(), "TenonLineAssistantReasoning");
     }
@@ -211,7 +217,7 @@ mod tests {
         let data = TenonLogData::Assistant(msg);
 
         assert_eq!(data.lines(), vec!["Hello", "World"]);
-        assert_eq!(data.sign(), "󰚩 ");
+        assert_eq!(data.sign(), ASSISTANT);
         assert_eq!(data.sign_hl_group(), "TenonSignAssistantTalk");
         assert_eq!(data.line_hl_group(), "");
     }
@@ -229,7 +235,7 @@ mod tests {
 
         // Should show content only, not reasoning
         assert_eq!(data.lines(), vec!["Hello", "World"]);
-        assert_eq!(data.sign(), "󰚩 ");
+        assert_eq!(data.sign(), ASSISTANT);
         assert_eq!(data.sign_hl_group(), "TenonSignAssistantTalk");
         assert_eq!(data.line_hl_group(), "");
     }
@@ -250,8 +256,8 @@ mod tests {
         };
         let data = TenonLogData::Tool(log);
 
-        assert_eq!(data.lines(), vec!["  read_file"]);
-        assert_eq!(data.sign(), "󰣖 ");
+        assert_eq!(data.lines(), vec![format!("{TOOL_PENDING} read_file")]);
+        assert_eq!(data.sign(), TOOL);
         assert_eq!(data.sign_hl_group(), "TenonSignTool");
         assert_eq!(data.line_hl_group(), "TenonLineTool");
     }
@@ -321,8 +327,8 @@ mod tests {
         };
         let data = TenonLogData::Tool(log);
 
-        assert_eq!(data.lines(), vec!["  read_file"]);
-        assert_eq!(data.sign(), "󰣖 ");
+        assert_eq!(data.lines(), vec![format!("{TOOL_SUCCESS} read_file")]);
+        assert_eq!(data.sign(), TOOL);
         assert_eq!(data.sign_hl_group(), "TenonSignTool");
         assert_eq!(data.line_hl_group(), "TenonLineTool");
     }
@@ -346,9 +352,9 @@ mod tests {
         assert_eq!(
             pending.lines(),
             vec![
-                "\u{ea7c}  run_command | command: ls",
-                "   > compiling",
-                "   > linking",
+                format!("{TOOL_PENDING} run_command | command: ls"),
+                "   > compiling".to_string(),
+                "   > linking".to_string(),
             ]
         );
         assert_eq!(pending.line_hl_group(), "TenonLineTool");
@@ -363,7 +369,7 @@ mod tests {
         });
         assert_eq!(
             completed.lines(),
-            vec!["\u{f49e}  run_command | command: ls"]
+            vec![format!("{TOOL_SUCCESS} run_command | command: ls")]
         );
     }
 
@@ -383,8 +389,14 @@ mod tests {
         };
         let data = TenonLogData::Tool(log);
 
-        assert_eq!(data.lines(), vec!["  read_file", "   > File not found"]);
-        assert_eq!(data.sign(), "󰣖 ");
+        assert_eq!(
+            data.lines(),
+            vec![
+                format!("{TOOL_ERROR} read_file"),
+                "   > File not found".to_string()
+            ]
+        );
+        assert_eq!(data.sign(), TOOL);
         assert_eq!(data.sign_hl_group(), "TenonSignTool");
         assert_eq!(data.line_hl_group(), "TenonLineTool");
     }
@@ -410,7 +422,7 @@ mod tests {
         let data = TenonLogData::Choreo(choreo);
 
         assert_eq!(data.lines(), vec!["# Processing move 1"]);
-        assert_eq!(data.sign(), " ");
+        assert_eq!(data.sign(), CHOREO);
         assert_eq!(data.sign_hl_group(), "TenonSignChoreo");
         assert_eq!(data.line_hl_group(), "");
     }

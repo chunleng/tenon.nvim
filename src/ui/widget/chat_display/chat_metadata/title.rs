@@ -2,6 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use nvim_oxi::api::{self, opts::OptionOpts};
 
+use crate::constants::special_chars::{CHOREO, CHOREO_MOVE, ELLIPSIS};
 use crate::{
     ui::{
         nvim_primitives::window::NvimWindow,
@@ -60,7 +61,7 @@ impl MetadataState {
         let choreo = values
             .choreo
             .as_ref()
-            .map(|(name, r#move)| format!("\u{ef0d}  {name} \u{f292} {move}"))
+            .map(|(name, r#move)| format!("{CHOREO} {name} {CHOREO_MOVE}{move}"))
             .unwrap_or_default();
 
         TitleSegments {
@@ -180,7 +181,7 @@ fn truncate_with_ellipsis(text: &str, max_width: usize) -> String {
         result.push(ch);
         width += ch_width;
     }
-    result.push('…');
+    result.push(ELLIPSIS);
     result
 }
 
@@ -247,10 +248,13 @@ mod tests {
         state.should_render_title(&values);
 
         let segments = state.title_segments(&values);
-        assert_eq!(segments.choreo, "\u{ef0d}  implement_code \u{f292} 2");
+        assert_eq!(
+            segments.choreo,
+            format!("{CHOREO} implement_code {CHOREO_MOVE}2")
+        );
         assert_eq!(
             segments.join(),
-            "\u{ef0d}  implement_code \u{f292} 2Test Chat (1/1)"
+            format!("{CHOREO} implement_code {CHOREO_MOVE}2Test Chat (1/1)")
         );
 
         // No active choreo: empty segment
@@ -272,7 +276,7 @@ mod tests {
     #[test]
     fn test_truncate_title_segments_drops_choreo_first() {
         let segments = TitleSegments {
-            choreo: "\u{ef0d}  implement_code \u{f292} 2".to_string(),
+            choreo: format!("{CHOREO} implement_code {CHOREO_MOVE}2"),
             head: "Test".to_string(),
             index: " (1/2)".to_string(),
         };
@@ -281,7 +285,7 @@ mod tests {
         // Exactly full: choreo left-aligned, title right-aligned
         assert_eq!(
             truncate_title_segments(&segments, full_width),
-            "\u{ef0d}  implement_code \u{f292} 2%=Test (1/2)"
+            format!("{CHOREO} implement_code {CHOREO_MOVE}2%=Test (1/2)")
         );
 
         // One column short: choreo dropped, title and index kept
@@ -326,6 +330,6 @@ mod tests {
         };
 
         let truncated = truncate_title_segments(&segments, 10);
-        assert_eq!(truncated, "%=A v… (3/9)");
+        assert_eq!(truncated, format!("%=A v{ELLIPSIS} (3/9)"));
     }
 }

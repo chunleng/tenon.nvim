@@ -1,3 +1,4 @@
+use crate::constants::special_chars::ELLIPSIS;
 use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::{
     format_yaml_block_scalars, has_hidden_component, is_within_directory, normalize_glob,
@@ -70,7 +71,7 @@ struct SearchResult {
 fn truncate_line(line: &str) -> String {
     if line.chars().count() > LINE_TRUNCATION_LIMIT {
         let truncated: String = line.chars().take(LINE_TRUNCATION_LIMIT).collect();
-        format!("{}…", truncated)
+        format!("{truncated}{ELLIPSIS}")
     } else {
         line.to_string()
     }
@@ -533,7 +534,7 @@ mod tests {
         fn exactly_at_limit() {
             let line: String = "x".repeat(300);
             assert_eq!(truncate_line(&line), line);
-            assert!(!truncate_line(&line).ends_with('…'));
+            assert!(!truncate_line(&line).ends_with(ELLIPSIS));
         }
 
         #[test]
@@ -542,7 +543,7 @@ mod tests {
             let result = truncate_line(&line);
             // 300 ASCII chars + '…' (3 bytes) = 303 bytes total
             assert_eq!(result.len(), 303);
-            assert!(result.ends_with('…'));
+            assert!(result.ends_with(ELLIPSIS));
             // But only 301 characters (300 'x' + 1 '…')
             assert_eq!(result.chars().count(), 301);
         }
@@ -555,7 +556,7 @@ mod tests {
             let result = truncate_line(&line);
             // Truncates to 300 chars (900 bytes), adds '…' (3 bytes) = 903 bytes
             assert_eq!(result.chars().count(), 301); // 300 '日' + '…'
-            assert!(result.ends_with('…'));
+            assert!(result.ends_with(ELLIPSIS));
         }
 
         #[test]
@@ -565,7 +566,7 @@ mod tests {
             let line: String = "日".repeat(101);
             let result = truncate_line(&line);
             assert_eq!(result, line);
-            assert!(!result.ends_with('…'));
+            assert!(!result.ends_with(ELLIPSIS));
         }
 
         #[test]

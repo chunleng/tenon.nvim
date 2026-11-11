@@ -6,6 +6,7 @@ use nvim_oxi::{
     mlua::{LuaSerdeExt, lua},
 };
 
+use crate::constants::special_chars::{PICKER_DELIMITER as DELIMITER, PICKER_MARKER};
 use crate::utils::{GLOBAL_EXECUTION_HANDLER, Resolver};
 
 pub enum FzfBuiltin {
@@ -94,7 +95,7 @@ impl Default for FzfOption {
                 current_selected: None,
                 current_selectable: false,
             },
-            marker: " ".to_string(),
+            marker: PICKER_MARKER.to_string(),
             actions: HashMap::new(),
             callback: Box::new(|_| {}),
         }
@@ -348,8 +349,6 @@ async fn run_fzf(mut options: Vec<String>, fzf_option: FzfOption) -> OxiResult<(
     Ok(())
 }
 
-const DELIMITER: char = '';
-
 /// Shows a FzfLua picker. Spawns a thread and runs fzf-lua with the given picker. Spawns a thread and runs fzf-lua with the given
 /// `options` and `fzf_option` configuration. The result is delivered
 /// asynchronously via `fzf_option.callback`.
@@ -410,11 +409,17 @@ mod tests {
     #[test]
     fn test_extract_value() {
         // fzf returns full line "value{marker}value"; extract clean value
-        assert_eq!(extract_value("apple> apple"), "apple");
-        assert_eq!(extract_value("apple  apple"), "apple");
+        assert_eq!(extract_value(&format!("apple{DELIMITER}> apple")), "apple");
+        assert_eq!(extract_value(&format!("apple{DELIMITER}  apple")), "apple");
         // Values containing marker prefixes are preserved (was broken by clean_marker)
-        assert_eq!(extract_value("> something> > something"), "> something");
-        assert_eq!(extract_value("  spaced    spaced"), "  spaced");
+        assert_eq!(
+            extract_value(&format!("> something{DELIMITER}> > something")),
+            "> something"
+        );
+        assert_eq!(
+            extract_value(&format!("  spaced{DELIMITER}    spaced")),
+            "  spaced"
+        );
         // No tab delimiter: return as-is
         assert_eq!(extract_value("plain"), "plain");
     }

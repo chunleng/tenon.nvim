@@ -1,5 +1,6 @@
 use nvim_oxi::{Function, api::types::LogLevel};
 
+use crate::constants::special_chars::CHAT_PROCESSING;
 use crate::{
     chat::CHAT_SESSIONS,
     get_chat_window,
@@ -42,9 +43,9 @@ pub fn select_chat_fn() -> Function<(), ()> {
                             .title()
                             .unwrap_or("Untitled".to_string());
                         let processing = if guard.is_processing() {
-                            " \u{F110}"
+                            format!(" {CHAT_PROCESSING}")
                         } else {
-                            ""
+                            String::new()
                         };
                         format!("Chat {}{} | {}", i + 1, processing, title)
                     })

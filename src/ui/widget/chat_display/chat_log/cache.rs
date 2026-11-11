@@ -297,6 +297,7 @@ impl ChatLogCache {
 mod tests {
     use super::*;
     use crate::chat::log::{TenonAssistantMessage, TenonLog, TenonLogData, TenonUserMessage};
+    use crate::constants::special_chars::USER;
     use std::sync::Arc;
 
     fn init_test_cache() -> ChatLogCache {
@@ -413,7 +414,7 @@ mod tests {
         assert!(updates[0].line_separator_after);
         assert_eq!(
             updates[0].target_log.read().unwrap().data.sign(),
-            " ",
+            USER,
             "should show User sign"
         );
         assert_eq!(

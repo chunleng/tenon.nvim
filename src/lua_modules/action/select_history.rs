@@ -1,5 +1,6 @@
 use nvim_oxi::{Function, api::types::LogLevel};
 
+use crate::constants::special_chars::{ASSISTANT, VERTICAL_SEPARATOR};
 use crate::{
     get_application_config, get_chat_window,
     ui::picker::{FzfOption, box_single_select, pick},
@@ -30,7 +31,7 @@ pub fn select_history_fn() -> Function<(), ()> {
                         let title = h.title.as_deref().unwrap_or("Untitled");
                         let messages = h.logs.len();
                         format!(
-                            "{} │ {:>3} msg │ {} (󰚩  {}, {})",
+                            "{} {VERTICAL_SEPARATOR} {:>3} msg {VERTICAL_SEPARATOR} {} ({ASSISTANT} {}, {})",
                             datetime, messages, title, h.agent_name, h.model_display
                         )
                     })

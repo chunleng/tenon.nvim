@@ -10,6 +10,7 @@ use nvim_oxi::{
 };
 use serde::Deserialize;
 
+use crate::constants::special_chars::{SELECT_BULLET, SELECT_FREE_TEXT};
 use crate::ui::{
     global_input_keymaps,
     nvim_primitives::buffer::{NvimBuffer, NvimBufferOption},
@@ -87,7 +88,7 @@ impl SelectWidget {
         let sign_ns = api::create_namespace("TenonSelectSign");
         for ((start, _, _), option) in option_ranges.iter().zip(options) {
             let opts = SetExtmarkOpts::builder()
-                .sign_text("⁃")
+                .sign_text(SELECT_BULLET)
                 .sign_hl_group("TenonSignSelectBullet")
                 .priority(20)
                 .build();
@@ -102,7 +103,7 @@ impl SelectWidget {
             }
             if option.free_text {
                 let opts = SetExtmarkOpts::builder()
-                    .sign_text("\u{f0cb6}")
+                    .sign_text(SELECT_FREE_TEXT)
                     .sign_hl_group("TenonSignSelectFreeText")
                     .priority(10)
                     .build();

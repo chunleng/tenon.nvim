@@ -2,6 +2,7 @@ mod rust;
 
 use crate::chat::log::window::LogWindow;
 use crate::chat::{TenonAssistantMessage, TenonAssistantMessageContent, TenonLog, TenonLogData};
+use crate::constants::special_chars::{ASSISTANT, TOOL};
 use crate::tools::{
     ListFiles, ReadFile, SearchText, TenonTool, ToolCore, ToolCoreCall, tool_display_summary,
 };
@@ -381,8 +382,8 @@ fn resolve_source_path(
 /// tool has no display arg. No result yet at call time, so `result: None`.
 fn tool_call_line(name: &str, args: &Value) -> String {
     match tool_display_summary(name, args, None) {
-        Some(summary) => format!("󰣖 {} | {}", name, summary),
-        None => format!("󰣖 {}", name),
+        Some(summary) => format!("{TOOL}{} | {}", name, summary),
+        None => format!("{TOOL}{}", name),
     }
 }
 
@@ -407,7 +408,7 @@ fn assistant_lines(msg: &TenonAssistantMessage) -> Vec<String> {
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty())
-        .map(|l| format!("󰚩 {}", l))
+        .map(|l| format!("{ASSISTANT}{}", l))
         .collect()
 }
 
@@ -439,14 +440,17 @@ mod tests {
         let args = json!({"pattern": "foo", "path": "src"});
         assert_eq!(
             tool_call_line("search_text", &args),
-            "󰣖 search_text | pattern: foo"
+            format!("{TOOL}search_text | pattern: foo")
         );
     }
 
     #[test]
     fn tool_call_line_name_only_when_no_display_arg() {
         // list_files has a core arg ("pattern") but it is missing from args
-        assert_eq!(tool_call_line("list_files", &json!({})), "󰣖 list_files");
+        assert_eq!(
+            tool_call_line("list_files", &json!({})),
+            format!("{TOOL}list_files")
+        );
     }
 
     #[test]
@@ -454,7 +458,7 @@ mod tests {
         let args = json!({"argv": ["cargo", "build"]});
         assert_eq!(
             tool_call_line("run_command", &args),
-            "󰣖 run_command | command: cargo build"
+            format!("{TOOL}run_command | command: cargo build")
         );
     }
 
@@ -464,7 +468,7 @@ mod tests {
         let args = json!({"move": 2});
         assert_eq!(
             tool_call_line("navigate_choreo", &args),
-            "󰣖 navigate_choreo"
+            format!("{TOOL}navigate_choreo")
         );
     }
 
@@ -477,7 +481,13 @@ mod tests {
             )],
             complete: false,
         };
-        assert_eq!(assistant_lines(&msg), vec!["󰚩 first line", "󰚩 second line"]);
+        assert_eq!(
+            assistant_lines(&msg),
+            vec![
+                format!("{ASSISTANT}first line"),
+                format!("{ASSISTANT}second line")
+            ]
+        );
     }
 
     #[test]
@@ -490,7 +500,10 @@ mod tests {
             ],
             complete: false,
         };
-        assert_eq!(assistant_lines(&msg), vec!["󰚩 real text", "󰚩 more"]);
+        assert_eq!(
+            assistant_lines(&msg),
+            vec![format!("{ASSISTANT}real text"), format!("{ASSISTANT}more")]
+        );
     }
 
     #[test]
@@ -501,7 +514,13 @@ mod tests {
             content: vec![],
             complete: false,
         };
-        assert_eq!(assistant_lines(&msg), vec!["󰚩 thinking", "󰚩 more thoughts"]);
+        assert_eq!(
+            assistant_lines(&msg),
+            vec![
+                format!("{ASSISTANT}thinking"),
+                format!("{ASSISTANT}more thoughts")
+            ]
+        );
     }
 
     use crate::chat::log::indexer::IndexedLog;
@@ -564,24 +583,24 @@ mod tests {
 
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
-            vec!["󰣖 search_text | pattern: foo".to_string()]
+            vec![format!("{TOOL}search_text | pattern: foo")]
         );
         // Reasoning-only assistant emits its reasoning lines (mirrors the display)
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
-            vec!["󰚩 thinking".to_string()]
+            vec![format!("{ASSISTANT}thinking")]
         );
         // Assistant message emits all of its lines at once
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
             vec![
-                "󰚩 Investigating the parser".to_string(),
-                "󰚩 more text".to_string()
+                format!("{ASSISTANT}Investigating the parser"),
+                format!("{ASSISTANT}more text")
             ]
         );
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
-            vec!["󰣖 read_file | filepath: src/lib.rs".to_string()]
+            vec![format!("{TOOL}read_file | filepath: src/lib.rs")]
         );
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
@@ -599,7 +618,7 @@ mod tests {
 
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
-            vec!["󰣖 search_text | pattern: foo".to_string()]
+            vec![format!("{TOOL}search_text | pattern: foo")]
         );
         // Last entry is a growing assistant message: held back
         assert_eq!(
@@ -614,11 +633,11 @@ mod tests {
         });
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
-            vec!["󰚩 partial text".to_string()]
+            vec![format!("{ASSISTANT}partial text")]
         );
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
-            vec!["󰣖 read_file | filepath: a.rs".to_string()]
+            vec![format!("{TOOL}read_file | filepath: a.rs")]
         );
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
@@ -641,7 +660,7 @@ mod tests {
         );
         assert_eq!(
             next_progress_line(&window, &mut seen, true),
-            vec!["󰚩 final words".to_string()]
+            vec![format!("{ASSISTANT}final words")]
         );
         assert_eq!(
             next_progress_line(&window, &mut seen, true),
@@ -658,7 +677,7 @@ mod tests {
         let mut seen = SeenLogs::default();
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
-            vec!["󰣖 search_text | pattern: foo".to_string()]
+            vec![format!("{TOOL}search_text | pattern: foo")]
         );
         // Assistant is the last entry: held back until a later entry appears
         assert_eq!(
@@ -671,11 +690,11 @@ mod tests {
         });
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
-            vec!["󰚩 found something".to_string()]
+            vec![format!("{ASSISTANT}found something")]
         );
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
-            vec!["󰣖 read_file | filepath: a.rs".to_string()]
+            vec![format!("{TOOL}read_file | filepath: a.rs")]
         );
 
         // Context truncation removes the first entry; a new one is appended
@@ -688,7 +707,7 @@ mod tests {
         // No re-emission of seen entries; the new entry still comes through
         assert_eq!(
             next_progress_line(&window, &mut seen, false),
-            vec!["󰣖 list_files | pattern: *.rs".to_string()]
+            vec![format!("{TOOL}list_files | pattern: *.rs")]
         );
         assert_eq!(
             next_progress_line(&window, &mut seen, false),

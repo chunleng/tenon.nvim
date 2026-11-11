@@ -17,6 +17,7 @@ pub mod search_text;
 pub mod use_choreo;
 pub mod web_search;
 
+use crate::constants::special_chars::LINE_BREAK;
 use crate::tools::web_search::{LangSearch, Tavily};
 use crate::{config::WebSearchConfig, mcp::McpHubCaller, tools::web_search::Brave};
 pub use ask_question::AskQuestion;
@@ -258,7 +259,7 @@ pub fn tool_display_summary(
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>()
             .join(" ");
-        let display = display.lines().collect::<Vec<_>>().join("↵");
+        let display = display.lines().collect::<Vec<_>>().join(LINE_BREAK);
         return Some(format!("command: {}", display));
     }
 
@@ -298,7 +299,7 @@ pub fn tool_display_summary(
                     .map(|rest| format!("./{}", rest.trim_start_matches('/')))
             })
             .unwrap_or_else(|| value.to_string());
-        display.lines().collect::<Vec<_>>().join("↵")
+        display.lines().collect::<Vec<_>>().join(LINE_BREAK)
     };
 
     if name == "move_path" {
@@ -324,7 +325,7 @@ pub fn tool_display_summary(
         let display = if core_arg == "filepath" {
             display_path(value)
         } else {
-            value.lines().collect::<Vec<_>>().join("↵")
+            value.lines().collect::<Vec<_>>().join(LINE_BREAK)
         };
         format!("{}: {}", core_arg, display)
     })

@@ -3,6 +3,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use nvim_oxi::api::{self, opts::OptionOpts};
 use unicode_width::UnicodeWidthStr;
 
+use crate::constants::special_chars::{
+    ASSISTANT, CACHE_TOKENS, GAUGE_BAR, INPUT_TOKENS, OUTPUT_TOKENS, TOOL, USER, WORK_QUEUE,
+};
 use crate::{
     chat::log::indexer::ChatLogIndexer,
     clients::SelectedModel,
@@ -107,16 +110,16 @@ impl SessionLineParts {
 
         let tool_suffix = match (added, removed) {
             (0, 0) => String::new(),
-            (a, 0) => format!("󰣖 +{}", a),
-            (0, r) => format!("󰣖 -{}", r),
-            (a, r) => format!("󰣖 +{}/-{}", a, r),
+            (a, 0) => format!("{TOOL}+{}", a),
+            (0, r) => format!("{TOOL}-{}", r),
+            (a, r) => format!("{TOOL}+{}/-{}", a, r),
         };
 
         // Only total shows delta; input/output are plain counts
         Self {
             agent_name: values.agent_name.clone(),
             queue: if values.work_queue_count > 0 {
-                format!("\u{f51e} {}", values.work_queue_count)
+                format!("{WORK_QUEUE}{}", values.work_queue_count)
             } else {
                 String::new()
             },
@@ -161,21 +164,24 @@ impl SessionLineParts {
             !include_model && (!self.model_display.is_empty() || !self.param_suffix.is_empty());
         match (!robot_meta.is_empty(), !self.tool_suffix.is_empty()) {
             (true, true) => format!(
-                "\u{ed35}  {} (󰚩 {} | {})",
+                "{USER} {} ({ASSISTANT}{} | {})",
                 self.agent_name, robot_meta, self.tool_suffix
             ),
-            (true, false) => format!("\u{ed35}  {} (󰚩 {})", self.agent_name, robot_meta),
+            (true, false) => format!("{USER} {} ({ASSISTANT}{})", self.agent_name, robot_meta),
             // Robot meta dropped by truncation: robot sign and separator kept
             (false, true) if robot_dropped => {
-                format!("\u{ed35}  {} (󰚩 | {})", self.agent_name, self.tool_suffix)
+                format!(
+                    "{USER} {} ({ASSISTANT}| {})",
+                    self.agent_name, self.tool_suffix
+                )
             }
             // No robot meta: tool diff only, no robot sign
-            (false, true) => format!("\u{ed35}  {} ({})", self.agent_name, self.tool_suffix),
+            (false, true) => format!("{USER} {} ({})", self.agent_name, self.tool_suffix),
             // Robot meta dropped by truncation: robot sign kept
             (false, false) if robot_dropped => {
-                format!("\u{ed35}  {} (󰚩 )", self.agent_name)
+                format!("{USER} {} ({ASSISTANT})", self.agent_name)
             }
-            (false, false) => format!("\u{ed35}  {}", self.agent_name),
+            (false, false) => format!("{USER} {}", self.agent_name),
         }
     }
 
@@ -183,11 +189,14 @@ impl SessionLineParts {
     pub fn join(&self) -> String {
         if self.cache_pct > 0 {
             format!(
-                "{} 󰕒 (󰃨 {}%), {} 󰇚, {} total",
+                "{} {INPUT_TOKENS} ({CACHE_TOKENS} {}%), {} {OUTPUT_TOKENS}, {} total",
                 self.input, self.cache_pct, self.output, self.total
             )
         } else {
-            format!("{} 󰕒, {} 󰇚, {} total", self.input, self.output, self.total)
+            format!(
+                "{} {INPUT_TOKENS}, {} {OUTPUT_TOKENS}, {} total",
+                self.input, self.output, self.total
+            )
         }
     }
 }
@@ -319,7 +328,7 @@ pub fn session_winbar_string(parts: &SessionLineParts, level: usize, max_width: 
 }
 
 /// 5 identical bars always shown; the active one gets a gauge highlight.
-pub const GAUGE_BARS: &str = "▮▮▮▮▮";
+static GAUGE_BARS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| GAUGE_BAR.repeat(5));
 
 /// Active bar index (0-based) for the given context token count.
 /// Test build: MAX = 10, HARD = 20, so bars split at 5/10/15/20.
@@ -429,13 +438,13 @@ mod tests {
 
         values.work_queue_count = 2;
         let queued = state.session_line_parts(&values);
-        assert_eq!(queued.queue, "\u{f51e} 2");
-        assert!(session_winbar_string(&queued, 0, 200).starts_with("\u{f51e} 2 %="));
+        assert_eq!(queued.queue, format!("{WORK_QUEUE}2"));
+        assert!(session_winbar_string(&queued, 0, 200).starts_with(&format!("{WORK_QUEUE}2 %=")));
         assert_eq!(state.session_line_parts(&values), queued);
 
         values.work_queue_count = 12;
         let updated = state.session_line_parts(&values);
-        assert!(session_winbar_string(&updated, 0, 200).starts_with("\u{f51e} 12 %="));
+        assert!(session_winbar_string(&updated, 0, 200).starts_with(&format!("{WORK_QUEUE}12 %=")));
 
         values.work_queue_count = 0;
         let cleared = state.session_line_parts(&values);
@@ -446,10 +455,10 @@ mod tests {
     #[test]
     fn test_session_queue_width_priority() {
         let mut parts = session_parts(25);
-        parts.queue = "\u{f51e} 12".to_string();
+        parts.queue = format!("{WORK_QUEUE}12");
         parts.model_display = "claude-3-5-sonnet".to_string();
         parts.param_suffix = "temperature=0.7".to_string();
-        parts.tool_suffix = "󰣖 -7".to_string();
+        parts.tool_suffix = format!("{TOOL}-7");
 
         let full_width = parts.queue.width()
             + 1
@@ -459,9 +468,13 @@ mod tests {
             + parts.join().width();
         assert_eq!(
             session_winbar_string(&parts, 2, full_width),
-            "\u{f51e} 12 %=\u{ed35}  default (󰚩 claude-3-5-sonnet temperature=0.7 | 󰣖 -7) %*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%%), 50 󰇚, 175 (+175) total%*"
+            format!(
+                "{WORK_QUEUE}12 %={USER} default ({ASSISTANT}claude-3-5-sonnet temperature=0.7 | {TOOL}-7) %*{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}%#TenonGaugeBar#{GAUGE_BAR}{GAUGE_BAR}%* 100 {INPUT_TOKENS} ({CACHE_TOKENS} 25%%), 50 {OUTPUT_TOKENS}, 175 (+175) total%*"
+            )
         );
-        let without_model = "\u{f51e} 12 %=\u{ed35}  default (󰚩 | 󰣖 -7) %*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%%), 50 󰇚, 175 (+175) total%*";
+        let without_model = format!(
+            "{WORK_QUEUE}12 %={USER} default ({ASSISTANT}| {TOOL}-7) %*{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}%#TenonGaugeBar#{GAUGE_BAR}{GAUGE_BAR}%* 100 {INPUT_TOKENS} ({CACHE_TOKENS} 25%%), 50 {OUTPUT_TOKENS}, 175 (+175) total%*"
+        );
         assert_eq!(
             session_winbar_string(&parts, 2, full_width - 1),
             without_model
@@ -474,8 +487,9 @@ mod tests {
             + 2
             + parts.join().width();
         assert_eq!(session_winbar_string(&parts, 2, token_width), without_model);
-        let without_tokens =
-            "\u{f51e} 12 %=\u{ed35}  default (󰚩 | 󰣖 -7) %*▮▮▮%#TenonGaugeBar#▮▮%*%*";
+        let without_tokens = format!(
+            "{WORK_QUEUE}12 %={USER} default ({ASSISTANT}| {TOOL}-7) %*{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}%#TenonGaugeBar#{GAUGE_BAR}{GAUGE_BAR}%*%*"
+        );
         assert_eq!(
             session_winbar_string(&parts, 2, token_width - 1),
             without_tokens
@@ -488,7 +502,10 @@ mod tests {
             without_tokens
         );
         for width in [gauge_width - 1, parts.queue.width()] {
-            assert_eq!(session_winbar_string(&parts, 2, width), "\u{f51e} 12%*");
+            assert_eq!(
+                session_winbar_string(&parts, 2, width),
+                format!("{WORK_QUEUE}12%*")
+            );
         }
     }
 
@@ -504,7 +521,7 @@ mod tests {
         // Input tokens exist but no cached tokens - cache segment hidden
         assert_eq!(
             SessionLineParts::from_values(&values, None).join(),
-            "100 󰕒, 50 󰇚, 150 total"
+            format!("100 {INPUT_TOKENS}, 50 {OUTPUT_TOKENS}, 150 total")
         );
 
         // Cached tokens arrive - cache segment shown
@@ -515,7 +532,7 @@ mod tests {
 
         assert_eq!(
             SessionLineParts::from_values(&values, None).join(),
-            "100 󰕒 (󰃨 25%), 50 󰇚, 150 total"
+            format!("100 {INPUT_TOKENS} ({CACHE_TOKENS} 25%), 50 {OUTPUT_TOKENS}, 150 total")
         );
     }
 
@@ -537,11 +554,19 @@ mod tests {
 
         assert_eq!(
             parts.agent_segment(true),
-            "\u{ed35}  default (󰚩 claude-3-5-sonnet | 󰣖 -6)"
+            format!("{USER} default ({ASSISTANT}claude-3-5-sonnet | {TOOL}-6)")
         );
         // Model dropped: robot sign and separator kept with the tool diff
-        assert_eq!(parts.agent_segment(false), "\u{ed35}  default (󰚩 | 󰣖 -6)");
-        assert_eq!(parts.join(), "100 󰕒 (󰃨 25%), 50 󰇚, 175 (+175) total");
+        assert_eq!(
+            parts.agent_segment(false),
+            format!("{USER} default ({ASSISTANT}| {TOOL}-6)")
+        );
+        assert_eq!(
+            parts.join(),
+            format!(
+                "100 {INPUT_TOKENS} ({CACHE_TOKENS} 25%), 50 {OUTPUT_TOKENS}, 175 (+175) total"
+            )
+        );
     }
 
     #[test]
@@ -557,8 +582,14 @@ mod tests {
         let parts = state.session_line_parts(&values);
 
         // No model change: tool diff only, no robot sign
-        assert_eq!(parts.agent_segment(true), "\u{ed35}  default (󰣖 -7)");
-        assert_eq!(parts.join(), "0 󰕒, 0 󰇚, 0 total");
+        assert_eq!(
+            parts.agent_segment(true),
+            format!("{USER} default ({TOOL}-7)")
+        );
+        assert_eq!(
+            parts.join(),
+            format!("0 {INPUT_TOKENS}, 0 {OUTPUT_TOKENS}, 0 total")
+        );
     }
 
     #[test]
@@ -597,10 +628,15 @@ mod tests {
         // the +1 tool diff from the empty default tool list in this cache
         assert_eq!(
             parts.agent_segment(true),
-            "\u{ed35}  default (󰚩 temperature=0.7, think=high, new_key=5 | 󰣖 +1)"
+            format!(
+                "{USER} default ({ASSISTANT}temperature=0.7, think=high, new_key=5 | {TOOL}+1)"
+            )
         );
         // Truncation drops the param diff, robot sign kept as hint
-        assert_eq!(parts.agent_segment(false), "\u{ed35}  default (󰚩 | 󰣖 +1)");
+        assert_eq!(
+            parts.agent_segment(false),
+            format!("{USER} default ({ASSISTANT}| {TOOL}+1)")
+        );
 
         // Chat matches the baseline - no diff
         let values = MetadataValues {
@@ -704,7 +740,7 @@ mod tests {
 
         let parts = state.session_line_parts(&values);
 
-        assert_eq!(parts.agent_segment(true), "\u{ed35}  default");
+        assert_eq!(parts.agent_segment(true), format!("{USER} default"));
     }
 
     #[test]
@@ -725,7 +761,10 @@ mod tests {
         let parts = state.session_line_parts(&values);
 
         // No model change: tool diff only, no robot sign
-        assert_eq!(parts.agent_segment(true), "\u{ed35}  default (󰣖 +1/-6)");
+        assert_eq!(
+            parts.agent_segment(true),
+            format!("{USER} default ({TOOL}+1/-6)")
+        );
     }
 
     #[test]
@@ -733,7 +772,9 @@ mod tests {
         let winbar = session_winbar_string(&session_parts(25), 2, 200);
         assert_eq!(
             winbar,
-            "%=\u{ed35}  default %*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%%), 50 󰇚, 175 (+175) total%*"
+            format!(
+                "%={USER} default %*{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}%#TenonGaugeBar#{GAUGE_BAR}{GAUGE_BAR}%* 100 {INPUT_TOKENS} ({CACHE_TOKENS} 25%%), 50 {OUTPUT_TOKENS}, 175 (+175) total%*"
+            )
         );
     }
 
@@ -743,7 +784,9 @@ mod tests {
         let winbar = session_winbar_string(&session_parts(0), 0, 200);
         assert_eq!(
             winbar,
-            "%=\u{ed35}  default %*▮%#TenonGaugeBar#▮▮▮▮%* 100 󰕒, 50 󰇚, 175 (+175) total%*"
+            format!(
+                "%={USER} default %*{GAUGE_BAR}%#TenonGaugeBar#{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}%* 100 {INPUT_TOKENS}, 50 {OUTPUT_TOKENS}, 175 (+175) total%*"
+            )
         );
     }
 
@@ -753,7 +796,9 @@ mod tests {
         let winbar = session_winbar_string(&session_parts(0), 4, 200);
         assert_eq!(
             winbar,
-            "%=\u{ed35}  default %#TenonGaugeBarCritical#▮▮▮▮▮%#TenonGaugeBar#%* 100 󰕒, 50 󰇚, 175 (+175) total%*"
+            format!(
+                "%={USER} default %#TenonGaugeBarCritical#{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}%#TenonGaugeBar#%* 100 {INPUT_TOKENS}, 50 {OUTPUT_TOKENS}, 175 (+175) total%*"
+            )
         );
     }
 
@@ -763,7 +808,10 @@ mod tests {
         parts.model_display = "claude-3-5-sonnet".to_string();
 
         // Model-only change, truncated: robot sign kept, no separator
-        assert_eq!(parts.agent_segment(false), "\u{ed35}  default (󰚩 )");
+        assert_eq!(
+            parts.agent_segment(false),
+            format!("{USER} default ({ASSISTANT})")
+        );
     }
 
     #[test]
@@ -771,33 +819,42 @@ mod tests {
         let mut parts = session_parts(0);
         parts.model_display = "claude-3-5-sonnet".to_string();
         parts.param_suffix = "temperature=0.7".to_string();
-        parts.tool_suffix = "󰣖 -6".to_string();
+        parts.tool_suffix = format!("{TOOL}-6");
 
         // Param diff inline right after the model name
         assert_eq!(
             parts.agent_segment(true),
-            "\u{ed35}  default (󰚩 claude-3-5-sonnet temperature=0.7 | 󰣖 -6)"
+            format!("{USER} default ({ASSISTANT}claude-3-5-sonnet temperature=0.7 | {TOOL}-6)")
         );
         // Truncation drops the param diff and model together, robot sign kept
-        assert_eq!(parts.agent_segment(false), "\u{ed35}  default (󰚩 | 󰣖 -6)");
+        assert_eq!(
+            parts.agent_segment(false),
+            format!("{USER} default ({ASSISTANT}| {TOOL}-6)")
+        );
     }
 
     #[test]
     fn test_session_winbar_drops_model_when_too_long() {
         let mut parts = session_parts(0);
         parts.model_display = "claude-3-5-sonnet".to_string();
-        parts.tool_suffix = "󰣖 -7".to_string();
+        parts.tool_suffix = format!("{TOOL}-7");
 
         // Fits: full agent segment kept
         let winbar = session_winbar_string(&parts, 0, 200);
-        assert!(winbar.starts_with("%=\u{ed35}  default (󰚩 claude-3-5-sonnet | 󰣖 -7) %*▮"));
+        assert!(winbar.starts_with(&format!(
+            "%={USER} default ({ASSISTANT}claude-3-5-sonnet | {TOOL}-7) %*{GAUGE_BAR}"
+        )));
 
         // Exactly fits without the model: model display dropped
         let right_width = GAUGE_BARS.width() + 2 + parts.join().width();
         let max_width = parts.agent_segment(false).width() + right_width;
         let winbar = session_winbar_string(&parts, 0, max_width);
-        assert!(winbar.starts_with("%=\u{ed35}  default (󰚩 | 󰣖 -7) %*▮"));
-        assert!(winbar.ends_with("100 󰕒, 50 󰇚, 175 (+175) total%*"));
+        assert!(winbar.starts_with(&format!(
+            "%={USER} default ({ASSISTANT}| {TOOL}-7) %*{GAUGE_BAR}"
+        )));
+        assert!(winbar.ends_with(&format!(
+            "100 {INPUT_TOKENS}, 50 {OUTPUT_TOKENS}, 175 (+175) total%*"
+        )));
 
         // One column short even without the model: token count dropped,
         // gauge bars kept
@@ -805,7 +862,9 @@ mod tests {
         let winbar = session_winbar_string(&parts, 0, max_width);
         assert_eq!(
             winbar,
-            "%=\u{ed35}  default (󰚩 | 󰣖 -7) %*▮%#TenonGaugeBar#▮▮▮▮%*%*"
+            format!(
+                "%={USER} default ({ASSISTANT}| {TOOL}-7) %*{GAUGE_BAR}%#TenonGaugeBar#{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}{GAUGE_BAR}%*%*"
+            )
         );
     }
 

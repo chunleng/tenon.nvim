@@ -7,51 +7,63 @@ use crate::{ui::nvim_primitives::buffer::NvimBuffer, utils::GLOBAL_EXECUTION_HAN
 
 /// Braille spinner frames; blank frames at both ends pause between cycles.
 /// Leading spaces position each frame within the animation area.
-const SPINNER_CHARS: [&str; 43] = [
-    "",
-    "",
-    "",
-    "⠄",
-    "⠠",
-    " ⠄",
-    " ⠠",
-    "⠄ ⠄",
-    "⠠ ⠠",
-    " ⠄ ⠄",
-    "⠄⠠ ⠠",
-    "⠠ ⠄ ⠄",
-    "⠄⠄⠠ ⠠",
-    "⠠⠠ ⠄⠠",
-    " ⠄⠄⠠⠠",
-    " ⠠⠠ ⠤",
-    "  ⠄⠄⠤",
-    "  ⠠⠠⠤",
-    "   ⠤⠤",
-    "   ⠤⠤",
-    "   ⠤⠤",
-    "   ⠤⠤",
-    "   ⠤⠄⠄",
-    "   ⠤⠄⠠",
-    "   ⠤⠄ ⠄",
-    "   ⠤⠄ ⠠",
-    "   ⠤⠠  ⠄",
-    "   ⠤ ⠄ ⠠",
-    "   ⠤ ⠠",
-    "   ⠄⠄ ⠄",
-    "   ⠄⠠ ⠠",
-    "   ⠠ ⠄ ⠄",
-    "    ⠄⠠ ⠠",
-    "    ⠠ ⠄",
-    "     ⠄⠠",
-    "     ⠠ ⠄",
-    "      ⠄⠠",
-    "      ⠠",
-    "       ⠄",
-    "       ⠠",
-    "",
-    "",
-    "",
-];
+const BRAILLE_DOT_3: &str = "\u{2804}";
+const BRAILLE_DOT_6: &str = "\u{2820}";
+const BRAILLE_DOTS_3_6: &str = "\u{2824}";
+
+static SPINNER_CHARS: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
+    let dot_3 = BRAILLE_DOT_3;
+    let dot_6 = BRAILLE_DOT_6;
+    let dots_3_6 = BRAILLE_DOTS_3_6;
+    [
+        vec![],
+        vec![],
+        vec![],
+        vec![dot_3],
+        vec![dot_6],
+        vec![" ", dot_3],
+        vec![" ", dot_6],
+        vec![dot_3, " ", dot_3],
+        vec![dot_6, " ", dot_6],
+        vec![" ", dot_3, " ", dot_3],
+        vec![dot_3, dot_6, " ", dot_6],
+        vec![dot_6, " ", dot_3, " ", dot_3],
+        vec![dot_3, dot_3, dot_6, " ", dot_6],
+        vec![dot_6, dot_6, " ", dot_3, dot_6],
+        vec![" ", dot_3, dot_3, dot_6, dot_6],
+        vec![" ", dot_6, dot_6, " ", dots_3_6],
+        vec!["  ", dot_3, dot_3, dots_3_6],
+        vec!["  ", dot_6, dot_6, dots_3_6],
+        vec!["   ", dots_3_6, dots_3_6],
+        vec!["   ", dots_3_6, dots_3_6],
+        vec!["   ", dots_3_6, dots_3_6],
+        vec!["   ", dots_3_6, dots_3_6],
+        vec!["   ", dots_3_6, dot_3, dot_3],
+        vec!["   ", dots_3_6, dot_3, dot_6],
+        vec!["   ", dots_3_6, dot_3, " ", dot_3],
+        vec!["   ", dots_3_6, dot_3, " ", dot_6],
+        vec!["   ", dots_3_6, dot_6, "  ", dot_3],
+        vec!["   ", dots_3_6, " ", dot_3, " ", dot_6],
+        vec!["   ", dots_3_6, " ", dot_6],
+        vec!["   ", dot_3, dot_3, " ", dot_3],
+        vec!["   ", dot_3, dot_6, " ", dot_6],
+        vec!["   ", dot_6, " ", dot_3, " ", dot_3],
+        vec!["    ", dot_3, dot_6, " ", dot_6],
+        vec!["    ", dot_6, " ", dot_3],
+        vec!["     ", dot_3, dot_6],
+        vec!["     ", dot_6, " ", dot_3],
+        vec!["      ", dot_3, dot_6],
+        vec!["      ", dot_6],
+        vec!["       ", dot_3],
+        vec!["       ", dot_6],
+        vec![],
+        vec![],
+        vec![],
+    ]
+    .into_iter()
+    .map(|frame| frame.concat())
+    .collect()
+});
 
 struct SpinnerState {
     frame: usize,
@@ -64,7 +76,7 @@ impl SpinnerState {
 
     /// Get current spinner character
     fn get_char(&self) -> &'static str {
-        SPINNER_CHARS[self.frame % SPINNER_CHARS.len()]
+        SPINNER_CHARS[self.frame % SPINNER_CHARS.len()].as_str()
     }
 
     /// Advance to next frame
@@ -181,6 +193,18 @@ mod tests {
 
         // First frames are blank (pause between cycles)
         assert_eq!(spinner.get_char(), "");
+        assert_eq!(total, 43);
+        assert_eq!(SPINNER_CHARS[3], BRAILLE_DOT_3);
+        assert_eq!(
+            SPINNER_CHARS[13],
+            format!("{BRAILLE_DOT_6}{BRAILLE_DOT_6} {BRAILLE_DOT_3}{BRAILLE_DOT_6}")
+        );
+        assert_eq!(
+            SPINNER_CHARS[18],
+            format!("   {BRAILLE_DOTS_3_6}{BRAILLE_DOTS_3_6}")
+        );
+        assert_eq!(SPINNER_CHARS[37], format!("      {BRAILLE_DOT_6}"));
+        assert_eq!(SPINNER_CHARS[40], "");
 
         // Walk every frame exactly once; must return to the start frame
         for i in 0..total {

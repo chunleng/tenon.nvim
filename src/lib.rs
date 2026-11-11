@@ -83,6 +83,7 @@ mod agent;
 mod chat;
 mod clients;
 mod config;
+mod constants;
 mod directive;
 mod hooks;
 mod lua_modules;

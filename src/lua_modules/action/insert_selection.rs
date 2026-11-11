@@ -154,17 +154,21 @@ fn selection_end_exclusive(line: &str, end_col: Option<usize>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::selection_end_exclusive;
+    use crate::constants::special_chars::SELECT_FREE_TEXT;
 
     #[test]
     fn inclusive_end_column_includes_entire_character() {
-        let line = "aé中😀z";
+        let line = format!("aé中{SELECT_FREE_TEXT}z");
 
-        assert_eq!(selection_end_exclusive(line, Some(1)), 1);
-        assert_eq!(selection_end_exclusive(line, Some(2)), 3);
-        assert_eq!(selection_end_exclusive(line, Some(4)), 6);
-        assert_eq!(selection_end_exclusive(line, Some(7)), 10);
-        assert_eq!(selection_end_exclusive(line, Some(11)), 11);
-        assert_eq!(selection_end_exclusive(line, None), 11);
-        assert_eq!(selection_end_exclusive("a😀", Some(2)), 5);
+        assert_eq!(selection_end_exclusive(&line, Some(1)), 1);
+        assert_eq!(selection_end_exclusive(&line, Some(2)), 3);
+        assert_eq!(selection_end_exclusive(&line, Some(4)), 6);
+        assert_eq!(selection_end_exclusive(&line, Some(7)), 10);
+        assert_eq!(selection_end_exclusive(&line, Some(11)), 11);
+        assert_eq!(selection_end_exclusive(&line, None), 11);
+        assert_eq!(
+            selection_end_exclusive(&format!("a{SELECT_FREE_TEXT}"), Some(2)),
+            5
+        );
     }
 }
