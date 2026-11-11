@@ -11,8 +11,8 @@ use crate::{
 };
 
 /// Title line split into segments with truncation priority. When the winbar
-/// is too narrow, the choreo segment drops first, then the queue segment, so
-/// the title and chat index survive longest.
+/// is too narrow, the choreo segment drops so the title and chat index
+/// survive longest.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TitleSegments {
     /// "{choreo name}, Move {n}" (empty when no choreo is active); rendered
@@ -22,8 +22,6 @@ pub struct TitleSegments {
     pub head: String,
     /// " ({n}/{m})"
     pub index: String,
-    /// ", queue: N" (empty when queue is empty)
-    pub queue: String,
 }
 
 pub struct MetadataState {
@@ -46,7 +44,6 @@ impl MetadataState {
                 prev.title != current.title
                     || prev.chat_index != current.chat_index
                     || prev.total_count != current.total_count
-                    || prev.work_queue_count != current.work_queue_count
                     || prev.choreo != current.choreo
             }
         };
@@ -60,12 +57,6 @@ impl MetadataState {
 
     /// Title line segments for the chat window winbar
     pub fn title_segments(&self, values: &MetadataValues) -> TitleSegments {
-        let queue = if values.work_queue_count > 0 {
-            format!(", queue: {}", values.work_queue_count)
-        } else {
-            String::new()
-        };
-
         let choreo = values
             .choreo
             .as_ref()
@@ -76,7 +67,6 @@ impl MetadataState {
             choreo,
             head: values.title.clone().unwrap_or_default(),
             index: format!(" ({}/{})", values.chat_index + 1, values.total_count),
-            queue,
         }
     }
 }
@@ -139,32 +129,16 @@ impl MetadataTitleRenderer {
 
 /// Builds the winbar title within `max_width` display columns, returned as
 /// `{left}%={right}` where `%=` right-aligns `right`. The choreo segment
-/// (left of the marker) drops first, then the queue segment, so the title and
-/// chat index survive longest; if even head + index overflow, the title is
+/// (left of the marker) drops so the title and chat index survive longest;
+/// if even head + index overflow, the title is
 /// truncated with an ellipsis while the index suffix is kept. The `%=` marker
 /// takes no display columns.
 pub fn truncate_title_segments(segments: &TitleSegments, max_width: usize) -> String {
     use unicode_width::UnicodeWidthStr;
 
-    let mut kept = vec![segments.head.as_str(), segments.index.as_str()];
-    for segment in [&segments.queue] {
-        if segment.is_empty() {
-            continue;
-        }
-        let candidate = kept
-            .iter()
-            .copied()
-            .chain([segment.as_str()])
-            .collect::<String>();
-        if candidate.width() <= max_width {
-            kept.push(segment.as_str());
-        } else {
-            break;
-        }
-    }
-    let right: String = kept.concat();
+    let right = format!("{}{}", segments.head, segments.index);
 
-    // Choreo sits left of the right-aligned title and drops before the queue
+    // Choreo drops before the right-aligned title
     let choreo =
         if segments.choreo.is_empty() || segments.choreo.width() + right.width() <= max_width {
             segments.choreo.as_str()
@@ -218,7 +192,7 @@ mod tests {
     impl TitleSegments {
         /// Winbar content without the `%=` marker, for width assertions
         fn join(&self) -> String {
-            format!("{}{}{}{}", self.choreo, self.head, self.index, self.queue)
+            format!("{}{}{}", self.choreo, self.head, self.index)
         }
     }
 
@@ -243,19 +217,6 @@ mod tests {
     }
 
     #[test]
-    fn test_metadata_should_render_when_work_queue_count_changes() {
-        let mut state = MetadataState::new();
-        let values1 = MetadataValues::test_default();
-        assert!(state.should_render_title(&values1));
-
-        let values2 = MetadataValues {
-            work_queue_count: 2,
-            ..values1.clone()
-        };
-        assert!(state.should_render_title(&values2));
-    }
-
-    #[test]
     fn test_metadata_should_not_render_when_unchanged() {
         let mut state = MetadataState::new();
         let values = MetadataValues::test_default();
@@ -265,21 +226,14 @@ mod tests {
     }
 
     #[test]
-    fn test_title_segments_with_queue() {
-        let mut state = MetadataState::new();
+    fn test_title_segments_with_title() {
+        let state = MetadataState::new();
         let values = MetadataValues {
             title: Some("Test Chat".to_string()),
-            work_queue_count: 2,
             ..MetadataValues::test_default()
         };
 
-        // Populate state
-        state.should_render_title(&values);
-
-        assert_eq!(
-            state.title_segments(&values).join(),
-            "Test Chat (1/1), queue: 2"
-        );
+        assert_eq!(state.title_segments(&values).join(), "Test Chat (1/1)");
     }
 
     #[test]
@@ -310,33 +264,9 @@ mod tests {
             choreo: String::new(),
             head: "Test".to_string(),
             index: " (1/2)".to_string(),
-            queue: ", queue: 3".to_string(),
         };
         let full = segments.join();
         assert_eq!(truncate_title_segments(&segments, 200), format!("%={full}"));
-    }
-
-    #[test]
-    fn test_truncate_title_segments_drops_queue_first() {
-        let segments = TitleSegments {
-            choreo: String::new(),
-            head: "Test".to_string(),
-            index: " (1/2)".to_string(),
-            queue: ", queue: 3".to_string(),
-        };
-        let full_width = segments.join().width();
-
-        // One column short: queue dropped
-        assert_eq!(
-            truncate_title_segments(&segments, full_width - 1),
-            "%=Test (1/2)"
-        );
-
-        // Queue no longer fits
-        assert_eq!(
-            truncate_title_segments(&segments, "Test (1/2)".width()),
-            "%=Test (1/2)"
-        );
     }
 
     #[test]
@@ -345,23 +275,22 @@ mod tests {
             choreo: "\u{ef0d}  implement_code \u{f292} 2".to_string(),
             head: "Test".to_string(),
             index: " (1/2)".to_string(),
-            queue: ", queue: 3".to_string(),
         };
         let full_width = segments.join().width();
 
         // Exactly full: choreo left-aligned, title right-aligned
         assert_eq!(
             truncate_title_segments(&segments, full_width),
-            "\u{ef0d}  implement_code \u{f292} 2%=Test (1/2), queue: 3"
+            "\u{ef0d}  implement_code \u{f292} 2%=Test (1/2)"
         );
 
-        // One column short: choreo dropped, queue kept
+        // One column short: choreo dropped, title and index kept
         assert_eq!(
             truncate_title_segments(&segments, full_width - 1),
-            "%=Test (1/2), queue: 3"
+            "%=Test (1/2)"
         );
 
-        // Narrower: queue dropped too
+        // Exactly fits the title and index
         assert_eq!(
             truncate_title_segments(&segments, "Test (1/2)".width()),
             "%=Test (1/2)"
@@ -394,7 +323,6 @@ mod tests {
             choreo: String::new(),
             head: "A very long chat title".to_string(),
             index: " (3/9)".to_string(),
-            queue: String::new(),
         };
 
         let truncated = truncate_title_segments(&segments, 10);

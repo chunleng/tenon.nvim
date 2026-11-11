@@ -19,6 +19,7 @@ use crate::{
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SessionLineParts {
     pub agent_name: String,
+    pub queue: String,
     /// Model display name when it differs from the agent default; empty
     /// otherwise
     pub model_display: String,
@@ -114,6 +115,11 @@ impl SessionLineParts {
         // Only total shows delta; input/output are plain counts
         Self {
             agent_name: values.agent_name.clone(),
+            queue: if values.work_queue_count > 0 {
+                format!("\u{f51e} {}", values.work_queue_count)
+            } else {
+                String::new()
+            },
             model_display,
             param_suffix,
             tool_suffix,
@@ -219,6 +225,7 @@ impl MetadataSessionState {
                     || prev.cached_tokens != current.cached_tokens
                     || prev.total_tokens != current.total_tokens
                     || prev.total_tokens_delta != current.total_tokens_delta
+                    || prev.work_queue_count != current.work_queue_count
             }
         };
 
@@ -249,11 +256,13 @@ impl MetadataSessionState {
     }
 }
 
-/// Builds the input window winbar: the agent segment, gauge bars and session
-/// info right-aligned via `%=`. When the full line exceeds `max_width`, the
+/// Builds the input window winbar: queue count on the left, with the agent
+/// segment, gauge bars and session info right-aligned via `%=`. Queue width
+/// is reserved first. When the full line exceeds `max_width`, the
 /// model display and the param diff drop from the agent segment together
 /// first; if it is still too narrow, the token count drops and the gauge
-/// bars stay.
+/// bars stay. If the queue and remaining agent/gauge segment cannot fit
+/// together, only the queue is shown.
 /// Active gauge bars and session info use the WinBar default highlight
 /// (`%*`); dim and critical bars use Tenon groups referenced inline via
 /// `%#Group#`.
@@ -266,17 +275,33 @@ pub fn session_winbar_string(parts: &SessionLineParts, level: usize, max_width: 
     let end_col = ((level as f32 + 1.0) / 5.0 * GAUGE_BARS.len() as f32) as usize;
     let (active, dim) = GAUGE_BARS.split_at(end_col.min(GAUGE_BARS.len()));
 
+    let queue_width = if parts.queue.is_empty() {
+        0
+    } else {
+        parts.queue.width() + 1
+    };
+    let right_width = max_width.saturating_sub(queue_width);
     let session_info = parts.join();
     // Space after the agent segment and before the session info
     let gauge_width = GAUGE_BARS.width() + 2;
     let include_model =
-        parts.agent_segment(true).width() + gauge_width + session_info.width() <= max_width;
+        parts.agent_segment(true).width() + gauge_width + session_info.width() <= right_width;
     // Still too narrow without the model: drop the token count, keep the
     // gauge bars
     let include_session_info = include_model
-        || parts.agent_segment(false).width() + gauge_width + session_info.width() <= max_width;
+        || parts.agent_segment(false).width() + gauge_width + session_info.width() <= right_width;
 
-    let mut winbar = String::from("%=");
+    let mut winbar = parts.queue.clone();
+    if !parts.queue.is_empty()
+        && queue_width + parts.agent_segment(false).width() + 1 + GAUGE_BARS.width() > max_width
+    {
+        winbar.push_str("%*");
+        return winbar;
+    }
+    if !parts.queue.is_empty() {
+        winbar.push(' ');
+    }
+    winbar.push_str("%=");
     winbar.push_str(&parts.agent_segment(include_model).replace('%', "%%"));
     winbar.push(' ');
     winbar.push_str(active_hl);
@@ -383,6 +408,7 @@ mod tests {
     fn session_parts(cache_pct: u64) -> SessionLineParts {
         SessionLineParts {
             agent_name: "default".to_string(),
+            queue: String::new(),
             model_display: String::new(),
             param_suffix: String::new(),
             tool_suffix: String::new(),
@@ -390,6 +416,79 @@ mod tests {
             output: "50".to_string(),
             total: "175 (+175)".to_string(),
             cache_pct,
+        }
+    }
+
+    #[test]
+    fn test_session_queue_transitions_refresh_cached_parts() {
+        let mut state = MetadataSessionState::new();
+        let mut values = MetadataValues::test_default();
+        let empty = state.session_line_parts(&values);
+        assert!(empty.queue.is_empty());
+        assert!(session_winbar_string(&empty, 0, 200).starts_with("%="));
+
+        values.work_queue_count = 2;
+        let queued = state.session_line_parts(&values);
+        assert_eq!(queued.queue, "\u{f51e} 2");
+        assert!(session_winbar_string(&queued, 0, 200).starts_with("\u{f51e} 2 %="));
+        assert_eq!(state.session_line_parts(&values), queued);
+
+        values.work_queue_count = 12;
+        let updated = state.session_line_parts(&values);
+        assert!(session_winbar_string(&updated, 0, 200).starts_with("\u{f51e} 12 %="));
+
+        values.work_queue_count = 0;
+        let cleared = state.session_line_parts(&values);
+        assert_eq!(cleared, empty);
+        assert!(session_winbar_string(&cleared, 0, 200).starts_with("%="));
+    }
+
+    #[test]
+    fn test_session_queue_width_priority() {
+        let mut parts = session_parts(25);
+        parts.queue = "\u{f51e} 12".to_string();
+        parts.model_display = "claude-3-5-sonnet".to_string();
+        parts.param_suffix = "temperature=0.7".to_string();
+        parts.tool_suffix = "󰣖 -7".to_string();
+
+        let full_width = parts.queue.width()
+            + 1
+            + parts.agent_segment(true).width()
+            + GAUGE_BARS.width()
+            + 2
+            + parts.join().width();
+        assert_eq!(
+            session_winbar_string(&parts, 2, full_width),
+            "\u{f51e} 12 %=\u{ed35}  default (󰚩 claude-3-5-sonnet temperature=0.7 | 󰣖 -7) %*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%%), 50 󰇚, 175 (+175) total%*"
+        );
+        let without_model = "\u{f51e} 12 %=\u{ed35}  default (󰚩 | 󰣖 -7) %*▮▮▮%#TenonGaugeBar#▮▮%* 100 󰕒 (󰃨 25%%), 50 󰇚, 175 (+175) total%*";
+        assert_eq!(
+            session_winbar_string(&parts, 2, full_width - 1),
+            without_model
+        );
+
+        let token_width = parts.queue.width()
+            + 1
+            + parts.agent_segment(false).width()
+            + GAUGE_BARS.width()
+            + 2
+            + parts.join().width();
+        assert_eq!(session_winbar_string(&parts, 2, token_width), without_model);
+        let without_tokens =
+            "\u{f51e} 12 %=\u{ed35}  default (󰚩 | 󰣖 -7) %*▮▮▮%#TenonGaugeBar#▮▮%*%*";
+        assert_eq!(
+            session_winbar_string(&parts, 2, token_width - 1),
+            without_tokens
+        );
+
+        let gauge_width =
+            parts.queue.width() + 1 + parts.agent_segment(false).width() + 1 + GAUGE_BARS.width();
+        assert_eq!(
+            session_winbar_string(&parts, 2, gauge_width),
+            without_tokens
+        );
+        for width in [gauge_width - 1, parts.queue.width()] {
+            assert_eq!(session_winbar_string(&parts, 2, width), "\u{f51e} 12%*");
         }
     }
 
