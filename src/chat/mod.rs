@@ -12,7 +12,7 @@ use rig::completion::Usage;
 use rig::tool::ToolContext;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError, RwLock};
 
 pub mod event_channel;
 
@@ -119,6 +119,26 @@ impl ChatSession {
             .collect()
     }
 
+    /// Fires the session's needs-attention hooks whenever an action is queued
+    /// into `pending_actions_channel`, so hooks run even when no UI is watching
+    /// this session. Captures Arc clones; a session reference would create a cycle.
+    fn wire_needs_attention_callback(session: &Self) {
+        let active_hooks = Arc::clone(&session.active_hooks);
+        let title = Arc::clone(&session.title_handler.title);
+        session
+            .pending_actions_channel
+            .set_on_new_front(Arc::new(move |_| {
+                // A poisoned lock still holds valid data; recover and fire with it.
+                let title = title
+                    .read()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone()
+                    .unwrap_or_default();
+                let active = active_hooks.read().unwrap_or_else(PoisonError::into_inner);
+                run_needs_attention_hooks(&get_application_config().hooks, &active, &title);
+            }));
+    }
+
     pub fn new() -> Self {
         Self::with_agent_name(get_application_config().default_agent)
             .expect("the program failed to enforce default_agent validation")
@@ -144,7 +164,7 @@ impl ChatSession {
         );
         engine.tools = resolve_tools(&agent.tool_names, engine.log_handler.log_window.clone());
         let log_window = engine.log_handler.log_window.clone();
-        Ok(Self {
+        let session = Self {
             id: generate_chat_id(),
             usage: Arc::new(RwLock::new(SessionUsage::default())),
             active_agent_name: agent_name.to_string(),
@@ -156,7 +176,9 @@ impl ChatSession {
             cancel_token: Arc::new(AtomicBool::new(false)),
             active_thread: None,
             title_handler: TitleHandler::new(log_window),
-        })
+        };
+        Self::wire_needs_attention_callback(&session);
+        Ok(session)
     }
 
     pub fn from_history(history: history::ChatHistory) -> OxiResult<Self> {
@@ -211,6 +233,8 @@ impl ChatSession {
             active_thread: None,
             title_handler: TitleHandler::from_history(history.title, log_window),
         };
+
+        Self::wire_needs_attention_callback(&session);
 
         Ok(session)
     }
@@ -327,6 +351,66 @@ impl ChatSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TenonConfig;
+    use crate::hooks::{Hook, HookType};
+    use std::time::{Duration, Instant};
+
+    /// Waits until the marker file exists and returns its content.
+    fn wait_for_marker(path: &std::path::Path) -> String {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                return content;
+            }
+            assert!(Instant::now() < deadline, "hook did not run in time");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn push_pending_action_fires_needs_attention_hook_once() {
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().unwrap())
+            .ok();
+
+        let dir = std::env::temp_dir().join(format!("tenon_pending_hook_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("fired");
+
+        // The hook appends a line per run so repeated fires are observable.
+        let config = TenonConfig {
+            hooks: vec![Hook {
+                name: "attention".to_string(),
+                command: format!("echo fired >> {}", marker.to_str().unwrap()),
+                enabled: true,
+                hook_type: HookType::NeedsAttention,
+            }],
+            ..TenonConfig::default()
+        };
+        let _override = crate::ConfigOverride::set(config);
+
+        let session = ChatSession::new();
+        session
+            .pending_actions_channel
+            .push(PendingAction::Question(Question {
+                question: "question needing attention".to_string(),
+                open_ended_text: None,
+                options: vec![],
+                response_tx: Arc::new(Mutex::new(None)),
+            }));
+
+        let content = wait_for_marker(&marker);
+        assert_eq!(content.lines().count(), 1);
+
+        // Re-subscribing (what a session switch does) must not re-fire the hook.
+        let _rx = session.pending_actions_channel.subscribe();
+        std::thread::sleep(Duration::from_millis(100));
+        let content = std::fs::read_to_string(&marker).unwrap();
+        assert_eq!(content.lines().count(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn test_active_choreo_memory() {

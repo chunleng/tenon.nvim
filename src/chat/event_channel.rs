@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::watch;
+
+/// Callback invoked when a push makes the queue non-empty.
+type OnNewFront<T> = Arc<dyn Fn(&T) + Send + Sync>;
 
 /// A replay-first event channel.
 ///
@@ -11,6 +14,7 @@ use tokio::sync::watch;
 pub struct EventChannel<T: Clone + Send + Sync> {
     queue: Mutex<VecDeque<T>>,
     watch_tx: watch::Sender<Option<T>>,
+    on_new_front: Mutex<Option<OnNewFront<T>>>,
 }
 
 impl<T: Clone + Send + Sync> EventChannel<T> {
@@ -18,31 +22,62 @@ impl<T: Clone + Send + Sync> EventChannel<T> {
         Self {
             queue: Mutex::new(VecDeque::new()),
             watch_tx: watch::Sender::new(None),
+            on_new_front: Mutex::new(None),
         }
     }
 
+    /// Registers a callback that runs when a push makes the queue non-empty.
+    ///
+    /// Fires inline on the pushing thread; keep it cheap and non-blocking.
+    pub fn set_on_new_front(&self, callback: OnNewFront<T>) {
+        *self
+            .on_new_front
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(callback);
+    }
+
     /// Adds an event to the back of the queue.
-    /// If the queue was empty, broadcasts the new front (this event) to subscribers.
+    /// If the queue was empty, broadcasts the new front (this event) to subscribers
+    /// and runs the `on_new_front` callback.
     pub fn push(&self, event: T) {
-        let mut queue = self.queue.lock().unwrap();
-        let was_empty = queue.is_empty();
-        queue.push_back(event);
-        if was_empty {
-            let front = queue.front().unwrap().clone();
+        let front = {
+            let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+            let was_empty = queue.is_empty();
+            queue.push_back(event);
+            if was_empty {
+                queue.front().cloned()
+            } else {
+                None
+            }
+        };
+        if let Some(front) = front {
             self.watch_tx.send_modify(|val| {
-                *val = Some(front);
+                *val = Some(front.clone());
             });
+            // Cloned out so the callback never runs under the lock.
+            if let Some(on_new_front) = self
+                .on_new_front
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+            {
+                on_new_front(&front);
+            }
         }
     }
 
     /// Returns a clone of the front event, or `None` if the queue is empty.
     pub fn peek(&self) -> Option<T> {
-        self.queue.lock().unwrap().front().cloned()
+        self.queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .front()
+            .cloned()
     }
 
     /// Removes the front event and broadcasts the next one (or `None`).
     pub fn mark_done(&self) {
-        let mut queue = self.queue.lock().unwrap();
+        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
         queue.pop_front();
         let next = queue.front().cloned();
         self.watch_tx.send_modify(|val| {
@@ -66,6 +101,29 @@ impl<T: Clone + Send + Sync> Default for EventChannel<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_callback_fires_when_queue_becomes_nonempty() {
+        let channel = EventChannel::<u32>::new();
+        let fired: Arc<Mutex<Vec<u32>>> = Arc::default();
+        let collector = Arc::clone(&fired);
+        channel.set_on_new_front(Arc::new(move |event: &u32| {
+            collector.lock().unwrap().push(*event);
+        }));
+
+        // First push: queue transitions empty -> non-empty, callback fires.
+        channel.push(1);
+        // Push onto a non-empty queue and mark_done do not fire again.
+        channel.push(2);
+        channel.mark_done();
+        assert_eq!(*fired.lock().unwrap(), vec![1]);
+
+        // After the queue drains, the next push fires again.
+        channel.mark_done();
+        channel.push(3);
+        assert_eq!(*fired.lock().unwrap(), vec![1, 3]);
+    }
 
     #[test]
     fn test_queue_ordering_and_mark_done() {

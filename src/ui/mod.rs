@@ -24,7 +24,6 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::{
     chat::chat_session_count,
     get_application_config, get_chat_window,
-    hooks::run_needs_attention_hooks,
     ui::widget::{BasicWidget, Widget},
 };
 use crate::{
@@ -1173,21 +1172,6 @@ fn chat_window_loop(
                 current_rx = None;
                 current_chat_key = None;
                 continue;
-            }
-
-            // The question is now visible; the agent needs user attention.
-            if let Ok(loaded_guard) = loaded_chat_session.read()
-                && let Ok(session) = loaded_guard.read()
-                && let Ok(active) = session.active_hooks.read()
-            {
-                let chat_title = session
-                    .title_handler
-                    .title
-                    .read()
-                    .ok()
-                    .and_then(|t| t.clone())
-                    .unwrap_or_default();
-                run_needs_attention_hooks(&get_application_config().hooks, &active, &chat_title);
             }
 
             // Wait for the user to answer, cancel, or for a sync signal.
