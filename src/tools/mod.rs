@@ -288,10 +288,31 @@ pub fn tool_display_summary(
         return Some(format!("id: {}", id));
     }
 
+    let display_path = |value: &str| {
+        let display = std::env::current_dir()
+            .ok()
+            .and_then(|cwd| {
+                let cwd_str = cwd.to_string_lossy();
+                value
+                    .strip_prefix(cwd_str.as_ref())
+                    .map(|rest| format!("./{}", rest.trim_start_matches('/')))
+            })
+            .unwrap_or_else(|| value.to_string());
+        display.lines().collect::<Vec<_>>().join("↵")
+    };
+
+    if name == "move_path" {
+        let source = args.get("source").and_then(|v| v.as_str())?;
+        let mut summary = format!("source: {}", display_path(source));
+        if let Some(destination) = args.get("destination").and_then(|v| v.as_str()) {
+            summary.push_str(&format!(", destination: {}", display_path(destination)));
+        }
+        return Some(summary);
+    }
+
     let core_arg: &str = match name {
         "web_search" => "query",
         "read_file" | "edit_file" | "remove_path" | "read_image" => "filepath",
-        "move_path" => "source",
         "list_files" => "pattern",
         "search_dependency_code" => "dependency",
         "fetch_webpage" => "url",
@@ -299,20 +320,12 @@ pub fn tool_display_summary(
         "navigate_choreo" => "move",
         _ => return None,
     };
-    args.get(core_arg).and_then(|v| v.as_str()).map(|x| {
-        let display = if core_arg == "filepath" || core_arg == "source" {
-            std::env::current_dir()
-                .ok()
-                .and_then(|cwd| {
-                    let cwd_str = cwd.to_string_lossy();
-                    x.strip_prefix(cwd_str.as_ref())
-                        .map(|rest| format!("./{}", rest.trim_start_matches('/')))
-                })
-                .unwrap_or_else(|| x.to_string())
+    args.get(core_arg).and_then(|v| v.as_str()).map(|value| {
+        let display = if core_arg == "filepath" {
+            display_path(value)
         } else {
-            x.to_string()
+            value.lines().collect::<Vec<_>>().join("↵")
         };
-        let display = display.lines().collect::<Vec<_>>().join("↵");
         format!("{}: {}", core_arg, display)
     })
 }
@@ -529,6 +542,23 @@ mod tests {
         let selectors = ["srv", "other"];
         let result: Vec<i32> = select_in_order(tools, &selectors);
         assert_eq!(result, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn move_path_summary_shows_source_and_destination() {
+        let cwd = std::env::current_dir().unwrap();
+        let summary = tool_display_summary(
+            "move_path",
+            &serde_json::json!({
+                "source": cwd.join("old.txt").to_str().unwrap(),
+                "destination": cwd.join("new.txt").to_str().unwrap(),
+            }),
+            None,
+        );
+        assert_eq!(
+            summary,
+            Some("source: ./old.txt, destination: ./new.txt".to_string())
+        );
     }
 
     #[test]
