@@ -43,7 +43,7 @@ pub fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
                 .and_then(|lines| lines.into_iter().next())
                 .map(|s| s.to_string())
                 .unwrap_or_default();
-            let col_end = end_col.unwrap_or(last_line_text.len());
+            let col_end = selection_end_exclusive(&last_line_text, end_col);
 
             // Get the selected text
             let text_lines: Vec<String> = buf
@@ -62,7 +62,7 @@ pub fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
 
             // Detect partial lines (full line when col is None)
             let first_line_full = start_col.is_none() || start_col.unwrap_or(1) <= 1;
-            let last_line_full = end_col.is_none() || end_col.unwrap_or(0) >= last_line_text.len();
+            let last_line_full = end_col.is_none() || col_end >= last_line_text.len();
 
             // Build snippet with ellipsis for partial lines
             let text_lines_len = text_lines.len();
@@ -138,4 +138,33 @@ pub fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
             }
         },
     )
+}
+
+/// Find the exclusive selection endpoint without cutting a multibyte character in half.
+fn selection_end_exclusive(line: &str, end_col: Option<usize>) -> usize {
+    let Some(col) = end_col else {
+        return line.len();
+    };
+    let start = col.saturating_sub(1);
+    line.get(start..)
+        .and_then(|suffix| suffix.chars().next())
+        .map_or(col, |ch| start + ch.len_utf8())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::selection_end_exclusive;
+
+    #[test]
+    fn inclusive_end_column_includes_entire_character() {
+        let line = "aé中😀z";
+
+        assert_eq!(selection_end_exclusive(line, Some(1)), 1);
+        assert_eq!(selection_end_exclusive(line, Some(2)), 3);
+        assert_eq!(selection_end_exclusive(line, Some(4)), 6);
+        assert_eq!(selection_end_exclusive(line, Some(7)), 10);
+        assert_eq!(selection_end_exclusive(line, Some(11)), 11);
+        assert_eq!(selection_end_exclusive(line, None), 11);
+        assert_eq!(selection_end_exclusive("a😀", Some(2)), 5);
+    }
 }
