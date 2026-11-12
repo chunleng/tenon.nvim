@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use chrono::{DateTime, Utc};
 
 use crate::chat::{ChatSession, TenonLog, TenonLogData};
-use crate::ui::widget::chat_display::format::DisplayChatFormatter;
+use crate::ui::widget::chat_display::format::{DisplayChatFormatter, question_display_logs};
 
 /// How much of a log to render.
 ///
@@ -37,6 +37,84 @@ struct RenderedLogEntry {
     last_updated_at: DateTime<Utc>,
 }
 
+struct DisplayBlock {
+    target_log: Arc<RwLock<TenonLog>>,
+    render_type: RenderType,
+    line_separator_after: bool,
+    line_count: usize,
+}
+
+impl DisplayBlock {
+    fn new(
+        target_log: Arc<RwLock<TenonLog>>,
+        render_type: RenderType,
+        line_separator_after: bool,
+        poll_line_count: usize,
+    ) -> Self {
+        let line_count = match render_type {
+            RenderType::Head(x) | RenderType::Tail(x) => poll_line_count.min(x),
+        };
+        Self {
+            target_log,
+            render_type,
+            line_separator_after,
+            line_count,
+        }
+    }
+
+    fn rendered_line_count(&self) -> usize {
+        self.line_count + self.line_separator_after as usize
+    }
+}
+
+/// Splits a log into independently rendered blocks without changing the
+/// renderer's single-sign contract. The cache entry still tracks the source
+/// log; only the updates carry these display logs.
+fn display_blocks(
+    log: &Arc<RwLock<TenonLog>>,
+    next_log_is_tool: Option<bool>,
+    line_separator_after: bool,
+) -> Vec<DisplayBlock> {
+    let Ok(log_guard) = log.read() else {
+        return vec![];
+    };
+    let data = &log_guard.data;
+
+    if let TenonLogData::Question(question_log) = data {
+        return question_display_logs(question_log)
+            .into_iter()
+            .enumerate()
+            .map(|(index, display_data)| {
+                let line_count = display_data.lines().len();
+                DisplayBlock::new(
+                    Arc::new(RwLock::new(TenonLog::new(display_data))),
+                    RenderType::Head(line_count),
+                    index == 0 || line_separator_after,
+                    line_count,
+                )
+            })
+            .collect();
+    }
+
+    let poll_line_count = data.lines().len();
+    let render_type = match data {
+        TenonLogData::Assistant(msg) if msg.chat_is_empty() && msg.reasoning.is_some() => {
+            if next_log_is_tool.is_some() {
+                RenderType::Tail(1)
+            } else {
+                RenderType::Head(poll_line_count)
+            }
+        }
+        _ => RenderType::Head(poll_line_count),
+    };
+    vec![DisplayBlock::new(
+        log.clone(),
+        render_type,
+        line_separator_after,
+        poll_line_count,
+    )]
+}
+
 pub struct ChatLogCache {
     pub chat_session: Arc<RwLock<ChatSession>>,
     /// The index into the chat log vector marking the position from which logs may be stale and
@@ -59,24 +137,15 @@ fn upsert_entry_if_changed(
     rendered_entries: &mut Vec<RenderedLogEntry>,
     log_index: usize,
     log: &Arc<RwLock<TenonLog>>,
-    render_type: RenderType,
-    line_separator_after: bool,
+    rendered_line_count: usize,
     current_line: usize,
     force_update: bool,
 ) -> (Option<RenderedLocation>, usize, bool) {
-    let Some((content_lines, last_updated_at)) = log.read().ok().map(|log| {
-        (
-            match render_type {
-                RenderType::Head(x) => log.data.lines().len().min(x),
-                RenderType::Tail(x) => log.data.lines().len().min(x),
-            },
-            log.last_updated_at,
-        )
-    }) else {
+    let Some(last_updated_at) = log.read().ok().map(|log| log.last_updated_at) else {
         // Lock failed: skip render, keep position tracking unchanged.
         return (None, current_line, force_update);
     };
-    let total_lines = content_lines + line_separator_after as usize;
+    let total_lines = rendered_line_count;
     if let Some(existing) = rendered_entries.get_mut(log_index) {
         let RenderedLocation {
             line_start,
@@ -199,38 +268,25 @@ impl ChatLogCache {
                     };
                     let current_log = &log.data;
 
-                    // Capture the line count at poll time: the log may grow before the update is
-                    // applied, and Head caps the render to what was calculated here
-                    let poll_line_count = log.data.lines().len();
-
-                    let render_type = match current_log {
-                        TenonLogData::Assistant(msg)
-                            if msg.chat_is_empty() && msg.reasoning.is_some() =>
-                        {
-                            if is_next_log_tool.is_some() {
-                                RenderType::Tail(1)
-                            } else {
-                                RenderType::Head(poll_line_count)
-                            }
-                        }
-                        _ => RenderType::Head(poll_line_count),
-                    };
-
                     // Add line separator unless both current and next are Tools
                     let line_separator_after = !(matches!(current_log, TenonLogData::Tool(_))
                         && is_next_log_tool.unwrap_or(false));
                     drop(log);
 
+                    let blocks =
+                        display_blocks(&indexed_log.log, is_next_log_tool, line_separator_after);
+
                     let log_index = check_from + offset;
                     let log = &indexed_log.log;
+                    let rendered_line_count =
+                        blocks.iter().map(DisplayBlock::rendered_line_count).sum();
 
                     let (render_location, new_current_line, line_count_changed) =
                         upsert_entry_if_changed(
                             &mut self.rendered_entries,
                             log_index,
                             log,
-                            render_type,
-                            line_separator_after,
+                            rendered_line_count,
                             current_line,
                             force_update,
                         );
@@ -243,14 +299,34 @@ impl ChatLogCache {
                         line_count,
                     } = render_location?;
 
-                    Some(StreamUpdate {
-                        replace_line_start: line_start,
-                        replace_line_end: line_start + line_count,
-                        target_log: log.clone(),
-                        render_type,
-                        line_separator_after,
-                    })
+                    let mut block_line_start = line_start;
+                    let updates = blocks
+                        .into_iter()
+                        .enumerate()
+                        .map(|(block_index, block)| {
+                            let replace_line_end = if block_index == 0 {
+                                // The first block replaces everything previously rendered for
+                                // this entry; subsequent blocks append after it.
+                                line_start + line_count
+                            } else {
+                                block_line_start
+                            };
+                            let block_line_count = block.rendered_line_count();
+                            let update = StreamUpdate {
+                                replace_line_start: block_line_start,
+                                replace_line_end,
+                                target_log: block.target_log,
+                                render_type: block.render_type,
+                                line_separator_after: block.line_separator_after,
+                            };
+                            block_line_start += block_line_count;
+                            update
+                        })
+                        .collect::<Vec<_>>();
+
+                    Some(updates)
                 })
+                .flatten()
                 .collect();
 
             // Update check_from_index:
@@ -385,6 +461,33 @@ mod tests {
             )))),
             active: true,
         });
+    }
+
+    fn replace_with_question_log(cache: &mut ChatLogCache, index: usize) {
+        let session = cache.chat_session.write().unwrap();
+        let mut log_window = session.engine.log_handler.log_window.write().unwrap();
+        log_window.logs[index] = crate::chat::log::indexer::IndexedLog {
+            log: Arc::new(RwLock::new(TenonLog::new(TenonLogData::Question(
+                crate::chat::log::TenonQuestionLog {
+                    tool_log: crate::chat::log::TenonToolLog {
+                        tool_call: crate::chat::log::TenonToolCall {
+                            id: "call-1".to_string(),
+                            internal_call_id: "call-1".to_string(),
+                            item_id: None,
+                            name: "ask_question".to_string(),
+                            args: serde_json::json!({
+                                "question": "Which branch?\nAny constraints?"
+                            }),
+                        },
+                        tool_result: Some(Ok(crate::chat::log::TenonToolResult::Text(
+                            rig::agent::Text::new("main\nfast merges only"),
+                        ))),
+                        progress: vec![],
+                    },
+                },
+            )))),
+            active: true,
+        };
     }
 
     #[test]
@@ -574,6 +677,79 @@ mod tests {
         assert!(updates[2].line_separator_after);
 
         assert_eq!(cache.check_from_index.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_multi_block_log_replaces_entry_then_appends_blocks() {
+        let mut cache = init_test_cache();
+
+        add_tool_log(&mut cache, "ask_question", 1);
+        let (updates, current_line) = cache.poll_render_update();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(current_line, 2, "pending tool plus its separator");
+
+        // Conversion keeps the same log index but changes it into two display
+        // blocks, as ask_question does when the answer arrives.
+        replace_with_question_log(&mut cache, 0);
+        add_user_log(&mut cache, "Next message");
+
+        let (updates, current_line) = cache.poll_render_update();
+        assert_eq!(updates.len(), 3, "two question blocks plus the user log");
+
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.lines(),
+            vec!["Which branch?", "Any constraints?"]
+        );
+        assert_eq!(
+            updates[0].target_log.read().unwrap().data.sign(),
+            crate::constants::special_chars::ASSISTANT
+        );
+        assert_eq!(updates[0].replace_line_start, 0);
+        assert_eq!(
+            updates[0].replace_line_end, 2,
+            "the first block replaces the tool's entire previous location"
+        );
+        assert!(matches!(updates[0].render_type, RenderType::Head(2)));
+        assert!(
+            updates[0].line_separator_after,
+            "the question block supplies the blank line before the answer"
+        );
+
+        assert_eq!(
+            updates[1].target_log.read().unwrap().data.lines(),
+            vec!["main", "fast merges only"]
+        );
+        assert_eq!(updates[1].target_log.read().unwrap().data.sign(), USER);
+        assert_eq!(updates[1].replace_line_start, 3);
+        assert_eq!(
+            updates[1].replace_line_end, 3,
+            "the answer block appends after the question block"
+        );
+        assert!(matches!(updates[1].render_type, RenderType::Head(2)));
+        assert!(updates[1].line_separator_after);
+
+        assert_eq!(
+            updates[2].target_log.read().unwrap().data.lines(),
+            vec!["Next message"]
+        );
+        assert_eq!(updates[2].replace_line_start, 6);
+        assert_eq!(updates[2].replace_line_end, 6);
+        assert_eq!(current_line, 8);
+
+        assert_eq!(
+            cache.rendered_entries.len(),
+            2,
+            "blocks must not be flattened into separate log entries"
+        );
+        assert_eq!(cache.rendered_entries[0].render_location.line_start, 0);
+        assert_eq!(
+            cache.rendered_entries[0].render_location.line_count, 6,
+            "the saved location covers both blocks and their separators"
+        );
+        assert!(
+            matches!(cache.get_log_at_line(5), Some(log) if matches!(log.read().unwrap().data, TenonLogData::Question(_))),
+            "the answer block still maps to the question log entry"
+        );
     }
 
     #[test]
@@ -892,12 +1068,12 @@ mod tests {
             log_window.logs[0].log.clone()
         };
 
+        let block = DisplayBlock::new(log.clone(), RenderType::Head(2), true, 5);
         let (render_location, new_current_line, _) = upsert_entry_if_changed(
             &mut rendered_entries,
             0,
             &log,
-            RenderType::Head(2),
-            true,
+            block.rendered_line_count(),
             0,
             false,
         );

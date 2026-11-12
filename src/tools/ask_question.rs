@@ -1,8 +1,10 @@
-use rig::tool::{ToolContext, ToolExecutionError};
+use rig::tool::{ToolContext, ToolExecutionError, ToolOutput};
 use serde::Deserialize;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
-use crate::chat::{EventChannel, PendingAction};
+use crate::chat::{
+    EventChannel, PendingAction, TenonLog, TenonLogData, TenonQuestionLog, TenonToolResult,
+};
 use crate::tools::{ToolCore, ToolCoreCall};
 use crate::ui::SelectOption;
 
@@ -11,6 +13,11 @@ use crate::ui::SelectOption;
 pub struct QuestionResult {
     pub response: Option<String>,
 }
+
+/// Output of a dismissed question. `convert_log` uses this to tell
+/// dismissed calls apart from answered ones, since dismissal is a
+/// successful tool result.
+pub const DISMISSED_MESSAGE: &str = "User dismissed the question";
 
 /// A question asking the user to pick an option or type a free text answer.
 #[derive(Clone)]
@@ -127,6 +134,25 @@ impl ToolCore for AskQuestion {
             Ok(AskQuestionCall { response_rx: None })
         }
     }
+
+    async fn convert_log(&self, log: Arc<RwLock<TenonLog>>) -> Option<ToolOutput> {
+        let mut log = log.write().ok()?;
+        let tool_log = match &log.data {
+            TenonLogData::Tool(tool_log) => tool_log.clone(),
+            _ => return None,
+        };
+        let answer = match tool_log.tool_result.as_ref() {
+            Some(Ok(TenonToolResult::Text(text))) => text.text.clone(),
+            _ => return None,
+        };
+        if answer == DISMISSED_MESSAGE {
+            return None;
+        }
+        log.data = TenonLogData::Question(TenonQuestionLog { tool_log });
+        log.refresh();
+
+        None
+    }
 }
 
 impl ToolCoreCall for AskQuestionCall {
@@ -135,15 +161,15 @@ impl ToolCoreCall for AskQuestionCall {
 
     async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
         let Some(rx) = self.response_rx else {
-            return Ok("User dismissed the question".to_string());
+            return Ok(DISMISSED_MESSAGE.to_string());
         };
 
         match rx.await {
             Ok(result) => match result.response {
                 Some(text) => Ok(text),
-                None => Ok("User dismissed the question".to_string()),
+                None => Ok(DISMISSED_MESSAGE.to_string()),
             },
-            Err(_) => Ok("User dismissed the question".to_string()),
+            Err(_) => Ok(DISMISSED_MESSAGE.to_string()),
         }
     }
 }
@@ -151,6 +177,7 @@ impl ToolCoreCall for AskQuestionCall {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::{TenonToolCall, TenonToolError, TenonToolLog};
     use crate::tools::ToolCore;
 
     fn args(question: &str, options: &[&str]) -> AskQuestionArgs {
@@ -290,6 +317,70 @@ mod tests {
             .await
             .expect("result should succeed");
         assert_eq!(output, "User dismissed the question");
+    }
+
+    fn question_tool_log(
+        question: &str,
+        result: Option<Result<TenonToolResult, TenonToolError>>,
+    ) -> TenonToolLog {
+        TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "call-1".to_string(),
+                internal_call_id: "call-1".to_string(),
+                item_id: None,
+                name: "ask_question".to_string(),
+                args: serde_json::json!({ "question": question }),
+            },
+            tool_result: result,
+            progress: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_convert_log_swaps_answered_tool_log_to_question_log() {
+        let log = Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
+            question_tool_log(
+                "Proceed?",
+                Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    "Yes, do it".to_string(),
+                )))),
+            ),
+        ))));
+
+        // None keeps the original answer as the model-visible tool result
+        assert!(AskQuestion.convert_log(log.clone()).await.is_none());
+
+        let log = log.read().unwrap();
+        let TenonLogData::Question(question_log) = log.data() else {
+            panic!("expected Question log after convert_log");
+        };
+        assert_eq!(question_log.question(), "Proceed?");
+        assert_eq!(question_log.answer(), "Yes, do it");
+    }
+
+    #[tokio::test]
+    async fn test_convert_log_keeps_dismissed_tool_log() {
+        let log = Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
+            question_tool_log(
+                "Proceed?",
+                Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    DISMISSED_MESSAGE.to_string(),
+                )))),
+            ),
+        ))));
+
+        assert!(AskQuestion.convert_log(log.clone()).await.is_none());
+        assert!(matches!(log.read().unwrap().data(), TenonLogData::Tool(_)));
+    }
+
+    #[tokio::test]
+    async fn test_convert_log_keeps_errored_tool_log() {
+        let log = Arc::new(RwLock::new(TenonLog::new(TenonLogData::Tool(
+            question_tool_log("Proceed?", Some(Err(TenonToolError("boom".to_string())))),
+        ))));
+
+        assert!(AskQuestion.convert_log(log.clone()).await.is_none());
+        assert!(matches!(log.read().unwrap().data(), TenonLogData::Tool(_)));
     }
 
     #[tokio::test]

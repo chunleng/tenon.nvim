@@ -58,14 +58,19 @@ impl ChatLogHandler {
     }
 
     pub fn get_user_prompt(&self) -> String {
-        if let Ok(log_window) = self.log_window.read() {
-            let len = log_window.logs.len();
-            if len > 0
-                && let Some(last) = log_window.logs.last()
-                && let Ok(log) = last.log.read()
-                && let TenonLogData::User(TenonUserMessage::Text(text_msg)) = log.data()
-            {
-                return text_msg.clone();
+        if let Ok(log_window) = self.log_window.read()
+            && !log_window.logs.is_empty()
+            && let Some(last) = log_window.logs.last()
+            && let Ok(log) = last.log.read()
+        {
+            match log.data() {
+                TenonLogData::User(TenonUserMessage::Text(text_msg)) => {
+                    return text_msg.clone();
+                }
+                TenonLogData::Question(question) => {
+                    return question.answer().to_string();
+                }
+                _ => {}
             }
         }
         "".to_string()
@@ -85,5 +90,62 @@ impl ChatLogHandler {
         } else {
             Vec::new()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::chat::log::TenonAssistantMessageContent;
+    use crate::chat::{
+        TenonAssistantMessage, TenonQuestionLog, TenonToolCall, TenonToolLog, TenonToolResult,
+    };
+
+    fn handler_with_last_log(data: TenonLogData) -> ChatLogHandler {
+        let mut handler = ChatLogHandler::new();
+        handler.load(vec![TenonLog::new(data)]);
+        handler
+    }
+
+    #[test]
+    fn test_get_user_prompt_question_last_returns_answer() {
+        let handler = handler_with_last_log(TenonLogData::Question(TenonQuestionLog {
+            tool_log: TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "call-1".to_string(),
+                    internal_call_id: "call-1".to_string(),
+                    item_id: None,
+                    name: "ask_question".to_string(),
+                    args: serde_json::json!({ "question": "Use the default mode?" }),
+                },
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    "Yes".to_string(),
+                )))),
+                progress: vec![],
+            },
+        }));
+
+        assert_eq!(handler.get_user_prompt(), "Yes");
+    }
+
+    #[test]
+    fn test_get_user_prompt_user_last_returns_text() {
+        let handler = handler_with_last_log(TenonLogData::User(TenonUserMessage::Text(
+            "Fix the truncation bug".to_string(),
+        )));
+
+        assert_eq!(handler.get_user_prompt(), "Fix the truncation bug");
+    }
+
+    #[test]
+    fn test_get_user_prompt_other_last_returns_empty() {
+        let handler = handler_with_last_log(TenonLogData::Assistant(TenonAssistantMessage {
+            reasoning: None,
+            content: vec![TenonAssistantMessageContent::Text("Done".to_string())],
+            complete: true,
+        }));
+
+        assert_eq!(handler.get_user_prompt(), "");
     }
 }

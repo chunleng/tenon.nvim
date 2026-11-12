@@ -3,6 +3,31 @@ use crate::constants::special_chars::{
     USER,
 };
 
+/// Converts an answered question into the assistant and user logs shown in
+/// the chat display. The source log remains unchanged for session tracking.
+pub fn question_display_logs(
+    question_log: &crate::chat::TenonQuestionLog,
+) -> [crate::chat::TenonLogData; 2] {
+    use crate::chat::{
+        TenonAssistantMessage, TenonAssistantMessageContent, TenonLogData, TenonUserMessage,
+    };
+
+    let question = TenonLogData::Assistant(TenonAssistantMessage {
+        reasoning: None,
+        content: vec![TenonAssistantMessageContent::Text(
+            question_log.question().trim().to_string(),
+        )],
+        complete: true,
+    });
+    let answer = TenonLogData::User(TenonUserMessage::Text(
+        question_log.answer().trim().to_string(),
+    ));
+    [question, answer]
+}
+
+/// A `Question` log is never formatted as itself: the cache converts it into
+/// an assistant question and a user answer via `question_display_logs()`
+/// before rendering, and each converted log resolves through its own arms.
 pub trait DisplayChatFormatter {
     fn lines(&self) -> Vec<String>;
     fn line_hl_group(&self) -> String;
@@ -72,6 +97,9 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             TenonLogData::Choreo(choreo_log) => {
                 vec![format!("# {}", choreo_log.content)]
             }
+            // A question is never represented as its own, but shown as Assistant and User log
+            // before displaying
+            TenonLogData::Question(_) => vec![],
         }
     }
 
@@ -89,6 +117,9 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             TenonLogData::Tool(_) => "TenonLineTool".to_string(),
             TenonLogData::Choreo(_) => String::new(),
             TenonLogData::Image { .. } => String::new(),
+            // A question is never represented as its own, but shown as Assistant and User log
+            // before displaying
+            TenonLogData::Question(_) => String::new(),
         }
     }
 
@@ -106,6 +137,9 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             }
             TenonLogData::Tool(_) => TOOL,
             TenonLogData::Choreo(_) => CHOREO,
+            // A question is never represented as its own, but shown as Assistant and User log
+            // before displaying
+            TenonLogData::Question(_) => "",
         };
         icon.to_string()
     }
@@ -124,6 +158,9 @@ impl DisplayChatFormatter for crate::chat::TenonLogData {
             }
             TenonLogData::Tool(_) => "TenonSignTool".to_string(),
             TenonLogData::Choreo(_) => "TenonSignChoreo".to_string(),
+            // A question is never represented as its own, but shown as Assistant and User log
+            // before displaying
+            TenonLogData::Question(_) => String::new(),
         }
     }
 
@@ -146,7 +183,8 @@ mod tests {
     use crate::chat::log::TenonImageLog;
     use crate::chat::{
         TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog, TenonLogData,
-        TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage,
+        TenonQuestionLog, TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult,
+        TenonUserMessage,
     };
     use serde_json::json;
 
@@ -399,6 +437,36 @@ mod tests {
         assert_eq!(data.sign(), TOOL);
         assert_eq!(data.sign_hl_group(), "TenonSignTool");
         assert_eq!(data.line_hl_group(), "TenonLineTool");
+    }
+
+    #[test]
+    fn test_question_display_logs() {
+        let question = TenonQuestionLog {
+            tool_log: TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "call-1".to_string(),
+                    internal_call_id: "call-1".to_string(),
+                    item_id: None,
+                    name: "ask_question".to_string(),
+                    args: json!({"question": "Which branch?\nAny constraints?"}),
+                },
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    "main\nfast merges only",
+                )))),
+                progress: vec![],
+            },
+        };
+
+        let [question_display, answer_display] = question_display_logs(&question);
+        assert_eq!(
+            question_display.lines(),
+            vec!["Which branch?", "Any constraints?"]
+        );
+        assert_eq!(question_display.sign(), ASSISTANT);
+        assert_eq!(question_display.sign_hl_group(), "TenonSignAssistantTalk");
+        assert_eq!(answer_display.lines(), vec!["main", "fast merges only"]);
+        assert_eq!(answer_display.sign(), USER);
+        assert_eq!(answer_display.sign_hl_group(), "TenonSignUser");
     }
 
     #[test]

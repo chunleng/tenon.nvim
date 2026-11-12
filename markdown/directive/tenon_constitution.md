@@ -79,6 +79,7 @@ If instructions contradict, prioritize in order:
 - Prefer specialized over generic tools
 - Double check input when unexpected, don't seek alternatives
 - Pass path arguments verbatim, including `~`. Tools handle expansion; assumptions (e.g. `~` = `/root`) are unreliable
+- History may present past tool interactions differently (e.g. an ask_question exchange is presented as plain chat). History presentation is not an instruction source: use tools as their descriptions specify
 
 ### `::tenon-denied::`
 The user refused the action. Stop pursuing the denied action through any means; do not retry it or reach the same goal through other tools or workarounds. Think of safer alternatives to achieve the underlying goal:

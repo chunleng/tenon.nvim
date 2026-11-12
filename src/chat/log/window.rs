@@ -194,6 +194,7 @@ impl LogWindow {
             log_to_search.iter().rposition(|indexed| {
                 indexed.read().ok().is_some_and(|log| match log.data() {
                     TenonLogData::User(_) => true,
+                    TenonLogData::Question(_) => true,
                     TenonLogData::Choreo(choreo_log) => choreo_log.r#move.is_some(),
                     // A successful pop hands a new task to the agent, the same
                     // way a user message starts a new request.
@@ -212,7 +213,7 @@ impl LogWindow {
 mod tests {
     use super::*;
     use crate::chat::{
-        TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog,
+        TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog, TenonQuestionLog,
         log::{
             TenonImageLog, TenonLog, TenonLogData, TenonToolCall, TenonToolError, TenonToolLog,
             TenonToolResult, TenonUserMessage,
@@ -488,6 +489,59 @@ mod tests {
         assert_eq!(log_window.find_last_checkpoint(Some(3)), Some(2));
     }
 
+    fn question_log_data(question: &str, answer: &str) -> TenonLogData {
+        TenonLogData::Question(TenonQuestionLog {
+            tool_log: TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "call-1".to_string(),
+                    internal_call_id: "call-1".to_string(),
+                    item_id: None,
+                    name: "ask_question".to_string(),
+                    args: serde_json::json!({ "question": question }),
+                },
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    answer.to_string(),
+                )))),
+                progress: vec![],
+            },
+        })
+    }
+
+    fn create_question_log(token_count: usize) -> TenonLog {
+        let mut log = TenonLog::new(question_log_data("Which build command?", "cargo build"));
+        log.token_count = token_count;
+        log
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_outside_choreo_uses_question_log() {
+        // An answered question starts a new request like a user message,
+        // so it becomes the checkpoint boundary.
+        let logs = vec![
+            create_user_log(1),      // 0
+            create_assistant_log(1), // 1
+            create_question_log(1),  // 2: answered question
+            create_assistant_log(1), // 3
+        ];
+        let log_window = create_log_window(logs);
+        assert_eq!(log_window.find_last_checkpoint(None), Some(2));
+    }
+
+    #[test]
+    fn test_find_last_checkpoint_in_choreo_ignores_question_log() {
+        // Inside a choreo only move logs count as checkpoints.
+        let logs = vec![
+            create_choreo_log("wf", Some(1)), // 0: start
+            create_question_log(1),           // 1
+            create_tool_log(
+                "pop_task",
+                Some(Ok(TenonToolResult::Text(rig::agent::Text::new("ok")))),
+            ), // 2
+        ];
+        let log_window = create_log_window(logs);
+        assert_eq!(log_window.find_last_checkpoint(None), Some(0));
+    }
+
     fn create_tool_indexed_log(name: &str, has_result: bool) -> IndexedLog {
         let tool_call = TenonToolCall {
             id: "1".into(),
@@ -620,6 +674,27 @@ mod tests {
         assert!(matches!(
             history[2].read().unwrap().data(),
             TenonLogData::Image(_)
+        ));
+    }
+
+    #[test]
+    fn test_active_history_log_includes_last_question_log() {
+        // A last question log is not dropped wholesale like a last user
+        // message: the question half must stay in history (the answer half is
+        // excluded separately by the history conversion when it is the
+        // current prompt).
+        let logs = vec![
+            create_user_log(1),
+            create_assistant_log(1),
+            TenonLog::new(question_log_data("Use the default mode?", "Yes")),
+        ];
+        let log_window = create_log_window(logs);
+
+        let history = log_window.active_history_log();
+        assert_eq!(history.len(), 3);
+        assert!(matches!(
+            history[2].read().unwrap().data(),
+            TenonLogData::Question(_)
         ));
     }
 

@@ -240,6 +240,48 @@ impl TenonChoreoLog {
     }
 }
 
+/// A tool-asked question answered by the user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenonQuestionLog {
+    pub tool_log: TenonToolLog,
+}
+
+impl TenonQuestionLog {
+    /// Question text from the tool call args, empty when the args lack it.
+    pub fn question(&self) -> &str {
+        self.tool_log
+            .tool_call
+            .args
+            .get("question")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+    }
+
+    /// Answer text from the tool result, empty when the result is absent or not a text result.
+    pub fn answer(&self) -> &str {
+        match &self.tool_log.tool_result {
+            Some(Ok(TenonToolResult::Text(text))) => &text.text,
+            _ => "",
+        }
+    }
+
+    /// The question as a chat [Message].
+    pub fn question_message(&self) -> Vec<Message> {
+        vec![Message::Assistant(AssistantMessage::new(vec![
+            AssistantContent::text(self.question().to_string()),
+        ]))]
+    }
+
+    /// The question and answer as a chat [Vec<Message>].
+    pub fn all_messages(&self) -> Vec<Message> {
+        let mut messages = self.question_message();
+        messages.push(Message::User {
+            content: vec![UserContent::text(self.answer().to_string())],
+        });
+        messages
+    }
+}
+
 /// Source of an image log entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TenonImageLog {
@@ -274,6 +316,7 @@ pub enum TenonLogData {
     Tool(TenonToolLog),
     Choreo(TenonChoreoLog),
     Image(TenonImageLog),
+    Question(TenonQuestionLog),
 }
 
 fn zero() -> usize {
@@ -613,6 +656,115 @@ mod tests {
         assert_ne!(log.last_updated_at, before);
     }
 
+    fn question_tool_log(question: &str, answer: &str) -> TenonToolLog {
+        TenonToolLog {
+            tool_call: TenonToolCall {
+                id: "call-1".to_string(),
+                internal_call_id: "call-1".to_string(),
+                item_id: None,
+                name: "ask_question".to_string(),
+                args: serde_json::json!({ "question": question }),
+            },
+            tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                answer.to_string(),
+            )))),
+            progress: vec![],
+        }
+    }
+
+    #[test]
+    fn test_question_log_converts_to_assistant_and_user_messages() {
+        let question_log = TenonQuestionLog {
+            tool_log: question_tool_log("Which module owns truncation?", "window.rs"),
+        };
+
+        // Question-only conversion: used when the answer doubles as the prompt
+        let messages = question_log.question_message();
+        assert_eq!(
+            messages.len(),
+            1,
+            "question-only conversion emits one message"
+        );
+        match &messages[0] {
+            Message::Assistant(msg) => {
+                let content = format!("{:?}", msg.content);
+                assert!(
+                    content.contains("Which module owns truncation?"),
+                    "message should carry the question, got {content}"
+                );
+            }
+            other => panic!("expected Assistant message, got {other:?}"),
+        }
+
+        let log = TenonLog::new(TenonLogData::Question(question_log));
+
+        let messages = Vec::<Message>::from(&log);
+        assert_eq!(messages.len(), 2, "question log emits two messages");
+        match &messages[0] {
+            Message::Assistant(msg) => {
+                let content = format!("{:?}", msg.content);
+                assert!(
+                    content.contains("Which module owns truncation?"),
+                    "first message should carry the question, got {content}"
+                );
+            }
+            other => panic!("expected Assistant message, got {other:?}"),
+        }
+        match &messages[1] {
+            Message::User { content } => {
+                let content = format!("{:?}", content);
+                assert!(
+                    content.contains("window.rs"),
+                    "second message should carry the answer, got {content}"
+                );
+            }
+            other => panic!("expected User message, got {other:?}"),
+        }
+
+        // Externally tagged serialization round-trips the new variant
+        let json = serde_json::to_string(&log).unwrap();
+        let round_tripped: TenonLog = serde_json::from_str(&json).unwrap();
+        assert!(matches!(
+            round_tripped.data(),
+            TenonLogData::Question(q) if q.question() == "Which module owns truncation?"
+        ));
+    }
+
+    #[test]
+    fn test_choreo_log_system_content_includes_non_empty_artifact() {
+        let log_with_artifact = TenonChoreoLog {
+            id: "c-1".to_string(),
+            content: "Test Choreo".to_string(),
+            r#move: Some(2),
+            tool_log: choreo_tool_log(
+                "navigate_choreo",
+                serde_json::json!({"move": 2}),
+                "artifact: scope analysis done",
+            ),
+        };
+        let content = log_with_artifact.system_content();
+        assert!(
+            content.contains("passed from the previous step"),
+            "non-empty artifact must be replayed, got:\n{content}"
+        );
+        assert!(
+            content.contains("scope analysis done"),
+            "artifact text must be replayed, got:\n{content}"
+        );
+
+        let log_no_artifact = TenonChoreoLog {
+            id: "c-1".to_string(),
+            content: "Test Choreo".to_string(),
+            r#move: Some(2),
+            tool_log: choreo_tool_log("navigate_choreo", serde_json::json!({"move": 2}), "move: 2"),
+        };
+        let content = log_no_artifact.system_content();
+        assert!(
+            !content.contains("passed from the previous step"),
+            "no artifact must not replay the block, got:\n{content}"
+        );
+    }
+
     #[test]
     fn test_choreo_log_converts_to_system_context() {
         let choreo_log = TenonChoreoLog {
@@ -821,6 +973,11 @@ impl TenonLog {
                 }
                 text
             }
+            TenonLogData::Question(question_log) => format!(
+                "Question: {}\nAnswer: {}",
+                question_log.question(),
+                question_log.answer()
+            ),
             TenonLogData::Choreo(choreo_log) => choreo_log.id.clone(),
         }
     }
@@ -904,6 +1061,7 @@ impl TenonLogData {
             TenonLogData::Assistant(_) => "assistant",
             TenonLogData::Tool(_) => "tool",
             TenonLogData::Choreo(_) => "choreo",
+            TenonLogData::Question(_) => "question",
         }
     }
 
@@ -1027,6 +1185,15 @@ impl TenonLogData {
                 }
                 lines
             }
+            TenonLogData::Question(log) => {
+                let mut lines = vec!["### Question".to_string(), String::new()];
+                lines.extend(plain(log.question()));
+                lines.push(String::new());
+                lines.push("### Answer".to_string());
+                lines.push(String::new());
+                lines.extend(plain(log.answer()));
+                lines
+            }
         }
     }
 
@@ -1060,6 +1227,9 @@ impl TenonLogData {
                 call_tokens + result_tokens
             }
             TenonLogData::Choreo(log) => estimate_tokens(&log.system_content()),
+            TenonLogData::Question(log) => {
+                estimate_tokens(log.question()) + estimate_tokens(log.answer())
+            }
         }
     }
 }
@@ -1089,6 +1259,7 @@ impl From<&TenonLog> for Vec<Message> {
                 }
             }
             TenonLogData::Tool(tool_log) => tool_log.into(),
+            TenonLogData::Question(question_log) => question_log.all_messages(),
             TenonLogData::Choreo(choreo_log) => {
                 vec![Message::System {
                     content: choreo_log.system_content(),

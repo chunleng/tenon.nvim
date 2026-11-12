@@ -2,8 +2,22 @@ use std::sync::{Arc, PoisonError, RwLock};
 
 use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::chat::log::TenonLogData;
+use crate::chat::log::indexer::IndexedLog;
 use crate::chat::log::window::LogWindow;
 use crate::get_application_config;
+
+/// Returns the text of the first user-like message in the logs: a typed
+/// user message, or the answer of a question log when it comes first.
+fn first_title_candidate(logs: &[IndexedLog]) -> Option<String> {
+    logs.iter().find_map(|indexed| {
+        let log = indexed.log.read().unwrap_or_else(PoisonError::into_inner);
+        match log.data() {
+            TenonLogData::User(crate::chat::TenonUserMessage::Text(msg)) => Some(msg.clone()),
+            TenonLogData::Question(question) => Some(question.answer().to_string()),
+            _ => None,
+        }
+    })
+}
 
 /// Handles title generation for chat sessions.
 ///
@@ -53,14 +67,7 @@ impl TitleHandler {
         }
 
         let first_message = match self.log_window.read() {
-            Ok(log_window) => log_window.logs.iter().find_map(|indexed| {
-                let log = indexed.log.read().unwrap_or_else(PoisonError::into_inner);
-                if let TenonLogData::User(crate::chat::TenonUserMessage::Text(msg)) = log.data() {
-                    Some(msg.clone())
-                } else {
-                    None
-                }
-            }),
+            Ok(log_window) => first_title_candidate(&log_window.logs),
             Err(_) => None,
         };
 
@@ -127,5 +134,81 @@ impl TitleHandler {
                 }
             });
         }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::log::TenonLog;
+    use crate::chat::{
+        TenonAssistantMessage, TenonAssistantMessageContent, TenonQuestionLog, TenonToolCall,
+        TenonToolLog, TenonToolResult,
+    };
+
+    fn indexed(data: TenonLogData) -> IndexedLog {
+        IndexedLog {
+            log: Arc::new(RwLock::new(TenonLog::new(data))),
+            active: true,
+        }
+    }
+
+    fn assistant_log() -> TenonLogData {
+        TenonLogData::Assistant(TenonAssistantMessage {
+            content: vec![TenonAssistantMessageContent::Text(
+                "assistant text".to_string(),
+            )],
+            reasoning: None,
+            complete: true,
+        })
+    }
+
+    fn question_log(question: &str, answer: &str) -> TenonLogData {
+        TenonLogData::Question(TenonQuestionLog {
+            tool_log: TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "call-1".to_string(),
+                    internal_call_id: "call-1".to_string(),
+                    item_id: None,
+                    name: "ask_question".to_string(),
+                    args: serde_json::json!({ "question": question }),
+                },
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    answer.to_string(),
+                )))),
+                progress: vec![],
+            },
+        })
+    }
+
+    #[test]
+    fn test_first_title_candidate_uses_question_answer_when_first() {
+        // A first-position question log feeds its answer to title generation.
+        let logs = vec![
+            indexed(assistant_log()),
+            indexed(question_log("Which module owns auth?", "auth module")),
+        ];
+        assert_eq!(
+            first_title_candidate(&logs),
+            Some("auth module".to_string())
+        );
+
+        // A typed user message before the question keeps precedence.
+        let logs = vec![
+            indexed(TenonLogData::User(crate::chat::TenonUserMessage::Text(
+                "Fix login bug".to_string(),
+            ))),
+            indexed(question_log("Which module?", "auth module")),
+        ];
+        assert_eq!(
+            first_title_candidate(&logs),
+            Some("Fix login bug".to_string())
+        );
+    }
+
+    #[test]
+    fn test_first_title_candidate_none_without_user_like_message() {
+        let logs = vec![indexed(assistant_log())];
+        assert_eq!(first_title_candidate(&logs), None);
     }
 }

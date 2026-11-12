@@ -29,7 +29,8 @@ pub use event_channel::EventChannel;
 pub use log::handler::ChatLogHandler;
 pub use log::{
     TenonAssistantMessage, TenonAssistantMessageContent, TenonChoreoLog, TenonImageLog, TenonLog,
-    TenonLogData, TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult, TenonUserMessage,
+    TenonLogData, TenonQuestionLog, TenonToolCall, TenonToolError, TenonToolLog, TenonToolResult,
+    TenonUserMessage,
 };
 pub use usage::SessionUsage;
 pub use work_queue::WorkQueue;
@@ -315,8 +316,8 @@ impl ChatSession {
                         break;
                     }
 
-                    // Reset or else it will continue the same prompt
-                    prompt = "".to_string();
+                    // Reset the prompt, as if we are continuing chat
+                    prompt = engine.log_handler.get_user_prompt();
                 }
             });
 

@@ -53,15 +53,25 @@ impl ChatLogIndexer {
         log_window: LogWindow,
         user_message: &str,
     ) -> Vec<Message> {
-        let mut chat_history = log_window
-            .active_history_log()
-            .iter()
-            .filter_map(|indexed| {
-                let log = indexed.read().ok()?;
-                Some(Vec::<Message>::from(&*log))
-            })
-            .flatten()
-            .collect::<Vec<_>>();
+        let active_logs = log_window.active_history_log();
+        let last_idx = active_logs.len().saturating_sub(1);
+        let mut chat_history = Vec::new();
+        for (idx, log_arc) in active_logs.iter().enumerate() {
+            let Ok(log) = log_arc.read() else { continue };
+            chat_history.extend(match &log.data {
+                // TODO: We should have a way to extract question and history in one function,
+                // probably shared with `ChatLogHandler::get_user_prompt`. This is to prevent
+                // dropping chat log without realizing
+                TenonLogData::Question(question)
+                    if idx == last_idx
+                        && !user_message.is_empty()
+                        && question.answer() == user_message =>
+                {
+                    question.question_message()
+                }
+                _ => Vec::<Message>::from(&*log),
+            });
+        }
         let rag_history_messages = self.get_relevant_context(&log_window, user_message);
         for msg in rag_history_messages.into_iter().rev() {
             chat_history.push(msg);
@@ -229,7 +239,9 @@ impl ChatLogIndexer {
                 if indexed.active
                     && matches!(
                         log.data(),
-                        TenonLogData::User(_) | TenonLogData::Assistant(_)
+                        TenonLogData::User(_)
+                            | TenonLogData::Assistant(_)
+                            | TenonLogData::Question(_)
                     )
                     && !is_first_user(idx)
                     && candidates.insert(idx)
@@ -314,7 +326,10 @@ mod tests {
     use crate::chat::log::handler::ChatLogHandler;
     use crate::chat::{
         TenonAssistantMessage, TenonAssistantMessageContent,
-        log::{TenonLog, TenonLogData, TenonUserMessage},
+        log::{
+            TenonLog, TenonLogData, TenonQuestionLog, TenonToolCall, TenonToolLog, TenonToolResult,
+            TenonUserMessage,
+        },
     };
 
     fn create_user_log(token_count: usize) -> TenonLog {
@@ -662,6 +677,86 @@ mod tests {
         assert!(log_window.logs[4].active, "user (checkpoint 1x) preserved");
     }
 
+    fn answered_question_log(question: &str, answer: &str) -> TenonLog {
+        TenonLog::new(TenonLogData::Question(TenonQuestionLog {
+            tool_log: TenonToolLog {
+                tool_call: TenonToolCall {
+                    id: "call-1".to_string(),
+                    internal_call_id: "call-1".to_string(),
+                    item_id: None,
+                    name: "ask_question".to_string(),
+                    args: serde_json::json!({ "question": question }),
+                },
+                tool_result: Some(Ok(TenonToolResult::Text(rig::agent::Text::new(
+                    answer.to_string(),
+                )))),
+                progress: vec![],
+            },
+        }))
+    }
+
+    fn create_question_log(token_count: usize) -> TenonLog {
+        let mut log = answered_question_log("Which build command?", "cargo build");
+        log.token_count = token_count;
+        log
+    }
+
+    #[test]
+    fn test_truncation_phase3_removes_region_1_question_log() {
+        // Phase 3 (hard limit 20): the question log joins the chat-log tier,
+        // so a region-1 question (not the first message) is deactivated.
+        let logs = vec![
+            create_user_log(1),      // 0 - first user (never removed)
+            create_question_log(18), // 1 - question (Region 1, chat-log tier)
+            create_user_log(1),      // 2 - user (checkpoint 2x, Region 1)
+            create_user_log(1),      // 3 - user (checkpoint 1x, Region 2)
+            create_assistant_log(0), // 4 - assistant (preserves last-user exclusion semantics)
+        ];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let log_window = handler.log_window.read().unwrap();
+
+        assert!(log_window.logs[0].active, "first user preserved");
+        assert!(!log_window.logs[1].active, "question removed (Region 1)");
+        assert!(log_window.logs[2].active, "user preserved (checkpoint 2x)");
+        assert!(log_window.logs[3].active, "user preserved (checkpoint 1x)");
+    }
+
+    #[test]
+    fn test_get_relevant_context_embeds_question_log() {
+        // An inactive question log surfaces through RAG as one chat-history
+        // text carrying both halves under the "question" role tag.
+        let logs = vec![create_user_log(1), create_question_log(1)];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        handler.log_window.write().unwrap().logs[1].active = false;
+
+        let indexer = handler.indexer.read().unwrap();
+        let log_window = handler.log_window.read().unwrap();
+        let result = indexer.get_relevant_context(&log_window, "test message");
+
+        assert_eq!(result.len(), 1);
+        let content = match &result[0] {
+            rig::message::Message::System { content } => content.clone(),
+            other => panic!("expected System message, got {:?}", other),
+        };
+        assert!(
+            content.starts_with("<chat-history role=\"question\">"),
+            "content: {}",
+            content
+        );
+        assert!(
+            content.contains("Question: Which build command?"),
+            "content: {}",
+            content
+        );
+        assert!(
+            content.contains("Answer: cargo build"),
+            "content: {}",
+            content
+        );
+    }
+
     #[test]
     fn test_truncation_phase3_chat_logs_region_1_important_tools_preserved() {
         // Phase 3 (hard limit 20): Remove chat logs from region 1.
@@ -930,5 +1025,114 @@ mod tests {
             "first user ALWAYS preserved (invariant)"
         );
         assert!(!log_window.logs[1].active, "second got removed instead");
+    }
+
+    #[test]
+    fn test_retrieve_chatlog_with_context_includes_question_messages() {
+        // The real request path: a question log entry must yield two history
+        // messages (assistant question, then user answer) in log order,
+        // carrying only the plain texts - no tool-call JSON or option data
+        let question_log = answered_question_log("Which module owns truncation?", "window.rs");
+
+        let logs = vec![create_user_log(1), question_log, create_assistant_log(1)];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let indexer = handler.indexer.read().unwrap();
+        let log_window = handler.log_window.read().unwrap().clone();
+        let messages = indexer.retrieve_chatlog_with_context(log_window, "follow-up");
+
+        assert_eq!(messages.len(), 4, "history: {messages:?}");
+        match &messages[1] {
+            rig::message::Message::Assistant(msg) => {
+                let content = format!("{:?}", msg.content);
+                assert!(
+                    content.contains("Which module owns truncation?"),
+                    "question should be an assistant message, got {content}"
+                );
+                assert!(
+                    !content.contains("options") && !content.contains("open_ended_text"),
+                    "question message must carry no tool-call JSON, got {content}"
+                );
+            }
+            other => panic!("expected Assistant question message, got {other:?}"),
+        }
+        match &messages[2] {
+            rig::message::Message::User { content } => {
+                let content = format!("{:?}", content);
+                assert!(
+                    content.contains("window.rs"),
+                    "answer should be a user message, got {content}"
+                );
+                assert!(
+                    !content.contains("recommended"),
+                    "answer message must carry no option data, got {content}"
+                );
+            }
+            other => panic!("expected User answer message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_retrieve_chatlog_excludes_answer_when_prompt_is_answer() {
+        // Continue resends the answer of the last question log as the prompt:
+        // the question half stays in history, the answer half is excluded
+        // (it is passed separately) so the model never sees the answer twice
+        let question_log = answered_question_log("Use the default mode?", "Yes");
+
+        let logs = vec![create_user_log(1), question_log];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let indexer = handler.indexer.read().unwrap();
+        let log_window = handler.log_window.read().unwrap().clone();
+        let messages = indexer.retrieve_chatlog_with_context(log_window, "Yes");
+
+        // user log + question assistant message only; the answer is the prompt
+        assert_eq!(messages.len(), 2, "history: {messages:?}");
+        match &messages[1] {
+            rig::message::Message::Assistant(msg) => {
+                let content = format!("{:?}", msg.content);
+                assert!(
+                    content.contains("Use the default mode?"),
+                    "question half must stay in history, got {content}"
+                );
+            }
+            other => panic!("expected Assistant question message, got {other:?}"),
+        }
+        for msg in &messages {
+            let debug = format!("{msg:?}");
+            assert!(
+                !debug.contains("Yes"),
+                "answer half must be excluded when passed separately, got {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_retrieve_chatlog_keeps_answer_when_prompt_differs() {
+        // A mid-stream retry passes the original prompt, which differs from
+        // the answer: both halves of the last question log stay in history so
+        // the answer is never lost from the model's context
+        let question_log = answered_question_log("Use the default mode?", "Yes");
+
+        let logs = vec![create_user_log(1), question_log];
+        let mut handler = ChatLogHandler::new();
+        handler.load(logs);
+        let indexer = handler.indexer.read().unwrap();
+        let log_window = handler.log_window.read().unwrap().clone();
+        let messages =
+            indexer.retrieve_chatlog_with_context(log_window, "Retry the original request");
+
+        // user log + question + answer
+        assert_eq!(messages.len(), 3, "history: {messages:?}");
+        match &messages[2] {
+            rig::message::Message::User { content } => {
+                let content = format!("{:?}", content);
+                assert!(
+                    content.contains("Yes"),
+                    "answer must stay in history when it is not the prompt, got {content}"
+                );
+            }
+            other => panic!("expected User answer message, got {other:?}"),
+        }
     }
 }
