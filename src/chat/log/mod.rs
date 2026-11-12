@@ -226,7 +226,7 @@ impl TenonChoreoLog {
         };
         let mut content = format!("<context type=\"choreo\">\n{header}\n");
         if let Some(artifact) = self.previous_step_artifact()
-            && artifact.is_empty()
+            && !artifact.is_empty()
         {
             content.push_str(&format!(
                 "The following information has been passed from the previous step:\n\
