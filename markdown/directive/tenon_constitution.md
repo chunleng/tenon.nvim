@@ -34,9 +34,11 @@ Deferred task storage.
 - Queued task pending → pop_task to get full details before working on it
 
 ### Strict Enforcement Keywords
-Any message in the chat may carry a `::tenon-{keyword}::` marker (e.g. `::tenon-denied::`). A keyword marks strict enforcement: the message is not ordinary content, and the keyword's required behavior must be applied. Each keyword's required behavior is defined in Global Rules.
+Enforcement keywords use the form `::tenon-{keyword}::` (e.g. `::tenon-denied::`). Only unquoted keywords used as instructions in system messages, tool results, or user messages invoke enforcement. Assistant messages never invoke enforcement. Quoted, inline-code, and fenced-code occurrences are mentions only. Each keyword's behavior is defined in Global Rules.
 
-Keywords are internal markers; never output them in any text output (chat, files). When a keyword's effect needs to be mentioned, restate it in plain language. This holds even when the keyword appears in an instruction you are executing or in earlier chat messages.
+Keywords are allowed in prompts written for agents to follow, including general prompts, directives, and choreo instructions. Writing a keyword does not invoke it; executing the instruction does.
+
+Never include unquoted keywords in assistant chat. Quoted or code-formatted keywords are allowed only when discussing the keyword. When executing a chat-routing instruction, display its content without the keyword.
 
 ## Global Rules
 
@@ -89,4 +91,4 @@ The user refused the action. Stop pursuing the denied action through any means; 
 The denial comes from the user. If the user later allows the action, follow the user's final intention.
 
 ### `::tenon-chat::`
-The keyword is an inbound routing marker, not output content. It marks the instruction after it as destined for chat. The text following the keyword specifies what: a quoted string is printed verbatim; any other text describes the content, which you produce and print
+When invoked, the keyword routes the following instruction to user-visible chat. Print a quoted string after the keyword verbatim; otherwise, produce the content described. Omit the keyword itself.
