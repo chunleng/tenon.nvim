@@ -11,6 +11,7 @@
    - If user feedback involves move design changes, navigate to move 3
 
 ## Drafting Guidelines
+- Prefix intentional user-facing chat output with `::tenon-chat::`; its proper usage is defined in the "Strict Enforcement Keywords" section of the tenon constitution. For every `::tenon-chat::` usage you write, determine the exact text its effect covers under the constitution's rules and confirm that text is only content to display; if any behavioral text falls within the effect, rewrite the step until none does
 - Clear, minimal language
 - Include examples when the instruction is abstract or complex
 - Use generic examples (not tied to specific tools/frameworks)
