@@ -485,6 +485,14 @@ impl AgenticStreamEngine {
                     Ok(StreamItem::Other) => {}
                     Ok(StreamItem::CompletionCall { usage }) => {
                         on_completion_call(usage);
+
+                        // The model call just finished, so its assistant message is complete.
+                        // Release any held prefix text and reset line-start checking: whatever
+                        // streams next (a new message after tool items, or a retry) begins at a
+                        // fresh line.
+                        let flushed = keyword_filter.flush();
+                        self.append_stream_text(&flushed);
+
                         if let Ok(mut log_window) = self.log_handler.log_window.write()
                             && let Some(indexed_log) = log_window.logs.last_mut()
                             && let Ok(mut log) = indexed_log.log.write()
@@ -814,6 +822,34 @@ mod tests {
         (addr, connections)
     }
 
+    /// Mock that serves a different body per connection: connection `i` gets
+    /// `bodies[i]`; later connections repeat the last body.
+    async fn spawn_ollama_mock_bodies(bodies: Vec<&'static str>) -> (SocketAddr, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("mock binds");
+        let addr = listener.local_addr().expect("mock address");
+        let connections = Arc::new(AtomicUsize::new(0));
+        let counter = connections.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let count = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                let bodies = bodies.clone();
+                tokio::spawn(async move {
+                    if !drain_http_request(&mut socket).await {
+                        return;
+                    }
+                    let body = bodies[(count - 1).min(bodies.len() - 1)];
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = socket.write_all(head.as_bytes()).await;
+                    let _ = socket.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+        (addr, connections)
+    }
+
     /// Reads one HTTP request (head + Content-Length body) off the socket.
     async fn drain_http_request(socket: &mut TcpStream) -> bool {
         let mut buf: Vec<u8> = Vec::new();
@@ -1116,6 +1152,59 @@ mod tests {
             assistant_text_of(&engine),
             "::tenon",
             "text still held when the turn ends must be resolved instead of dropped"
+        );
+    }
+
+    #[tokio::test]
+    async fn keyword_in_message_after_tool_call_is_filtered() {
+        // A multi-turn stream: turn 1 ends its message without a newline and
+        // makes a tool call; turn 2's message starts with the keyword. The
+        // tool boundary must reset the filter to line-start checking, so the
+        // turn-2 leading keyword is dropped instead of leaking through as
+        // mid-line text.
+        let turn1 = concat!(
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"Checking\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"index\":0,\"name\":\"read_file\",\"arguments\":{\"filepath\":\"Cargo.toml\"}}}]},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
+        );
+        let turn2 = concat!(
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"::tenon-chat:: \"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"Done\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
+        );
+        crate::utils::PLUGIN_ROOT
+            .set(std::env::current_dir().expect("test cwd"))
+            .ok();
+        let (addr, connections) = spawn_ollama_mock_bodies(vec![turn1, turn2]).await;
+
+        let model = test_model_with_base_url(format!("http://{addr}"), false);
+        let _override = register_models(vec![("test", model)]);
+
+        let log_handler = ChatLogHandler::new();
+        let tools = resolve_tools(&["read_file".to_string()], log_handler.log_window.clone());
+        let mut engine = AgenticStreamEngine::with_log_handler(
+            SelectedModel::new("test"),
+            vec![],
+            tools,
+            vec![],
+            ToolContext::new(),
+            log_handler,
+        );
+
+        let cancel = AtomicBool::new(false);
+        engine
+            .process_turn("Say hello".to_string(), &cancel, |_| {}, 2)
+            .await;
+
+        assert_eq!(
+            assistant_text_of(&engine),
+            "CheckingDone",
+            "the message after a tool call must be treated as a fresh line start, so its leading keyword is dropped"
+        );
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            2,
+            "turn 1's tool call must trigger the turn 2 model call"
         );
     }
 }
