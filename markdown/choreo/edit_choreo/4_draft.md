@@ -11,6 +11,7 @@
    - If user feedback involves move design changes, navigate to move 3
 
 ## Drafting Guidelines
+- Prefix instructions for intentional user-facing chat output with `::tenon-chat::`. Apply it to useful summaries, results, and approval requests, not internal work or choreo artifacts.
 - Clear, minimal language
 - Include examples when the instruction is abstract or complex
 - Use generic examples (not tied to specific tools/frameworks)

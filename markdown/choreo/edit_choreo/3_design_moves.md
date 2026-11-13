@@ -12,7 +12,7 @@ This move only deals with move design: the move sequence, each move's artifact, 
    - `id`, `title`, `description`, `moves` (with `title`, instruction file path using `{storage_path}/{N}_{move_name}.md` pattern where N is the move number, e.g. `1_`, `2_`, `3_`), `goto_instructions`
    - Order goto conditions before catch-all (null condition); null always matches, blocking later conditions
    - Omit implicit goto instructions: Next without condition and without memory artifact is implicit. EndChoreo in the last move without condition is also implicit. Self-loops (goto to the same move, e.g. `GotoMove::Move(3)` from move 3) are also implicit; express re-iteration in the move's Process as "loop back to process step N" instead
-8. For each move, summarize its input, what it processes, and its artifact
+8. ::tenon-chat:: summary of each move's input, what it processes, and its artifact
 9. Ask user to confirm `{config_path}/{choreo_id}.rs` before proceeding. If user requests changes, edit the file and loop back to process step 4
 
 ## Move Isolation Criteria

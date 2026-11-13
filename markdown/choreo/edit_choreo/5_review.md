@@ -15,6 +15,7 @@ In any process step, ask the user for input at any point during the review when 
    - Specificity: concrete or vague?
    - Redundancy: repeats unnecessarily?
    - Contradiction: conflicts with other instructions?
+   - Chat output: instructions for intended user-facing output are prefixed with `::tenon-chat::`; internal work and choreo artifacts are not.
    - If content issues found, navigate to move 4
 4. ::tenon-chat:: the choreo and ask the user for approval if no issues were found. If user requests changes, classify them as structural or content. If approved, end the choreo
 
