@@ -16,7 +16,7 @@
    Remove explanatory rationale. Preserve all conditional clauses. Deduplicate equivalent statements.
    ```
 
-4. If the target is file-based, apply edits to the files in-place using the edit tool. If the target is inline text, output the compacted text directly.
+4. If the target is file-based, apply edits to the files in-place using the edit tool. If the target is inline text, ::tenon-chat:: the compacted text.
 
 ## Guidelines
 - Each behavioral instruction must remain individually identifiable after compaction: do not combine two rules into one sentence where their conditions or scopes differ
