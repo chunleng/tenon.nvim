@@ -6,7 +6,7 @@
    - Explanation: a user needs to understand why it is the way it is (design, decisions, context).
      - Use only non-obvious rationale: deliberate decisions among valid options, constraints, and context the code cannot convey. Straightforward reasons evident from the code belong in code comments or in describing how the code works, not here
 2. For each need, decide create vs. update using the change context's existing docs, following the decision tree in "Create vs. Update Decision Tree"
-3. Present the assessment to the user, with two groups:
+3. ::tenon-chat:: Present the assessment to the user, with two groups:
    - Documents to create or update, grouped by type; for each item include:
      - Type. i.e. `tutorial`, `how-to`, `reference`, `explanation`
      - Path to document (new/existing doc)
