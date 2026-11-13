@@ -4,7 +4,7 @@ Generate PR title and description following the output format
 ## Process
 1. Generate a concise title
 2. Generate description with required and optional components
-3. If a tool to update the PR is available, update the PR with the generated title and description; otherwise print the title and description in chat and end the choreo
+3. If a tool to update the PR is available, update the PR with the generated title and description; otherwise ::tenon-chat:: the title and description and end the choreo
 
 ## Output Format
 
