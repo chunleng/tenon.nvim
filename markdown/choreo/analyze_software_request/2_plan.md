@@ -1,9 +1,10 @@
 ## Process
 1. If re-entered from Validate, note the existing plan in choreo memory and user feedback.
-2. Plan feature steps. Each feature step must satisfy all three criteria:
+2. Plan feature steps. Each feature step must satisfy all four criteria:
    - Can be partial: the step's deliverable can be a partially working feature or use stubs/placeholder data. It does not need to be a complete, fully functional feature.
    - Must not break the system: the system remains functional after each step
    - User-visible: the user can run the system and see the step's deliverable
+   - Tests included: tests are implicitly part of the feature step. Describe the feature without repeating a test clause, and do not create separate steps for testing it.
 3. Evaluate whether setup steps are needed, based on two triggers:
    - Features being built: does any feature require a test type or test framework not already in place? (e.g., a feature involving async messaging → introduce an integration test harness)
    - Non-functional requirements: does any requirement need a supporting framework to verify or sustain it? (e.g., high QPS → introduce a stress test framework)
@@ -22,6 +23,11 @@
 
 - Good: Display a notification with dummy data (user sees placeholder content); show search results with hardcoded entries; render a login form that accepts any credentials
 - Bad: Create a formatting function for notifications (nothing for the user to run); set up database schema (invisible plumbing); write a data parser (no user-visible output until connected to a UI)
+
+### Implementation and Tests Together
+
+- Good: Display a notification with dummy data (tests are implicitly included)
+- Bad: Display a notification with dummy data, then add a separate step to test it
 
 ### Setup Step Placement
 
