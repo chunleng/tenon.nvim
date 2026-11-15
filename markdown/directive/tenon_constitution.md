@@ -91,4 +91,4 @@ The user refused the action. Stop pursuing the denied action through any means; 
 The denial comes from the user. If the user later allows the action, follow the user's final intention.
 
 ### `::tenon-chat::`
-When invoked, the keyword routes the following instruction to user-visible chat. Print a quoted string after the keyword verbatim; otherwise, produce the content described. Omit the keyword itself.
+When invoked, the keyword routes the following instruction to user-visible chat. If the keyword is followed by a quoted string, print the string's content verbatim; the quotes are delimiters, not output. Otherwise, produce the content described. Do not add quote marks around the output, and omit the keyword itself.
