@@ -7,9 +7,10 @@
 3. Check the step ordering: a newcomer following the steps in order, starting from the prerequisites, must succeed
 4. Check all mandatory sections are present (Goal, Prerequisites, Steps, Expected result)
 5. If issues are found, navigate to move 2
-6. If no issues are found, report the verification result to the user and ask them to confirm the tutorial is complete
+6. If no issues are found, ::tenon-chat:: report the verification result to the user and ask them to confirm the tutorial is complete
 7. If the user points out problems instead of confirming, treat their response as verification findings and navigate to move 2
-8. If the user's response is unclear, ask again until they either confirm or point out problems
+8. If the user's response is unclear, ::tenon-chat:: ask again
+   - Continue until they either confirm or point out problems
 
 ## Choreo Move Artifact
 For navigating to move 2:

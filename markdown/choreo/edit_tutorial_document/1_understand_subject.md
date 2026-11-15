@@ -1,11 +1,12 @@
 ## Process
-1. If the user has not yet provided the subject or the information to include, ask for it
+1. If the user has not yet provided the subject or the information to include, ::tenon-chat:: ask for it
 2. Scan existing documentation for a document that already covers the subject
 3. Explore the repository to ground the tutorial:
    - Locate the code relevant to the subject
    - Identify the commands, file paths, and APIs a newcomer would actually use
    - If an existing document covers the subject, read it to determine what to keep and what to update
-4. If information needed for the tutorial cannot be determined from the user's input or the code, ask the user, then go back to step 3
+4. If information needed for the tutorial cannot be determined from the user's input or the code, ::tenon-chat:: ask the user
+   - Then go back to step 3
 
 ## Choreo Move Artifact
 ```yaml
