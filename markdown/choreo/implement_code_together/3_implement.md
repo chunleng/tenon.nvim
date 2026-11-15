@@ -10,8 +10,8 @@
   - Build project
   - `tests` from previous move is empty → skip test run
   - Otherwise → run test (should pass now), run tests in same module/feature area
-4. ::tenon-chat:: summary of changes
-5. Ask user to confirm: "Please confirm the implementation"
+4. ::tenon-chat:: summary of changes, then a request to confirm the implementation
+5. Interpret user's response:
   - Confirm → format code and navigate to move 1
   - Otherwise → use "Decision: Confirm vs. Reject vs. No Answer" to interpret the response
 
