@@ -3,9 +3,9 @@
    - **Destination**: If the request names a specific platform to use, including through a platform document URL, use platform delivery. Otherwise, use file delivery
    - **Mode**: If a link or file identifies the current specification to edit, use update. Otherwise, use create
    - For platform creation, identify the creation location. For platform updates, fetch the current specification from its URL. For file updates, read the current specification. Use any pasted content as input
-   - Ask only when the request is ambiguous or required destination details are missing
+   - If the request is ambiguous or required destination details are missing, ::tenon-chat:: ask the user for the missing details
 2. Interview the user for shared understanding of the document's decision:
-   - Ask one question at a time, waiting for feedback before continuing
+   - ::tenon-chat:: one question at a time; wait for feedback before continuing
    - For each question, provide your recommended answer
    - If a fact can be found by searching the codebase or existing docs, look it up rather than asking the user
    - The decisions are the user's; put each one to them and wait for their answer

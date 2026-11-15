@@ -6,9 +6,9 @@
    - Are genuine open questions explicit?
    - Is the document concise enough to read?
 3. If gaps remain, identify them specifically for revision and navigate to move 3
-4. If no gaps remain, ask the user to confirm the document is ready. Treat requested document changes as revisions; resolve other feedback and repeat confirmation
+4. If no gaps remain, ::tenon-chat:: ask the user to confirm the document is ready; treat requested document changes as revisions; resolve other feedback and repeat confirmation
 5. After user confirmation, finalize using `decision_frame` from memory (`mode`, `destination_type`, `destination`, `working_file_path`):
-   - **Platform** (`destination_type: platform`): If an appropriate tool exists, create a new document at `destination` for creation or update the URL in `destination` for updates. Otherwise, present the final document in chat for the user to copy to the platform. Remove `working_file_path` only after successful delivery
+   - **Platform** (`destination_type: platform`): If an appropriate tool exists, create a new document at `destination` for creation or update the URL in `destination` for updates. Otherwise, ::tenon-chat:: the final document for the user to copy to the platform; remove `working_file_path` only after successful delivery
    - **File** (`destination_type: file`): `working_file_path` is the final deliverable at `destination`
 
 ### Create

@@ -2,7 +2,7 @@
 1. On re-entry from Review, address the identified gaps rather than rewriting from scratch
 2. Draft using `decision_frame` and optional `exploration` from memory, Apply the Create or Update subsection according to `mode`
 3. Write the document to `decision_frame.working_file_path`
-4. Ask the user to confirm the draft or describe what to change. Incorporate requested changes and repeat confirmation until the user confirms
+4. ::tenon-chat:: ask the user to confirm the draft or describe what to change; incorporate requested changes and repeat confirmation until the user confirms
 
 ### Create
 1. Structure a new document for decision-readiness using `decision`, `problem`, and `scope` from `decision_frame`
