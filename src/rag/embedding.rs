@@ -1,8 +1,9 @@
 use crate::chat::log::TenonLog;
-use crate::utils::path_from_str;
+use crate::utils::path::TenonPath;
 use anyhow::Result;
 use fastembed::similarity::top_k;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 #[cfg(test)]
@@ -82,7 +83,7 @@ fn embed_texts(texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         .collect();
     order.sort_by_key(|&i| embeddable[i].len());
 
-    let cache_dir = path_from_str("~/.fastembed_cache");
+    let cache_dir: PathBuf = TenonPath::with_cwd("~/.fastembed_cache").into();
 
     // We initiate all the time because this is a small model and fast to start.
     // The tradeoff is that we get to save on memory usage

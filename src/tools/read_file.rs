@@ -1,6 +1,7 @@
 use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::approval::{ApprovalResult, request_approval};
-use crate::utils::{has_hidden_component, is_within_directory, path_from_str};
+use crate::utils::path::TenonPath;
+use crate::utils::{has_hidden_component, is_within_directory};
 
 use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
@@ -37,11 +38,8 @@ impl ToolCoreCall for ReadFileCall {
 
     async fn result(self, context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
         let args = self.args;
-        let path = path_from_str(&args.filepath);
-        let path = match &self.working_directory {
-            Some(dir) if path.is_relative() => dir.join(path),
-            _ => path,
-        };
+        let path: std::path::PathBuf =
+            TenonPath::new(&args.filepath, self.working_directory.as_deref()).into();
         if self.restrict_to_working_directory {
             // `None` restricts to the process cwd
             let base = match &self.working_directory {
@@ -59,7 +57,7 @@ impl ToolCoreCall for ReadFileCall {
 
         // Use the raw `args.filepath` so that we check for hidden component based on whatever is
         // passed to the tool
-        if has_hidden_component(&path_from_str(&args.filepath)) {
+        if has_hidden_component(std::path::Path::new(&args.filepath)) {
             let args_value = serde_json::to_value(&args)
                 .map_err(|e| ToolExecutionError::other(format!("failed to serialize args: {e}")))?;
 
@@ -616,6 +614,27 @@ mod tests {
         assert!(
             channel.peek().is_none(),
             "raw relative filepath without hidden component must not push an approval"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_restrict_none_nonexistent_relative_reaches_read_error() {
+        // With no working directory, a relative path resolves against the
+        // process cwd before the restrict check, so a nonexistent file
+        // surfaces the natural read error instead of the outside-workdir
+        // misreport
+        let missing = format!("tenon_missing_relative_{}.txt", std::process::id());
+        let err = run_read(None, true, missing.clone())
+            .await
+            .expect_err("nonexistent file should error");
+        assert!(
+            err.to_string()
+                .starts_with(&format!("error: read_file '{missing}'")),
+            "should surface the natural read error, got: {err}"
+        );
+        assert!(
+            !err.to_string().contains("outside the working directory"),
+            "must not be misreported as outside the working directory, got: {err}"
         );
     }
 }

@@ -1,8 +1,8 @@
 use crate::constants::special_chars::ELLIPSIS;
 use crate::tools::{ToolCore, ToolCoreCall};
+use crate::utils::path::TenonPath;
 use crate::utils::{
     format_yaml_block_scalars, has_hidden_component, is_within_directory, normalize_glob,
-    path_from_str,
 };
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
@@ -89,24 +89,11 @@ impl ToolCoreCall for SearchTextCall {
 
     async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
         let args = self.args;
-        let search_path = match &self.working_directory {
-            Some(dir) => match args.path.as_deref() {
-                None => dir.clone(),
-                Some(p) => {
-                    let path = path_from_str(p);
-                    if path.is_relative() {
-                        dir.join(path)
-                    } else {
-                        path
-                    }
-                }
-            },
-            None => args
-                .path
-                .as_deref()
-                .map(path_from_str)
-                .unwrap_or_else(|| path_from_str(".")),
-        };
+        let search_path: std::path::PathBuf = TenonPath::new(
+            args.path.as_deref().unwrap_or("."),
+            self.working_directory.as_deref(),
+        )
+        .into();
         if !search_path.exists() {
             return Err(ToolExecutionError::not_found(format!(
                 "Directory '{}' not found",
@@ -434,6 +421,74 @@ fn perform_search(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_none_wd_relative_path_resolution() {
+        let cwd = std::env::current_dir().unwrap();
+
+        // Explicit relative path with no working directory resolves against
+        // cwd; entry paths come out cwd-anchored, matching the Some(dir) flow
+        let mut context = ToolContext::new();
+        let call = SearchText {
+            working_directory: None,
+            ..Default::default()
+        }
+        .init_call(
+            &mut context,
+            SearchTextArgs {
+                pattern: None,
+                literal: Some("pub fn".to_string()),
+                path: Some("src".to_string()),
+                glob: None,
+                ignore_case: None,
+                context_lines: None,
+                max_files: None,
+            },
+        )
+        .await
+        .expect("init_call should succeed");
+        let output = call
+            .result(&mut context)
+            .await
+            .expect("relative path should resolve against the process cwd");
+        assert!(
+            output.contains(cwd.join("src").join("lib.rs").to_str().unwrap()),
+            "explicit relative path should yield cwd-anchored entry paths, got: {output}"
+        );
+
+        // Nonexistent relative path: not-found error names the cwd-joined path
+        let missing = format!("tenon_missing_dir_{}", std::process::id());
+        let mut context = ToolContext::new();
+        let call = SearchText {
+            working_directory: None,
+            ..Default::default()
+        }
+        .init_call(
+            &mut context,
+            SearchTextArgs {
+                pattern: None,
+                literal: Some("pub fn".to_string()),
+                path: Some(missing.clone()),
+                glob: None,
+                ignore_case: None,
+                context_lines: None,
+                max_files: None,
+            },
+        )
+        .await
+        .expect("init_call should succeed");
+        let err = call
+            .result(&mut context)
+            .await
+            .expect_err("nonexistent directory should error");
+        assert!(
+            err.to_string().contains(&format!(
+                "Directory '{}' not found",
+                cwd.join(&missing).display()
+            )),
+            "not-found error should name the cwd-joined path, got: {err}"
+        );
+    }
 
     mod perform_search_tests {
         use super::*;

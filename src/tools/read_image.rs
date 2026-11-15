@@ -11,6 +11,7 @@ use serde_json::json;
 
 use crate::chat::{TenonImageLog, TenonLog, TenonLogData};
 use crate::tools::{ToolCore, ToolCoreCall};
+use crate::utils::path::TenonPath;
 use crate::utils::{is_url, load_image_file, load_image_url};
 
 #[derive(Deserialize)]
@@ -57,7 +58,7 @@ impl ReadImageCall {
                 .await
                 .map_err(ToolExecutionError::other);
         }
-        load_image_file(&self.filepath).map_err(ToolExecutionError::other)
+        load_image_file(TenonPath::with_cwd(&self.filepath)).map_err(ToolExecutionError::other)
     }
 
     /// Delegates to a vision worker model: only its text answer reaches the

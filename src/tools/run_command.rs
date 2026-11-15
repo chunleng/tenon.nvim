@@ -241,7 +241,7 @@ async fn check_command_safety(args: &RunCommandArgs) -> Result<(), ToolExecution
     }
 
     let path = match &args.path {
-        Some(p) => crate::utils::format_path_relative(p),
+        Some(p) => crate::utils::path::TenonPath::with_cwd(p).to_string(),
         None => ".".to_string(),
     };
     let safety_context = CommandSafetyContext {

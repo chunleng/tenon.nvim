@@ -1,7 +1,7 @@
 use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use crate::utils::format_yaml_block_scalars;
-use crate::utils::path_from_str;
+use crate::utils::path::TenonPath;
 
 use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
@@ -71,7 +71,7 @@ impl ToolCoreCall for MovePathCall {
 
     async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
         let args = self.args;
-        let source = path_from_str(&args.source);
+        let source: PathBuf = TenonPath::with_cwd(&args.source).into();
 
         // 1. Source must exist
         if !source.exists() {
@@ -86,7 +86,7 @@ impl ToolCoreCall for MovePathCall {
             .map_err(|e| ToolExecutionError::other(format!("resolve '{}': {}", args.source, e)))?;
 
         // 2. Resolve destination
-        let dest = path_from_str(&args.destination);
+        let dest: PathBuf = TenonPath::with_cwd(&args.destination).into();
         let actual_dest = if dest.exists() && dest.is_dir() {
             // Move into directory — append source filename
             dest.join(source.file_name().unwrap_or_default())
@@ -225,5 +225,66 @@ impl ToolCore for MovePath {
         args: Self::Args,
     ) -> Result<Self::Call, Self::Error> {
         Ok(MovePathCall { args })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Success paths call GLOBAL_EXECUTION_HANDLER, which panics outside
+    // Neovim; only the pre-handler error paths are testable here
+    async fn run_move(source: String, destination: String) -> Result<String, ToolExecutionError> {
+        let mut context = ToolContext::new();
+        let call = MovePath
+            .init_call(
+                &mut context,
+                MovePathArgs {
+                    source,
+                    destination,
+                },
+            )
+            .await
+            .expect("init_call should succeed");
+        call.result(&mut context).await
+    }
+
+    #[tokio::test]
+    async fn test_move_path_error_contracts() {
+        // Missing source: not-found error names the raw source argument
+        let missing =
+            std::env::temp_dir().join(format!("tenon_move_missing_{}", std::process::id()));
+        let missing_str = missing.to_string_lossy().to_string();
+        let expected = format!("not found: '{missing_str}'");
+        let err = run_move(missing_str.clone(), missing_str)
+            .await
+            .expect_err("missing source should error");
+        assert!(
+            err.to_string().contains(&expected),
+            "not-found error should name the raw source, got: {err}"
+        );
+
+        // Existing destination file: invalid-args error names the raw
+        // destination
+        let src = std::env::temp_dir().join(format!("tenon_move_src_{}", std::process::id()));
+        std::fs::write(&src, "content").unwrap();
+        let existing_dest =
+            std::env::temp_dir().join(format!("tenon_move_dest_{}", std::process::id()));
+        std::fs::write(&existing_dest, "occupied").unwrap();
+        let err = run_move(
+            src.to_string_lossy().to_string(),
+            existing_dest.to_string_lossy().to_string(),
+        )
+        .await
+        .expect_err("existing destination file should error");
+        assert!(
+            err.to_string().contains(&format!(
+                "dest exists: '{}'",
+                existing_dest.to_string_lossy()
+            )),
+            "dest-exists error should name the raw destination, got: {err}"
+        );
+        std::fs::remove_file(&src).ok();
+        std::fs::remove_file(&existing_dest).ok();
     }
 }

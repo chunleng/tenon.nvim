@@ -330,6 +330,7 @@ fn datetime_min() -> DateTime<Utc> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::path::TenonPath;
     use chrono::{TimeZone, Utc};
 
     #[test]
@@ -808,7 +809,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("pixel.png");
         std::fs::write(&path, png).unwrap();
-        let image = crate::utils::load_image_file(path.to_str().unwrap()).unwrap();
+        let image =
+            crate::utils::load_image_file(TenonPath::with_cwd(path.to_str().unwrap())).unwrap();
         // The file is removed before conversion: history conversion must use
         // the in-memory image from the tool result, not re-read the file.
         std::fs::remove_file(&path).unwrap();

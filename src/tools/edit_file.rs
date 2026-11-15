@@ -1,6 +1,6 @@
 use crate::tools::{ToolCore, ToolCoreCall};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
-use crate::utils::path_from_str;
+use crate::utils::path::TenonPath;
 use rig::tool::{ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -124,7 +124,7 @@ impl ToolCoreCall for EditFileCall {
         } else {
             ReplaceMode::One
         };
-        let path = path_from_str(&args.filepath);
+        let path: std::path::PathBuf = TenonPath::with_cwd(&args.filepath).into();
 
         let content = match fs::read_to_string(&path) {
             Ok(c) => c,
@@ -319,5 +319,38 @@ mod tests {
         let (result, edits) = perform_edit(&content, "foo", "bar", &ReplaceMode::All).unwrap();
         assert_eq!(edits.len(), 20);
         assert_eq!(result, "bar ".repeat(20));
+    }
+
+    #[tokio::test]
+    async fn test_edit_file_read_fail_error_contract() {
+        // A directory path fails the read with a non-NotFound error, reaching
+        // the Read fail contract; the NotFound branch continues into the
+        // write path, which calls GLOBAL_EXECUTION_HANDLER and panics outside
+        // Neovim
+        let dir = std::env::temp_dir().join(format!("tenon_edit_dir_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut context = ToolContext::new();
+        let call = EditFile
+            .init_call(
+                &mut context,
+                EditFileArgs {
+                    filepath: dir.to_string_lossy().to_string(),
+                    literal: None,
+                    replace: "x".to_string(),
+                    all: false,
+                },
+            )
+            .await
+            .expect("init_call should succeed");
+        let err = call
+            .result(&mut context)
+            .await
+            .expect_err("directory path should fail to read");
+        assert!(
+            err.to_string()
+                .contains(&format!("Read fail '{}'", dir.to_string_lossy())),
+            "read failure should surface the Read fail contract, got: {err}"
+        );
+        std::fs::remove_dir(&dir).ok();
     }
 }

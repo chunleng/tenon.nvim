@@ -1,5 +1,6 @@
 use crate::tools::{ToolCore, ToolCoreCall};
-use crate::utils::{is_within_directory, normalize_glob, path_from_str};
+use crate::utils::path::TenonPath;
+use crate::utils::{is_within_directory, normalize_glob};
 use globset::GlobBuilder;
 use ignore::WalkBuilder;
 
@@ -41,24 +42,11 @@ impl ToolCoreCall for ListFilesCall {
         let args = self.args;
         let max_count = args.max_count.unwrap_or(20);
         let show_gitignored = args.show_gitignored.unwrap_or(false);
-        let search_path = match &self.working_directory {
-            Some(dir) => match args.path.as_deref() {
-                None => dir.clone(),
-                Some(p) => {
-                    let path = path_from_str(p);
-                    if path.is_relative() {
-                        dir.join(path)
-                    } else {
-                        path
-                    }
-                }
-            },
-            None => args
-                .path
-                .as_deref()
-                .map(path_from_str)
-                .unwrap_or_else(|| path_from_str(".")),
-        };
+        let search_path: std::path::PathBuf = TenonPath::new(
+            args.path.as_deref().unwrap_or("."),
+            self.working_directory.as_deref(),
+        )
+        .into();
         if !search_path.exists() {
             return Err(ToolExecutionError::not_found(format!(
                 "Directory '{}' not found",
@@ -337,5 +325,33 @@ mod tests {
 
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&other).ok();
+    }
+
+    #[tokio::test]
+    async fn test_none_wd_relative_path_resolution() {
+        let cwd = std::env::current_dir().unwrap();
+
+        // Explicit relative path with no working directory resolves against
+        // cwd; entry paths come out cwd-anchored, matching the Some(dir) flow
+        let output = run_list(None, false, Some("src".to_string()), "*.rs")
+            .await
+            .expect("relative path should resolve against the process cwd");
+        assert!(
+            output.contains(cwd.join("src").join("lib.rs").to_str().unwrap()),
+            "explicit relative path should yield cwd-anchored entry paths, got: {output}"
+        );
+
+        // Nonexistent relative path: not-found error names the cwd-joined path
+        let missing = format!("tenon_missing_dir_{}", std::process::id());
+        let err = run_list(None, false, Some(missing.clone()), "*.rs")
+            .await
+            .expect_err("nonexistent directory should error");
+        assert!(
+            err.to_string().contains(&format!(
+                "Directory '{}' not found",
+                cwd.join(&missing).display()
+            )),
+            "not-found error should name the cwd-joined path, got: {err}"
+        );
     }
 }

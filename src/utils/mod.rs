@@ -1,6 +1,8 @@
 pub mod approval;
+pub mod path;
 pub mod rig_http;
 
+use path::TenonPath;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, LazyLock, Mutex, OnceLock,
@@ -15,36 +17,6 @@ use nvim_oxi::{
 };
 
 pub static PLUGIN_ROOT: OnceLock<PathBuf> = OnceLock::new();
-
-/// Convert an absolute path to a relative path (./relative) if within cwd,
-/// or return the absolute path if outside cwd.
-pub fn format_path_relative(path: &str) -> String {
-    std::env::current_dir()
-        .ok()
-        .and_then(|cwd| {
-            let cwd_str = cwd.to_string_lossy();
-            path.strip_prefix(cwd_str.as_ref())
-                .map(|rest| format!("./{}", rest.trim_start_matches('/')))
-        })
-        .unwrap_or_else(|| path.to_string())
-}
-
-/// Create a `PathBuf` from a string, expanding a leading `~` to `$HOME`.
-///
-/// Expands `~` alone or `~/...`. Falls back to the original path if `$HOME`
-/// is unset. Does not handle `~user` syntax.
-pub fn path_from_str(path: &str) -> PathBuf {
-    if path == "~" {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home);
-        }
-    } else if let Some(rest) = path.strip_prefix("~/")
-        && let Ok(home) = std::env::var("HOME")
-    {
-        return PathBuf::from(home).join(rest);
-    }
-    PathBuf::from(path)
-}
 
 /// Check whether `path` is `dir` itself or inside it
 pub fn is_within_directory(path: &Path, dir: &Path) -> bool {
@@ -140,10 +112,10 @@ fn load_image_bytes(bytes: &[u8]) -> Result<rig::message::Image, String> {
 
 /// Loads an image file into a base64 rig `Image`, rasterizing SVG to PNG first.
 /// The file is re-read on each call, so persisted logs only need the path.
-pub fn load_image_file(path: &str) -> Result<rig::message::Image, String> {
-    let image_path = path_from_str(path);
+pub fn load_image_file(path: TenonPath) -> Result<rig::message::Image, String> {
+    let image_path: PathBuf = path.as_ref().to_owned();
     let bytes = std::fs::read(&image_path)
-        .map_err(|e| format!("Failed to read image '{}': {}", path, e))?;
+        .map_err(|e| format!("Failed to read image '{}': {}", path.as_ref().display(), e))?;
     load_image_bytes(&bytes)
 }
 
@@ -606,8 +578,12 @@ mod tests {
 
     #[test]
     fn test_load_image_file_missing_file() {
-        let result = load_image_file("/nonexistent/path/image.png");
-        assert!(result.is_err());
+        let result = load_image_file(TenonPath::with_cwd("/nonexistent/path/image.png"));
+        let err = result.unwrap_err();
+        assert!(
+            err.starts_with("Failed to read image '/nonexistent/path/image.png':"),
+            "error must name the stored path verbatim, got: {err}"
+        );
     }
 
     #[test]
@@ -625,7 +601,7 @@ mod tests {
         let path = dir.join("red.png");
         std::fs::write(&path, png).unwrap();
 
-        let image = load_image_file(path.to_str().unwrap()).unwrap();
+        let image = load_image_file(TenonPath::with_cwd(path.to_str().unwrap())).unwrap();
         assert!(matches!(
             image.data,
             rig::message::DocumentSourceKind::Base64(_)
@@ -716,54 +692,6 @@ count: 5"#;
         // Second resolve is a no-op
         resolver.resolve(Ok("world".to_string()));
         assert!(captured.lock().unwrap().is_none());
-    }
-
-    #[test]
-    fn test_path_from_str() {
-        let orig_home = std::env::var("HOME").ok();
-        unsafe { std::env::set_var("HOME", "/home/testuser") };
-
-        // ~ alone → HOME
-        assert_eq!(path_from_str("~").to_str().unwrap(), "/home/testuser");
-
-        // ~/path → HOME/path
-        assert_eq!(
-            path_from_str("~/projects/foo").to_str().unwrap(),
-            "/home/testuser/projects/foo"
-        );
-
-        // No leading ~ → unchanged
-        assert_eq!(
-            path_from_str("/absolute/path").to_str().unwrap(),
-            "/absolute/path"
-        );
-
-        // ~ in middle → unchanged
-        assert_eq!(
-            path_from_str("/tmp/~weird").to_str().unwrap(),
-            "/tmp/~weird"
-        );
-
-        // Relative path → unchanged
-        assert_eq!(
-            path_from_str("relative/path").to_str().unwrap(),
-            "relative/path"
-        );
-
-        // ~user (not ~/ or ~ alone) → unchanged
-        assert_eq!(
-            path_from_str("~otheruser/foo").to_str().unwrap(),
-            "~otheruser/foo"
-        );
-
-        // No HOME → falls back to original path
-        unsafe { std::env::remove_var("HOME") };
-        assert_eq!(path_from_str("~/projects").to_str().unwrap(), "~/projects");
-
-        match orig_home {
-            Some(h) => unsafe { std::env::set_var("HOME", h) },
-            None => {}
-        }
     }
 
     #[test]

@@ -4,7 +4,7 @@ use nvim_oxi::{
     conversion::FromObject,
 };
 
-use crate::{get_chat_window, utils::format_path_relative};
+use crate::{get_chat_window, utils::path::TenonPath};
 
 pub type InsertSelectionParams = (i32, usize, Option<usize>, usize, Option<usize>);
 
@@ -91,8 +91,10 @@ pub fn insert_selection_fn() -> Function<InsertSelectionParams, ()> {
             } else {
                 // Code block format for regular buffers
                 // Get snippet-specific metadata
-                let filepath = buf.get_name().ok().map(|p| p.to_string_lossy().to_string());
-                let filename = filepath.as_ref().map(|path| format_path_relative(path));
+                let filename = buf
+                    .get_name()
+                    .ok()
+                    .map(|p| TenonPath::with_cwd(p.to_string_lossy().into_owned()).to_string());
                 let filetype: String = nvim_oxi::api::get_option_value("filetype", &option_opt)
                     .ok()
                     .and_then(|obj| String::from_object(obj).ok())
