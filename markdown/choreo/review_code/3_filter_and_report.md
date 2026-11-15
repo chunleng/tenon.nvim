@@ -16,18 +16,18 @@
      | Core library | All, strict |
      | Data layer | Correctness + security |
      | Scripts/utilities | Correctness only |
-3. Output the review to chat, including only findings not marked `dropped`:
-   - No such findings remain → Output exactly `LGTM!`. End the choreo here.
-   - Such findings remain → Output a one-line summary, then numbered findings, each with title and file path + line numbers, the problem/impact, and the fix (See "Output examples" section)
-4. After reporting blockers, ask the user to address findings by fixing or let you know if they decide to not fix it.
+3. Report the review to chat, including only findings not marked `dropped`:
+   - No such findings remain → ::tenon-chat:: "LGTM!"; end the choreo here.
+   - Such findings remain → ::tenon-chat:: a one-line summary, then numbered findings, each with title and file path + line numbers, the problem/impact, and the fix (see "Output examples" section)
+4. After reporting blockers, ::tenon-chat:: the request to address the findings by fixing, or to let you know if they decide not to fix
 5. When the user responds, assign a decision to EVERY finding before navigating:
    - **resolved-via-code**: the user made code changes addressing this finding. A generic statement not naming a specific finding (e.g., "I've made the necessary code changes") → mark all outstanding findings as `resolved-via-code`
    - **dropped**: the user disagreed with reasoning you accept; drop the finding
-   - **pending**: the user disagreed with reasoning you reject (explain why), or did not address this finding
+   - **pending**: the user disagreed with reasoning you reject, or did not address this finding. If rejecting, ::tenon-chat:: the explanation of why you reject the reasoning
 6. Only after every finding has a decision, determine the action (first match wins):
    - Any finding marked `resolved-via-code` → go to move 2 (re-review the updated diff)
-   - All findings `dropped` with no code changes → output `LGTM!` and end
-   - Any finding still `pending` → prompt the user about the pending findings, then wait for their next response and repeat from process step 5
+   - All findings `dropped` with no code changes → ::tenon-chat:: "LGTM!"; end the choreo.
+   - Any finding still `pending` → ::tenon-chat:: the prompt about the pending findings, asking again to fix or decline; then wait for the user's next response and repeat from process step 5
 
 ### Output examples
 
