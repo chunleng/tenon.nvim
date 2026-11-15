@@ -15,7 +15,7 @@ If known special conditions trigger bug → add to output
 ### Insufficient Info
 
 - Run tools to observe bug
-- If impossible → ask user for details
+- If impossible → ::tenon-chat:: ask the user for the bug details
 
 ### Observe Bug Via Tool
 - Use existing context: execute code, run tests, inspect logs
