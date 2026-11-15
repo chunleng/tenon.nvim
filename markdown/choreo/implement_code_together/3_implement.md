@@ -1,5 +1,5 @@
 ## Process
-1. If goal is to create a test, ::tenon-chat:: "Test only goal, skipping implementation" and navigate to move 1
+1. If goal is to create a test, ::tenon-chat:: "Test only goal, skipping implementation"; navigate to move 1
 2. Implement:
   - `tests` from previous move is empty → implement per goal directly
   - Otherwise → implement only what's needed to make the test pass:
