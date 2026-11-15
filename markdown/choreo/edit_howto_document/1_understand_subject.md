@@ -1,5 +1,5 @@
 ## Process
-1. If the user has not yet provided the task or the information to include, ask for it
+1. If the user has not yet provided the task or the information to include, ::tenon-chat:: ask for it
 2. Scan existing documentation for a document that already covers the task
 3. Explore the repository to ground the how-to guide:
    - Locate the code relevant to the task
@@ -9,7 +9,8 @@
    - Locate the tutorial document(s) covering the task's area
    - The reader is assumed to have completed them: whatever they teach counts as already known
    - If no tutorial covers the task's area, fall back to: competent user, basics known
-5. If information needed for the guide cannot be determined from the user's input or the code, ask the user, then go back to step 3
+5. If information needed for the guide cannot be determined from the user's input or the code, ::tenon-chat:: ask the user
+   - Then go back to step 3
 
 ## Choreo Move Artifact
 ```yaml
