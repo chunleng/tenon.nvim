@@ -39,10 +39,10 @@ pub struct SearchText {
 struct MatchEntry {
     line_number: usize,
     line: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    context_before: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    context_after: Vec<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    context_before: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    context_after: String,
 }
 
 #[derive(Serialize)]
@@ -343,24 +343,26 @@ fn perform_search(
 
             let line_number = line_idx + 1;
 
-            let context_before: Vec<String> = if context_lines > 0 {
+            let context_before = if context_lines > 0 {
                 let start = line_idx.saturating_sub(context_lines);
                 lines[start..line_idx]
                     .iter()
                     .map(|l| truncate_line(l))
-                    .collect()
+                    .collect::<Vec<_>>()
+                    .join("\n")
             } else {
-                Vec::new()
+                String::new()
             };
 
-            let context_after: Vec<String> = if context_lines > 0 {
+            let context_after = if context_lines > 0 {
                 let end = (line_idx + 1 + context_lines).min(lines.len());
                 lines[line_idx + 1..end]
                     .iter()
                     .map(|l| truncate_line(l))
-                    .collect()
+                    .collect::<Vec<_>>()
+                    .join("\n")
             } else {
-                Vec::new()
+                String::new()
             };
 
             file_matches.push(MatchEntry {
@@ -538,11 +540,11 @@ mod tests {
                 false,
             )];
             let re = regex::Regex::new("line3").unwrap();
-            let result = perform_search(files, &re, 1, None);
+            let result = perform_search(files, &re, 2, None);
 
             let match_entry = &result.files[0].matches[0];
-            assert_eq!(match_entry.context_before, vec!["line2".to_string()]);
-            assert_eq!(match_entry.context_after, vec!["line4".to_string()]);
+            assert_eq!(match_entry.context_before, "line1\nline2");
+            assert_eq!(match_entry.context_after, "line4\nline5");
         }
 
         #[test]
@@ -656,8 +658,8 @@ mod tests {
                     matches: vec![MatchEntry {
                         line_number: 1,
                         line: "test".to_string(),
-                        context_before: vec![],
-                        context_after: vec!["next".to_string()],
+                        context_before: String::new(),
+                        context_after: "next".to_string(),
                     }],
                 }],
                 total_line_matches: 1,
@@ -672,6 +674,11 @@ mod tests {
             assert_eq!(parsed["files_searched"], 5);
             assert_eq!(parsed["files"][0]["path"], "test.rs");
             assert_eq!(parsed["files"][0]["matches"][0]["line_number"], 1);
+            assert!(
+                parsed["files"][0]["matches"][0]
+                    .get("context_before")
+                    .is_none()
+            );
         }
 
         #[test]
@@ -691,14 +698,14 @@ mod tests {
             let entry = MatchEntry {
                 line_number: 5,
                 line: "foo".to_string(),
-                context_before: vec!["line3".to_string(), "line4".to_string()],
-                context_after: vec!["line6".to_string()],
+                context_before: "line3\nline4".to_string(),
+                context_after: "line6".to_string(),
             };
             let json = serde_json::to_string(&entry).unwrap();
             let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-            assert_eq!(parsed["context_before"], json!(["line3", "line4"]));
-            assert_eq!(parsed["context_after"], json!(["line6"]));
+            assert_eq!(parsed["context_before"], json!("line3\nline4"));
+            assert_eq!(parsed["context_after"], json!("line6"));
         }
     }
 
