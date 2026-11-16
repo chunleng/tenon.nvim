@@ -1,35 +1,29 @@
-## Do
+Consider the edit against the full scope.
+- Directive → all instructions within the directive
+- Choreo → all instructions within the same move
+- Tool → the tool's entire definition
 
-### Use Example When Instruction Cannot Express
-Examples are redundant when an established standard exists; otherwise some intent is easier to show than describe
-- "Write in plain language" needs an example contrasting plain and technical writing
-- "Use conventional commits" needs no example
+## Decision Test
+Run each clause in the scope against the test. First match wins.
 
-### Use Generic Examples
-When the specific reference is incidental to the intent, use generic examples
-- Bad: specific programming language syntax
-- Good: pseudocode
+- Is the clause a duplicate of another clause in the scope? → delete
+- Does the clause say the same thing in other words (including negated twin like "fast and not slow") of another clause in the scope? → delete
+- Does it state a reason that translates to no action? → delete
+- Can the clause be interpreted in more than one way? → rewrite
+- Does it state an action but leave unclear when to apply? → rewrite as "when {cause}, {effect}"
+  - Does a legitimate exception break the action?
+    - Example: "never delete files without asking" breaks when clearing your own scratch files → "when deleting files outside your working dir, ask the user"
+  - Is a risky or complex action unguarded by a condition?
+    - Example: "delete stale branches" is irreversible with no gate → "when a branch is merged and older than 30 days, delete it"
+- Does the clause hedge its commitment (e.g. "try to", "ideally", "when possible")? → rewrite as imperative
+- Does the prompt define the agent by role instead of desired characteristics (e.g. "You are a backend developer")? → rewrite, defining the characteristics
+- Does the clause state its constraint after the content it constrains? → rewrite with the constraint first
+- Is the desired behavior stated nowhere in the scope? → add
+- Is the intent easier to show than describe? → add an example
+
+## Technique for Clear Prompt
 
 ### Use Decision Test
-Add a decision test (quick yes/no questions to apply it) only when the rule can't cover every case on its own. If the rule is clear enough to apply directly, do not use the test.
+Add a decision test (quick yes/no questions to apply it) only when the rule can't cover every case on its own.
 - Example: Rule "don't over-engineer" → test: "Who asked? What breaks? Real pain?"
 
-## Don'ts
-
-### Encouraging Stereotype
-- Role definitions like "You are a backend developer" inherit even bad/debatable stereotypes
-- Define desired characteristics instead of roles
-
-### Hedging Language
-- Bad: "Try to be concise", "Ideally output YAML"
-- Good: "Be concise", "Output YAML"
-
-### Burying Constraints
-- Put constraints first — models attend more to early content.
-
-### Listing Searchable Examples
-- Bad: In AGENTS.md, listing "We have UserHelper, AuthHelper, ..."
-- Good: "Helpers follow the `*Helper` naming convention under `src/helpers/`."
-
-### Skip Obvious Reason
-Self-evident reasons add noise without aiding compliance.
