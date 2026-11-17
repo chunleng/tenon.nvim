@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
 
+use super::DependencySource;
+use crate::utils::path::TenonPath;
 use rig::tool::ToolExecutionError;
 
 pub fn validate_rust_dependency(
@@ -76,10 +78,10 @@ pub fn validate_rust_dependency(
     }
 }
 
-pub fn resolve_rust_source_path(
+pub(super) fn resolve_rust_source(
     dep_name: &str,
     dep_version: &str,
-) -> Result<PathBuf, ToolExecutionError> {
+) -> Result<DependencySource, ToolExecutionError> {
     let output = std::process::Command::new("cargo")
         .args(["metadata", "--format-version", "1"])
         .output()
@@ -126,7 +128,7 @@ pub fn resolve_rust_source_path(
         .ok_or_else(|| {
             ToolExecutionError::other(format!(
                 "Cannot determine parent directory of manifest_path: {}",
-                manifest_path
+                TenonPath::with_cwd(&manifest_path)
             ))
         })?
         .to_path_buf();
@@ -134,11 +136,14 @@ pub fn resolve_rust_source_path(
     if !source_dir.exists() {
         return Err(ToolExecutionError::not_found(format!(
             "Dependency source directory not found: {}",
-            source_dir.display()
+            TenonPath::with_cwd(source_dir.to_string_lossy())
         )));
     }
 
-    Ok(source_dir)
+    Ok(DependencySource {
+        root: source_dir,
+        allowed_files: None,
+    })
 }
 
 #[cfg(test)]
@@ -158,7 +163,9 @@ mod tests {
     #[test]
     fn validate_then_resolve_rust_happy_path() {
         let version = validate_rust_dependency("toml", None).unwrap();
-        let path = resolve_rust_source_path("toml", &version).unwrap();
+        let source = resolve_rust_source("toml", &version).unwrap();
+        assert!(source.allowed_files.is_none());
+        let path = source.root;
         assert!(
             path.exists(),
             "Resolved path should exist: {}",
@@ -201,7 +208,9 @@ mod tests {
     fn resolve_git_dependency() {
         // nvim-oxi is a real git dependency in this project
         let version = validate_rust_dependency("nvim-oxi", None).unwrap();
-        let path = resolve_rust_source_path("nvim-oxi", &version).unwrap();
+        let source = resolve_rust_source("nvim-oxi", &version).unwrap();
+        assert!(source.allowed_files.is_none());
+        let path = source.root;
         assert!(
             path.exists(),
             "Resolved git checkout should exist: {}",

@@ -24,12 +24,16 @@ pub struct ReadFile {
     pub working_directory: Option<std::path::PathBuf>,
     /// When true, reject requests whose resolved path falls outside `working_directory`.
     pub restrict_to_working_directory: bool,
+    /// Canonical distribution-owned files; `None` permits directory-based access.
+    #[serde(default)]
+    pub allowed_files: Option<std::collections::BTreeSet<TenonPath>>,
 }
 
 pub struct ReadFileCall {
     args: ReadFileArgs,
     working_directory: Option<std::path::PathBuf>,
     restrict_to_working_directory: bool,
+    allowed_files: Option<std::collections::BTreeSet<TenonPath>>,
 }
 
 impl ToolCoreCall for ReadFileCall {
@@ -38,22 +42,42 @@ impl ToolCoreCall for ReadFileCall {
 
     async fn result(self, context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
         let args = self.args;
-        let path: std::path::PathBuf =
-            TenonPath::new(&args.filepath, self.working_directory.as_deref()).into();
+        let path = TenonPath::new(&args.filepath, self.working_directory.as_deref());
+        let resolved_path = std::path::PathBuf::from(path.clone());
         if self.restrict_to_working_directory {
             // `None` restricts to the process cwd
             let base = match &self.working_directory {
                 Some(dir) => dir.clone(),
                 None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
             };
-            if !is_within_directory(&path, &base) {
+            if !is_within_directory(&resolved_path, &base) {
                 return Err(ToolExecutionError::invalid_args(format!(
                     "Path '{}' is outside the working directory '{}'",
-                    path.display(),
-                    base.display()
+                    path,
+                    TenonPath::new(base.to_string_lossy(), self.working_directory.as_deref())
                 )));
             }
         }
+
+        let resolved_path = if let Some(allowed) = &self.allowed_files {
+            let canonical = fs::canonicalize(&resolved_path).map_err(|e| {
+                ToolExecutionError::invalid_args(format!(
+                    "Cannot resolve dependency source path: {e}"
+                ))
+            })?;
+            if !allowed
+                .iter()
+                .any(|file| std::path::PathBuf::from(file.clone()) == canonical)
+            {
+                return Err(ToolExecutionError::invalid_args(format!(
+                    "Path '{}' is not an allowed dependency source file",
+                    path
+                )));
+            }
+            canonical
+        } else {
+            resolved_path
+        };
 
         // Use the raw `args.filepath` so that we check for hidden component based on whatever is
         // passed to the tool
@@ -76,7 +100,7 @@ impl ToolCoreCall for ReadFileCall {
         // Output contract: successful reads start with a `success: ...; content:` status line
         // followed by the content. Failures stay on the error channel (ToolExecutionError)
         // with an `error: ` prefix.
-        match fs::read_to_string(path) {
+        match fs::read_to_string(resolved_path) {
             Ok(content) => {
                 let lines: Vec<&str> = content.lines().collect();
                 let total_lines = lines.len();
@@ -112,7 +136,7 @@ impl ToolCoreCall for ReadFileCall {
             }
             Err(e) => Err(ToolExecutionError::other(format!(
                 "error: read_file '{}': {}",
-                args.filepath, e
+                path, e
             ))),
         }
     }
@@ -173,6 +197,7 @@ impl ToolCore for ReadFile {
             args,
             working_directory: self.working_directory.clone(),
             restrict_to_working_directory: self.restrict_to_working_directory,
+            allowed_files: self.allowed_files.clone(),
         })
     }
 }
@@ -370,8 +395,10 @@ mod tests {
             .await
             .expect_err("missing file should return ToolExecutionError");
         assert!(
-            err.to_string()
-                .starts_with("error: read_file '/nonexistent/tenon_read_file_missing'"),
+            err.to_string().starts_with(&format!(
+                "error: read_file '{}'",
+                TenonPath::with_cwd("/nonexistent/tenon_read_file_missing")
+            )),
             "error should be prefixed with 'error: ' and name the filepath, got: {err}"
         );
 
@@ -521,6 +548,7 @@ mod tests {
         let call = ReadFile {
             working_directory,
             restrict_to_working_directory,
+            ..Default::default()
         }
         .init_call(
             &mut context,
@@ -629,7 +657,7 @@ mod tests {
             .expect_err("nonexistent file should error");
         assert!(
             err.to_string()
-                .starts_with(&format!("error: read_file '{missing}'")),
+                .starts_with(&format!("error: read_file './{missing}'")),
             "should surface the natural read error, got: {err}"
         );
         assert!(

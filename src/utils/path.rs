@@ -7,6 +7,7 @@ use std::path::{Component, Path, PathBuf};
 /// Paths surfaced to the LLM should not leak the user's filesystem layout, so [`TenonPath`] pairs
 /// the path with the working directory it is expressed against (the process working directory by
 /// default).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct TenonPath {
     path: String,
     working_directory: PathBuf,

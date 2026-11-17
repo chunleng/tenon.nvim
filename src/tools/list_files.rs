@@ -26,12 +26,16 @@ pub struct ListFiles {
     pub working_directory: Option<std::path::PathBuf>,
     /// When true, reject requests whose resolved path falls outside `working_directory`.
     pub restrict_to_working_directory: bool,
+    /// Canonical distribution-owned files; `None` permits directory-based access.
+    #[serde(default)]
+    pub allowed_files: Option<std::collections::BTreeSet<TenonPath>>,
 }
 
 pub struct ListFilesCall {
     args: ListFilesArgs,
     working_directory: Option<std::path::PathBuf>,
     restrict_to_working_directory: bool,
+    allowed_files: Option<std::collections::BTreeSet<TenonPath>>,
 }
 
 impl ToolCoreCall for ListFilesCall {
@@ -42,15 +46,15 @@ impl ToolCoreCall for ListFilesCall {
         let args = self.args;
         let max_count = args.max_count.unwrap_or(20);
         let show_gitignored = args.show_gitignored.unwrap_or(false);
-        let search_path: std::path::PathBuf = TenonPath::new(
+        let search_path = TenonPath::new(
             args.path.as_deref().unwrap_or("."),
             self.working_directory.as_deref(),
-        )
-        .into();
-        if !search_path.exists() {
+        );
+        let resolved_search_path = std::path::PathBuf::from(search_path.clone());
+        if !resolved_search_path.exists() {
             return Err(ToolExecutionError::not_found(format!(
                 "Directory '{}' not found",
-                search_path.display()
+                search_path
             )));
         }
         if self.restrict_to_working_directory {
@@ -59,11 +63,11 @@ impl ToolCoreCall for ListFilesCall {
                 Some(dir) => dir.clone(),
                 None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
             };
-            if !is_within_directory(&search_path, &base) {
+            if !is_within_directory(&resolved_search_path, &base) {
                 return Err(ToolExecutionError::invalid_args(format!(
                     "Path '{}' is outside the working directory '{}'",
-                    search_path.display(),
-                    base.display()
+                    search_path,
+                    TenonPath::new(base.to_string_lossy(), self.working_directory.as_deref())
                 )));
             }
         }
@@ -80,7 +84,7 @@ impl ToolCoreCall for ListFilesCall {
             })?
             .compile_matcher();
 
-        let mut walker = WalkBuilder::new(&search_path);
+        let mut walker = WalkBuilder::new(&resolved_search_path);
         walker
             .git_ignore(!show_gitignored)
             .git_exclude(!show_gitignored)
@@ -88,6 +92,26 @@ impl ToolCoreCall for ListFilesCall {
             .hidden(false)
             .follow_links(true)
             .require_git(true);
+
+        let allowed_files: Option<std::collections::BTreeSet<std::path::PathBuf>> = self
+            .allowed_files
+            .map(|files| files.into_iter().map(std::path::PathBuf::from).collect());
+        if let Some(allowed) = allowed_files.clone() {
+            walker
+                .git_ignore(false)
+                .git_exclude(false)
+                .git_global(false)
+                .parents(false)
+                .filter_entry(move |entry| {
+                    std::fs::canonicalize(entry.path()).is_ok_and(|path| {
+                        if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+                            allowed.iter().any(|file| file.starts_with(&path))
+                        } else {
+                            allowed.contains(&path)
+                        }
+                    })
+                });
+        }
 
         let mut files: Vec<String> = Vec::new();
         let mut total_matched: usize = 0;
@@ -98,26 +122,35 @@ impl ToolCoreCall for ListFilesCall {
                     if !e.file_type().is_some_and(|ft| ft.is_file()) {
                         continue;
                     }
+                    if let Some(allowed) = &allowed_files
+                        && !std::fs::canonicalize(e.path())
+                            .is_ok_and(|path| allowed.contains(&path))
+                    {
+                        continue;
+                    }
                     // Never list files inside .git directories
                     if e.path().components().any(|c| c.as_os_str() == ".git") {
                         continue;
                     }
-                    let relative = e.path().strip_prefix(&search_path).unwrap_or(e.path());
+                    let relative = e
+                        .path()
+                        .strip_prefix(&resolved_search_path)
+                        .unwrap_or(e.path());
                     if !glob.is_match(relative) {
                         continue;
                     }
                     total_matched += 1;
                     if files.len() < max_count {
-                        // Explicit `path` -> full entry paths; default (working directory)
-                        // -> paths relative to the search root
                         let out = if args.path.is_some() {
-                            e.path()
+                            TenonPath::new(
+                                e.path().to_string_lossy(),
+                                self.working_directory.as_deref(),
+                            )
+                            .to_string()
                         } else {
-                            relative
+                            relative.to_string_lossy().into_owned()
                         };
-                        if let Some(out_str) = out.to_str() {
-                            files.push(out_str.to_string());
-                        }
+                        files.push(out);
                     }
                 }
                 Err(_) => continue,
@@ -194,6 +227,7 @@ impl ToolCore for ListFiles {
             args,
             working_directory: self.working_directory.clone(),
             restrict_to_working_directory: self.restrict_to_working_directory,
+            allowed_files: self.allowed_files.clone(),
         })
     }
 }
@@ -222,6 +256,7 @@ mod tests {
         let call = ListFiles {
             working_directory,
             restrict_to_working_directory,
+            ..Default::default()
         }
         .init_call(
             &mut context,
@@ -250,15 +285,12 @@ mod tests {
         assert!(!output.contains("nested.txt"), "got: {output}");
         assert!(!output.contains(dir.to_str().unwrap()), "got: {output}");
 
-        // relative path -> joined against working directory, output full path
         let output = run_list(Some(dir.clone()), false, Some("sub".to_string()), "*.txt")
             .await
             .expect("relative path should resolve against working directory");
-        let nested_full = dir.join("sub").join("nested.txt");
-        assert!(
-            output.contains(nested_full.to_str().unwrap()),
-            "got: {output}"
-        );
+        let listing: serde_yaml::Value = serde_yaml::from_str(&output).unwrap();
+        assert_eq!(listing["files"][0].as_str(), Some("./sub/nested.txt"));
+        assert!(!output.contains(dir.to_str().unwrap()), "got: {output}");
         assert!(!output.contains("root.txt"), "got: {output}");
 
         // absolute path -> used as-is, ignoring the working directory
@@ -329,29 +361,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_none_wd_relative_path_resolution() {
-        let cwd = std::env::current_dir().unwrap();
-
-        // Explicit relative path with no working directory resolves against
-        // cwd; entry paths come out cwd-anchored, matching the Some(dir) flow
         let output = run_list(None, false, Some("src".to_string()), "*.rs")
             .await
             .expect("relative path should resolve against the process cwd");
         assert!(
-            output.contains(cwd.join("src").join("lib.rs").to_str().unwrap()),
-            "explicit relative path should yield cwd-anchored entry paths, got: {output}"
+            output.contains("./src/lib.rs"),
+            "explicit relative path should yield cwd-relative entry paths, got: {output}"
         );
 
-        // Nonexistent relative path: not-found error names the cwd-joined path
         let missing = format!("tenon_missing_dir_{}", std::process::id());
         let err = run_list(None, false, Some(missing.clone()), "*.rs")
             .await
             .expect_err("nonexistent directory should error");
         assert!(
-            err.to_string().contains(&format!(
-                "Directory '{}' not found",
-                cwd.join(&missing).display()
-            )),
-            "not-found error should name the cwd-joined path, got: {err}"
+            err.to_string()
+                .contains(&format!("Directory '{}' not found", format!("./{missing}"))),
+            "not-found error should name the cwd-relative path, got: {err}"
         );
     }
 }

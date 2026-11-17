@@ -33,6 +33,9 @@ pub struct SearchText {
     pub working_directory: Option<std::path::PathBuf>,
     /// When true, reject requests whose resolved path falls outside `working_directory`.
     pub restrict_to_working_directory: bool,
+    /// Canonical distribution-owned files; `None` permits directory-based access.
+    #[serde(default)]
+    pub allowed_files: Option<std::collections::BTreeSet<TenonPath>>,
 }
 
 #[derive(Serialize)]
@@ -81,6 +84,7 @@ pub struct SearchTextCall {
     args: SearchTextArgs,
     working_directory: Option<std::path::PathBuf>,
     restrict_to_working_directory: bool,
+    allowed_files: Option<std::collections::BTreeSet<TenonPath>>,
 }
 
 impl ToolCoreCall for SearchTextCall {
@@ -89,15 +93,15 @@ impl ToolCoreCall for SearchTextCall {
 
     async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
         let args = self.args;
-        let search_path: std::path::PathBuf = TenonPath::new(
+        let search_path = TenonPath::new(
             args.path.as_deref().unwrap_or("."),
             self.working_directory.as_deref(),
-        )
-        .into();
-        if !search_path.exists() {
+        );
+        let resolved_search_path = std::path::PathBuf::from(search_path.clone());
+        if !resolved_search_path.exists() {
             return Err(ToolExecutionError::not_found(format!(
                 "Directory '{}' not found",
-                search_path.display()
+                search_path
             )));
         }
         // `None` resolves against the process cwd
@@ -105,11 +109,12 @@ impl ToolCoreCall for SearchTextCall {
             Some(dir) => dir.clone(),
             None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
         };
-        if self.restrict_to_working_directory && !is_within_directory(&search_path, &base) {
+        if self.restrict_to_working_directory && !is_within_directory(&resolved_search_path, &base)
+        {
             return Err(ToolExecutionError::invalid_args(format!(
                 "Path '{}' is outside the working directory '{}'",
-                search_path.display(),
-                base.display()
+                search_path,
+                TenonPath::new(base.to_string_lossy(), self.working_directory.as_deref())
             )));
         }
 
@@ -172,7 +177,7 @@ impl ToolCoreCall for SearchTextCall {
             })
             .transpose()?;
 
-        let mut walker = WalkBuilder::new(&search_path);
+        let mut walker = WalkBuilder::new(&resolved_search_path);
         walker
             .git_ignore(true)
             .git_exclude(true)
@@ -180,6 +185,26 @@ impl ToolCoreCall for SearchTextCall {
             .hidden(false)
             .follow_links(true)
             .require_git(true);
+
+        let allowed_files: Option<std::collections::BTreeSet<std::path::PathBuf>> = self
+            .allowed_files
+            .map(|files| files.into_iter().map(std::path::PathBuf::from).collect());
+        if let Some(allowed) = allowed_files.clone() {
+            walker
+                .git_ignore(false)
+                .git_exclude(false)
+                .git_global(false)
+                .parents(false)
+                .filter_entry(move |entry| {
+                    std::fs::canonicalize(entry.path()).is_ok_and(|path| {
+                        if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+                            allowed.iter().any(|file| file.starts_with(&path))
+                        } else {
+                            allowed.contains(&path)
+                        }
+                    })
+                });
+        }
 
         let mut files = Vec::new();
 
@@ -199,7 +224,7 @@ impl ToolCoreCall for SearchTextCall {
 
             let relative = entry
                 .path()
-                .strip_prefix(&search_path)
+                .strip_prefix(&resolved_search_path)
                 .unwrap_or(entry.path());
 
             if let Some(ref matcher) = glob_matcher
@@ -208,7 +233,18 @@ impl ToolCoreCall for SearchTextCall {
                 continue;
             }
 
-            let content_bytes = match std::fs::read(entry.path()) {
+            let source_path = if let Some(allowed) = &allowed_files {
+                let Ok(path) = std::fs::canonicalize(entry.path()) else {
+                    continue;
+                };
+                if !allowed.contains(&path) {
+                    continue;
+                }
+                path
+            } else {
+                entry.path().to_path_buf()
+            };
+            let content_bytes = match std::fs::read(source_path) {
                 Ok(c) => c,
                 Err(_) => continue,
             };
@@ -222,14 +258,15 @@ impl ToolCoreCall for SearchTextCall {
                 Err(_) => continue,
             };
 
-            // Explicit `path` -> full entry paths; default (working directory)
-            // -> paths relative to the search root
-            let out = if args.path.is_some() {
-                entry.path()
+            let path_str = if args.path.is_some() {
+                TenonPath::new(
+                    entry.path().to_string_lossy(),
+                    self.working_directory.as_deref(),
+                )
+                .to_string()
             } else {
-                relative
+                relative.to_string_lossy().into_owned()
             };
-            let path_str = out.to_str().unwrap_or_default().to_string();
 
             let redacted =
                 has_hidden_component(entry.path().strip_prefix(&base).unwrap_or(entry.path()));
@@ -318,6 +355,7 @@ impl ToolCore for SearchText {
             args,
             working_directory: self.working_directory.clone(),
             restrict_to_working_directory: self.restrict_to_working_directory,
+            allowed_files: self.allowed_files.clone(),
         })
     }
 }
@@ -426,10 +464,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_none_wd_relative_path_resolution() {
-        let cwd = std::env::current_dir().unwrap();
-
-        // Explicit relative path with no working directory resolves against
-        // cwd; entry paths come out cwd-anchored, matching the Some(dir) flow
         let mut context = ToolContext::new();
         let call = SearchText {
             working_directory: None,
@@ -454,11 +488,10 @@ mod tests {
             .await
             .expect("relative path should resolve against the process cwd");
         assert!(
-            output.contains(cwd.join("src").join("lib.rs").to_str().unwrap()),
-            "explicit relative path should yield cwd-anchored entry paths, got: {output}"
+            output.contains("./src/lib.rs"),
+            "explicit relative path should yield cwd-relative entry paths, got: {output}"
         );
 
-        // Nonexistent relative path: not-found error names the cwd-joined path
         let missing = format!("tenon_missing_dir_{}", std::process::id());
         let mut context = ToolContext::new();
         let call = SearchText {
@@ -484,11 +517,9 @@ mod tests {
             .await
             .expect_err("nonexistent directory should error");
         assert!(
-            err.to_string().contains(&format!(
-                "Directory '{}' not found",
-                cwd.join(&missing).display()
-            )),
-            "not-found error should name the cwd-joined path, got: {err}"
+            err.to_string()
+                .contains(&format!("Directory '{}' not found", format!("./{missing}"))),
+            "not-found error should name the cwd-relative path, got: {err}"
         );
     }
 
@@ -734,6 +765,7 @@ mod tests {
             let call = SearchText {
                 working_directory,
                 restrict_to_working_directory,
+                ..Default::default()
             }
             .init_call(
                 &mut context,
@@ -765,15 +797,15 @@ mod tests {
             assert!(output.contains("nested.txt"), "got: {output}");
             assert!(!output.contains(dir.to_str().unwrap()), "got: {output}");
 
-            // relative path -> joined against working directory, output full path
             let output = run_search(Some(dir.clone()), false, Some("sub".to_string()))
                 .await
                 .expect("relative path should resolve against working directory");
-            let nested_full = dir.join("sub").join("nested.txt");
-            assert!(
-                output.contains(nested_full.to_str().unwrap()),
-                "got: {output}"
+            let result: serde_yaml::Value = serde_yaml::from_str(&output).unwrap();
+            assert_eq!(
+                result["files"][0]["path"].as_str(),
+                Some("./sub/nested.txt")
             );
+            assert!(!output.contains(dir.to_str().unwrap()), "got: {output}");
             assert!(!output.contains("root.txt"), "got: {output}");
 
             // absolute path -> used as-is, ignoring the working directory
@@ -872,6 +904,7 @@ mod tests {
             let call = SearchText {
                 working_directory,
                 restrict_to_working_directory: false,
+                ..Default::default()
             }
             .init_call(
                 &mut context,

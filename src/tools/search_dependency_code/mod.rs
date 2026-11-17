@@ -1,3 +1,4 @@
+mod python_uv;
 mod rust;
 
 use crate::chat::log::window::LogWindow;
@@ -21,12 +22,14 @@ use std::time::Duration;
 #[serde(rename_all = "lowercase")]
 pub enum SupportedLanguages {
     Rust,
+    Python,
 }
 
 impl std::fmt::Display for SupportedLanguages {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SupportedLanguages::Rust => write!(f, "rust"),
+            SupportedLanguages::Python => write!(f, "python"),
         }
     }
 }
@@ -34,6 +37,7 @@ impl std::fmt::Display for SupportedLanguages {
 use crate::agent::worker::full::{GoalOrientedWorker, GoalResult};
 use crate::chat::ChatLogHandler;
 use crate::get_application_config;
+use crate::utils::path::TenonPath;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -71,7 +75,7 @@ impl ToolCore for SearchDependencyCode {
                 },
                 "language": {
                     "type": "string",
-                    "enum": ["rust"],
+                    "enum": ["rust", "python"],
                     "description": "Programming language"
                 },
                 "dependency": {
@@ -101,12 +105,11 @@ impl ToolCore for SearchDependencyCode {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Call, Self::Error> {
-        // Validate project type, dependency existence, and version match.
-        // Resolves exact version from Cargo.lock when not provided.
         let resolved_version = validate_dependency_source(&args)?;
-
-        // cargo metadata resolves and downloads the dependency source path.
-        let source_path = resolve_source_path(&args, &resolved_version)?;
+        let DependencySource {
+            root: source_path,
+            allowed_files,
+        } = resolve_dependency_source(&args, &resolved_version)?;
 
         let config = get_application_config();
         let agent_config = config
@@ -122,6 +125,7 @@ impl ToolCore for SearchDependencyCode {
                 SearchText {
                     working_directory: Some(source_path.clone()),
                     restrict_to_working_directory: true,
+                    allowed_files: allowed_files.clone(),
                 },
                 log_window.clone(),
             )
@@ -130,6 +134,7 @@ impl ToolCore for SearchDependencyCode {
                 ReadFile {
                     working_directory: Some(source_path.clone()),
                     restrict_to_working_directory: true,
+                    allowed_files: allowed_files.clone(),
                 },
                 log_window.clone(),
             )
@@ -138,6 +143,7 @@ impl ToolCore for SearchDependencyCode {
                 ListFiles {
                     working_directory: Some(source_path.clone()),
                     restrict_to_working_directory: true,
+                    allowed_files: allowed_files.clone(),
                 },
                 log_window,
             )
@@ -146,13 +152,18 @@ impl ToolCore for SearchDependencyCode {
 
         let mut agent = GoalOrientedWorker::new(model, vec![], tools, log_handler);
 
+        let boundary = if allowed_files.is_some() {
+            "The tools expose only implementation files recorded as belonging to this distribution. Other distributions may share this directory; do not inspect them."
+        } else {
+            "All paths must be within the dependency source directory."
+        };
         let task = format!(
             "You are in the directory of the source code of {}, a {} dependency. Investigate the following:\n\n\
              {}\n\n\
-             All paths must be within the dependency source directory above. \
+             {} \
              If the investigation leads outside this dependency, do not search other \
              libraries. End the search there and report where it ended as your answer",
-            args.dependency, args.language, args.prompt
+            args.dependency, args.language, args.prompt, boundary
         );
 
         let log_window = agent.log_window();
@@ -363,16 +374,27 @@ fn validate_dependency_source(
         SupportedLanguages::Rust => {
             rust::validate_rust_dependency(&args.dependency, args.version.as_deref())
         }
+        SupportedLanguages::Python => {
+            python_uv::validate_python_uv_dependency(&args.dependency, args.version.as_deref())
+                .map_err(ToolExecutionError::from)
+        }
     }
 }
 
-fn resolve_source_path(
+#[derive(Debug)]
+struct DependencySource {
+    root: PathBuf,
+    allowed_files: Option<std::collections::BTreeSet<TenonPath>>,
+}
+
+fn resolve_dependency_source(
     args: &SearchDependencyCodeArgs,
     resolved_version: &str,
-) -> Result<PathBuf, ToolExecutionError> {
+) -> Result<DependencySource, ToolExecutionError> {
     match args.language {
-        SupportedLanguages::Rust => {
-            rust::resolve_rust_source_path(&args.dependency, resolved_version)
+        SupportedLanguages::Rust => rust::resolve_rust_source(&args.dependency, resolved_version),
+        SupportedLanguages::Python => {
+            python_uv::resolve_python_uv_source(&args.dependency, resolved_version)
         }
     }
 }
@@ -430,9 +452,221 @@ mod tests {
     #[test]
     fn supported_languages_rejects_unsupported() {
         let json =
-            r#"{"prompt":"test","language":"python","dependency":"toml","version":"0.8.23"}"#;
+            r#"{"prompt":"test","language":"javascript","dependency":"toml","version":"0.8.23"}"#;
         let result: Result<SearchDependencyCodeArgs, _> = serde_json::from_str(json);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn python_and_rust_validation_dispatch() {
+        let args: SearchDependencyCodeArgs = serde_json::from_value(json!({
+            "prompt": "inspect", "language": "python", "dependency": "BeautifulSoup4"
+        }))
+        .unwrap();
+        assert_eq!(args.language, SupportedLanguages::Python);
+        assert_eq!(args.language.to_string(), "python");
+        assert!(
+            validate_dependency_source(&args)
+                .unwrap_err()
+                .to_string()
+                .contains("uv.lock not found")
+        );
+
+        let rust_args = SearchDependencyCodeArgs {
+            language: SupportedLanguages::Rust,
+            dependency: "toml".to_string(),
+            version: None,
+            prompt: "inspect".to_string(),
+        };
+        let version = validate_dependency_source(&rust_args).unwrap();
+        let source = resolve_dependency_source(&rust_args, &version).unwrap();
+        assert!(source.root.join("Cargo.toml").is_file());
+        assert!(source.allowed_files.is_none());
+        assert_eq!(
+            version,
+            rust::validate_rust_dependency("toml", None).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn distribution_boundaries_apply_to_reading_listing_and_searching() {
+        use crate::tools::list_files::ListFilesArgs;
+        use crate::tools::read_file::ReadFileArgs;
+        use crate::tools::search_text::SearchTextArgs;
+        use std::collections::BTreeSet;
+        use std::fs;
+
+        let root = std::env::temp_dir().join(format!("tenon-boundary-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("namespace")).unwrap();
+        fs::create_dir_all(root.join("unrelated")).unwrap();
+        for (path, content) in [
+            ("namespace/owned.py", "owned needle"),
+            ("module.py", "module needle"),
+            ("namespace/other.py", "unrelated needle"),
+            ("unrelated/other.py", "secret needle"),
+        ] {
+            fs::write(root.join(path), content).unwrap();
+        }
+        let owned = fs::canonicalize(root.join("namespace/owned.py")).unwrap();
+        let allowed = BTreeSet::from([
+            owned.clone(),
+            fs::canonicalize(root.join("module.py")).unwrap(),
+        ]);
+        let allowed_paths: BTreeSet<_> = allowed
+            .iter()
+            .map(|path| TenonPath::new(path.to_str().unwrap(), Some(&root)))
+            .collect();
+        let mut context = ToolContext::new();
+        let reader = ReadFile {
+            working_directory: Some(root.clone()),
+            restrict_to_working_directory: true,
+            allowed_files: Some(allowed_paths.clone()),
+        };
+        let reader: ReadFile =
+            serde_json::from_str(&serde_json::to_string(&reader).unwrap()).unwrap();
+        for (path, expected) in [
+            ("namespace/owned.py", Some("owned needle")),
+            ("module.py", Some("module needle")),
+            ("namespace/other.py", None),
+            ("unrelated/other.py", None),
+        ] {
+            let result = reader
+                .init_call(
+                    &mut context,
+                    ReadFileArgs {
+                        filepath: path.to_string(),
+                        start_line: None,
+                        end_line: None,
+                    },
+                )
+                .await
+                .unwrap()
+                .result(&mut context)
+                .await;
+            match expected {
+                Some(text) => assert!(result.unwrap().contains(text)),
+                None => {
+                    let error = result.unwrap_err().to_string();
+                    assert!(error.contains("not an allowed"));
+                    assert!(error.contains(&format!("./{path}")), "got: {error}");
+                    assert!(!error.contains(root.to_str().unwrap()), "got: {error}");
+                }
+            }
+        }
+        #[cfg(unix)]
+        {
+            let alias = root.join("namespace/alias.py");
+            std::os::unix::fs::symlink(root.join("namespace/other.py"), &alias).unwrap();
+            let result = reader
+                .init_call(
+                    &mut context,
+                    ReadFileArgs {
+                        filepath: "namespace/alias.py".to_string(),
+                        start_line: None,
+                        end_line: None,
+                    },
+                )
+                .await
+                .unwrap()
+                .result(&mut context)
+                .await;
+            assert!(result.unwrap_err().to_string().contains("not an allowed"));
+        }
+        for path in [
+            None,
+            Some("namespace"),
+            Some("namespace/other.py"),
+            Some("unrelated"),
+        ] {
+            let listing = ListFiles {
+                working_directory: Some(root.clone()),
+                restrict_to_working_directory: true,
+                allowed_files: Some(allowed_paths.clone()),
+            }
+            .init_call(
+                &mut context,
+                ListFilesArgs {
+                    pattern: "**/*.py".to_string(),
+                    path: path.map(str::to_string),
+                    show_gitignored: Some(true),
+                    max_count: None,
+                },
+            )
+            .await
+            .unwrap()
+            .result(&mut context)
+            .await
+            .unwrap();
+            let listing: serde_yaml::Value = serde_yaml::from_str(&listing).unwrap();
+            let expected_count = match path {
+                None => 2,
+                Some("namespace") => 1,
+                _ => 0,
+            };
+            assert_eq!(listing["total_matched"].as_u64(), Some(expected_count));
+            for file in listing["files"].as_sequence().unwrap() {
+                let path = PathBuf::from(file.as_str().unwrap());
+                assert!(allowed.contains(&fs::canonicalize(root.join(path)).unwrap()));
+            }
+            let search = SearchText {
+                working_directory: Some(root.clone()),
+                restrict_to_working_directory: true,
+                allowed_files: Some(allowed_paths.clone()),
+            }
+            .init_call(
+                &mut context,
+                SearchTextArgs {
+                    pattern: None,
+                    literal: Some("needle".to_string()),
+                    path: path.map(str::to_string),
+                    glob: None,
+                    ignore_case: None,
+                    context_lines: Some(1),
+                    max_files: None,
+                },
+            )
+            .await
+            .unwrap()
+            .result(&mut context)
+            .await
+            .unwrap();
+            assert!(!search.contains("unrelated needle"));
+            assert!(!search.contains("secret needle"));
+            let search: serde_yaml::Value = serde_yaml::from_str(&search).unwrap();
+            assert_eq!(search["files_searched"].as_u64(), Some(expected_count));
+            assert_eq!(search["total_line_matches"].as_u64(), Some(expected_count));
+            if path.is_none() {
+                assert_eq!(
+                    search["files"][0]["matches"][0]["line"].as_str(),
+                    Some("module needle")
+                );
+                assert_eq!(
+                    search["files"][1]["matches"][0]["line"].as_str(),
+                    Some("owned needle")
+                );
+            }
+        }
+        #[cfg(unix)]
+        {
+            fs::remove_file(&owned).unwrap();
+            std::os::unix::fs::symlink(root.join("namespace/other.py"), &owned).unwrap();
+            let error = reader
+                .init_call(
+                    &mut context,
+                    ReadFileArgs {
+                        filepath: "namespace/owned.py".to_string(),
+                        start_line: None,
+                        end_line: None,
+                    },
+                )
+                .await
+                .unwrap()
+                .result(&mut context)
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("not an allowed"));
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
