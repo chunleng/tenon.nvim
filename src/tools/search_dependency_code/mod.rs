@@ -105,11 +105,11 @@ impl ToolCore for SearchDependencyCode {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Call, Self::Error> {
-        let resolved_version = validate_dependency_source(&args)?;
+        let selection = validate_dependency_source(&args)?;
         let DependencySource {
             root: source_path,
             allowed_files,
-        } = resolve_dependency_source(&args, &resolved_version)?;
+        } = resolve_dependency_source(&args, &selection)?;
 
         let config = get_application_config();
         let agent_config = config
@@ -153,7 +153,7 @@ impl ToolCore for SearchDependencyCode {
         let mut agent = GoalOrientedWorker::new(model, vec![], tools, log_handler);
 
         let boundary = if allowed_files.is_some() {
-            "The tools expose only implementation files recorded as belonging to this distribution. Other distributions may share this directory; do not inspect them."
+            "The tools expose only permitted dependency source files. Do not inspect other distributions."
         } else {
             "All paths must be within the dependency source directory."
         };
@@ -367,15 +367,23 @@ fn next_progress_line(
     Vec::new()
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum DependencySelection {
+    Rust(String),
+    Python(python_uv::PythonUvSelection),
+}
+
 fn validate_dependency_source(
     args: &SearchDependencyCodeArgs,
-) -> Result<String, ToolExecutionError> {
+) -> Result<DependencySelection, ToolExecutionError> {
     match args.language {
         SupportedLanguages::Rust => {
             rust::validate_rust_dependency(&args.dependency, args.version.as_deref())
+                .map(DependencySelection::Rust)
         }
         SupportedLanguages::Python => {
             python_uv::validate_python_uv_dependency(&args.dependency, args.version.as_deref())
+                .map(DependencySelection::Python)
                 .map_err(ToolExecutionError::from)
         }
     }
@@ -389,12 +397,12 @@ struct DependencySource {
 
 fn resolve_dependency_source(
     args: &SearchDependencyCodeArgs,
-    resolved_version: &str,
+    selection: &DependencySelection,
 ) -> Result<DependencySource, ToolExecutionError> {
-    match args.language {
-        SupportedLanguages::Rust => rust::resolve_rust_source(&args.dependency, resolved_version),
-        SupportedLanguages::Python => {
-            python_uv::resolve_python_uv_source(&args.dependency, resolved_version)
+    match selection {
+        DependencySelection::Rust(version) => rust::resolve_rust_source(&args.dependency, version),
+        DependencySelection::Python(selection) => {
+            python_uv::resolve_python_uv_source(&args.dependency, selection)
         }
     }
 }
@@ -484,7 +492,7 @@ mod tests {
         assert!(source.allowed_files.is_none());
         assert_eq!(
             version,
-            rust::validate_rust_dependency("toml", None).unwrap()
+            DependencySelection::Rust(rust::validate_rust_dependency("toml", None).unwrap())
         );
     }
 

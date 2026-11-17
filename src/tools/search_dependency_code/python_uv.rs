@@ -43,13 +43,25 @@ struct UvLock {
 #[derive(Deserialize)]
 struct LockedPackage {
     name: String,
-    version: String,
+    version: Option<String>,
+    source: Option<LockedSource>,
 }
 
-pub fn validate_python_uv_dependency(
+#[derive(Deserialize)]
+struct LockedSource {
+    editable: Option<PathBuf>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum PythonUvSelection {
+    Version(String),
+    Editable(PathBuf),
+}
+
+pub(super) fn validate_python_uv_dependency(
     dep_name: &str,
     dep_version: Option<&str>,
-) -> Result<String, PythonUvValidationError> {
+) -> Result<PythonUvSelection, PythonUvValidationError> {
     let cwd = std::env::current_dir()
         .map_err(|e| ToolExecutionError::other(format!("Cannot get current directory: {e}")))?;
     validate_lockfile(&cwd, dep_name, dep_version)
@@ -73,7 +85,7 @@ fn validate_lockfile(
     root: &Path,
     dep_name: &str,
     dep_version: Option<&str>,
-) -> Result<String, PythonUvValidationError> {
+) -> Result<PythonUvSelection, PythonUvValidationError> {
     let path = root.join("uv.lock");
     let content = fs::read_to_string(&path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
@@ -93,13 +105,18 @@ fn validate_lockfile(
     }
 
     let normalized = normalize_distribution_name(dep_name);
-    let versions: BTreeSet<String> = lock
-        .package
-        .into_iter()
-        .filter(|package| normalize_distribution_name(&package.name) == normalized)
-        .map(|package| package.version)
-        .collect();
-    if versions.is_empty() {
+    let mut versions = BTreeSet::new();
+    let mut editable_paths = BTreeSet::new();
+    for package in lock.package {
+        if normalize_distribution_name(&package.name) == normalized {
+            if let Some(version) = package.version {
+                versions.insert(version);
+            } else if let Some(path) = package.source.and_then(|source| source.editable) {
+                editable_paths.insert(root.join(path));
+            }
+        }
+    }
+    if versions.is_empty() && editable_paths.is_empty() {
         return Err(ToolExecutionError::not_found(format!(
             "Distribution '{dep_name}' not found in uv.lock. Use its distribution name, not its import name."
         ))
@@ -107,16 +124,21 @@ fn validate_lockfile(
     }
     let available = versions.iter().cloned().collect::<Vec<_>>().join(", ");
     match dep_version {
-        Some(requested) if versions.contains(requested) => Ok(requested.to_string()),
+        Some(requested) if versions.contains(requested) => {
+            Ok(PythonUvSelection::Version(requested.to_string()))
+        }
         Some(requested) => Err(ToolExecutionError::invalid_args(format!(
             "Version mismatch: requested '{requested}' but uv.lock has: {available}"
         ))
         .into()),
-        None if versions.len() > 1 => Err(ToolExecutionError::invalid_args(format!(
-            "Multiple versions of '{dep_name}' in uv.lock: {available}. Specify which version to search."
+        None if versions.len() + editable_paths.len() > 1 => Err(ToolExecutionError::invalid_args(format!(
+            "Multiple versions or editable sources of '{dep_name}' in uv.lock: {available}. Specify which version to search."
         ))
         .into()),
-        None => Ok(versions.into_iter().next().unwrap()),
+        None => match versions.into_iter().next() {
+            Some(version) => Ok(PythonUvSelection::Version(version)),
+            None => Ok(PythonUvSelection::Editable(editable_paths.into_iter().next().unwrap())),
+        },
     }
 }
 
@@ -166,13 +188,62 @@ fn project_environment(root: &Path, override_path: Option<&OsStr>) -> PathBuf {
 
 pub(super) fn resolve_python_uv_source(
     dep_name: &str,
-    dep_version: &str,
+    selection: &PythonUvSelection,
 ) -> Result<DependencySource, ToolExecutionError> {
-    let root = std::env::current_dir()
-        .map_err(|e| ToolExecutionError::other(format!("Cannot get current directory: {e}")))?;
-    let environment =
-        project_environment(&root, std::env::var_os("UV_PROJECT_ENVIRONMENT").as_deref());
-    query_installed_source(&environment, dep_name, dep_version)
+    match selection {
+        PythonUvSelection::Version(version) => {
+            let root = std::env::current_dir().map_err(|e| {
+                ToolExecutionError::other(format!("Cannot get current directory: {e}"))
+            })?;
+            let environment =
+                project_environment(&root, std::env::var_os("UV_PROJECT_ENVIRONMENT").as_deref());
+            query_installed_source(&environment, dep_name, version)
+        }
+        PythonUvSelection::Editable(path) => {
+            let root = fs::canonicalize(path).map_err(|e| {
+                ToolExecutionError::not_found(format!(
+                    "Cannot resolve editable source directory '{}': {e}",
+                    TenonPath::with_cwd(path.to_string_lossy())
+                ))
+            })?;
+            if !root.is_dir() {
+                return Err(ToolExecutionError::invalid_args(format!(
+                    "Editable source path '{}' is not a directory",
+                    TenonPath::with_cwd(root.to_string_lossy())
+                )));
+            }
+            let mut walker = ignore::WalkBuilder::new(&root);
+            walker
+                .hidden(false)
+                .ignore(false)
+                .git_ignore(false)
+                .git_exclude(false)
+                .git_global(false)
+                .parents(false)
+                .follow_links(false);
+            let mut allowed_files = BTreeSet::new();
+            for entry in walker.build() {
+                let entry = entry.map_err(|e| {
+                    ToolExecutionError::other(format!(
+                        "Cannot enumerate editable source directory: {e}"
+                    ))
+                })?;
+                if let Ok(path) = fs::canonicalize(entry.path())
+                    && path.starts_with(&root)
+                    && path.is_file()
+                {
+                    let path = path.to_str().ok_or_else(|| {
+                        ToolExecutionError::other("Dependency source path is not valid UTF-8")
+                    })?;
+                    allowed_files.insert(TenonPath::new(path, Some(&root)));
+                }
+            }
+            Ok(DependencySource {
+                root,
+                allowed_files: Some(allowed_files),
+            })
+        }
+    }
 }
 
 fn query_installed_source(
@@ -454,7 +525,10 @@ mod tests {
             r#"version = 1
 [[package]]
 name = "root"
-version = "0.1.0"
+source = { editable = "../" }
+[[package]]
+name = "unversioned"
+source = { virtual = "." }
 [[package]]
 name = "beautiful-soup4"
 version = "4.13.0"
@@ -465,7 +539,7 @@ version = "4.13.0"
         );
         assert_eq!(
             validate_lockfile(&project.0, "Beautiful._Soup4", None).unwrap(),
-            "4.13.0"
+            PythonUvSelection::Version("4.13.0".to_string())
         );
         let error = validate_lockfile(&project.0, "bs4", None).unwrap_err();
         assert!(
@@ -479,6 +553,86 @@ version = "4.13.0"
                 .to_string()
                 .contains("Version mismatch")
         );
+    }
+
+    #[tokio::test]
+    async fn searches_versionless_editable_source_without_installation() {
+        use crate::tools::read_file::ReadFileArgs;
+        use crate::tools::{ReadFile, ToolCore, ToolCoreCall};
+        use rig::tool::ToolContext;
+
+        const CHILD: &str = "TENON_TEST_EDITABLE_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let project = Project::new();
+            let lock_root = project.0.join("workspace");
+            let editable = project.0.join("editable");
+            fs::create_dir_all(&lock_root).unwrap();
+            fs::create_dir_all(&editable).unwrap();
+            fs::write(editable.join("module.py"), "editable implementation").unwrap();
+            fs::write(project.0.join("outside.py"), "outside source").unwrap();
+            fs::write(
+                lock_root.join("uv.lock"),
+                "version = 1\n[[package]]\nname = 'my-package'\nsource = { editable = '../editable' }\n",
+            )
+            .unwrap();
+            let module = module_path!().split_once("::").unwrap().1;
+            let test_name =
+                format!("{module}::searches_versionless_editable_source_without_installation");
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &test_name, "--nocapture"])
+                .current_dir(lock_root)
+                .env(CHILD, "1")
+                .env_remove("UV_PROJECT_ENVIRONMENT")
+                .env_remove("VIRTUAL_ENV")
+                .output()
+                .unwrap();
+            assert!(String::from_utf8_lossy(&output.stdout).contains("running 1 test"));
+            assert!(
+                output.status.success(),
+                "child test failed: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let args = super::super::SearchDependencyCodeArgs {
+            prompt: "inspect".to_string(),
+            language: super::super::SupportedLanguages::Python,
+            dependency: "My_Package".to_string(),
+            version: None,
+        };
+        let selection = super::super::validate_dependency_source(&args).unwrap();
+        let source = super::super::resolve_dependency_source(&args, &selection).unwrap();
+        let expected = fs::canonicalize("../editable").unwrap();
+        assert_eq!(fs::canonicalize(&source.root).unwrap(), expected);
+
+        let reader = ReadFile {
+            working_directory: Some(source.root),
+            restrict_to_working_directory: true,
+            allowed_files: source.allowed_files,
+        };
+        let mut context = ToolContext::new();
+        for (path, expected) in [("module.py", true), ("../outside.py", false)] {
+            let result = reader
+                .init_call(
+                    &mut context,
+                    ReadFileArgs {
+                        filepath: path.to_string(),
+                        start_line: None,
+                        end_line: None,
+                    },
+                )
+                .await
+                .unwrap()
+                .result(&mut context)
+                .await;
+            if expected {
+                assert!(result.unwrap().contains("editable implementation"));
+            } else {
+                assert!(result.is_err(), "outside source must not be readable");
+            }
+        }
     }
 
     #[test]
@@ -502,7 +656,7 @@ version = "2.0"
         );
         assert_eq!(
             validate_lockfile(&project.0, "example", Some("2.0")).unwrap(),
-            "2.0"
+            PythonUvSelection::Version("2.0".to_string())
         );
     }
 
