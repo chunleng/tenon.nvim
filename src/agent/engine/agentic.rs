@@ -484,8 +484,6 @@ impl AgenticStreamEngine {
                     }
                     Ok(StreamItem::Other) => {}
                     Ok(StreamItem::CompletionCall { usage }) => {
-                        on_completion_call(usage);
-
                         // The model call just finished, so its assistant message is complete.
                         // Release any held prefix text and reset line-start checking: whatever
                         // streams next (a new message after tool items, or a retry) begins at a
@@ -500,6 +498,10 @@ impl AgenticStreamEngine {
                         {
                             message.complete = true;
                         }
+
+                        // on_completion_call persists the history snapshot, so it must run
+                        // after the tail text is appended and the message is marked complete.
+                        on_completion_call(usage);
                     }
                     Err(e) => {
                         // Mid-stream failures (e.g. "error decoding response body") surface here
@@ -951,9 +953,12 @@ mod tests {
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().expect("test cwd"))
             .ok();
+        // The trailing ":" starts a line, so the keyword filter holds it until the
+        // CompletionCall flush.
         let body = concat!(
             "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"Hello \"},\"done\":false}\n",
-            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"world\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"world\\n\"},\"done\":false}\n",
+            "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\":\"},\"done\":false}\n",
             "{\"model\":\"test\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":1,\"eval_count\":2}\n",
         );
         let (addr, _connections) = spawn_ollama_mock(body, 0).await;
@@ -969,9 +974,50 @@ mod tests {
         );
 
         let cancel = AtomicBool::new(false);
+        // Capture the assistant state inside on_completion_call: production saves
+        // the history snapshot here.
+        let log_window = engine.log_handler.log_window.clone();
+        let saved_state: Arc<RwLock<Option<(bool, String)>>> = Arc::new(RwLock::new(None));
+        let capture = Arc::clone(&saved_state);
         engine
-            .process_turn("Say hello".to_string(), &cancel, |_| {}, 1)
+            .process_turn(
+                "Say hello".to_string(),
+                &cancel,
+                move |_| {
+                    let window = log_window.read().expect("log window readable");
+                    let Some(last) = window.logs.last() else {
+                        return;
+                    };
+                    let log = last.log.read().expect("log readable");
+                    let TenonLogData::Assistant(message) = log.data() else {
+                        return;
+                    };
+                    let text = message
+                        .content
+                        .iter()
+                        .map(|content| match content {
+                            TenonAssistantMessageContent::Text(text) => text.as_str(),
+                        })
+                        .collect::<String>();
+                    *capture.write().expect("capture lock") = Some((message.complete, text));
+                },
+                1,
+            )
             .await;
+
+        let (complete_at_save, text_at_save) = saved_state
+            .write()
+            .expect("capture lock")
+            .take()
+            .expect("on_completion_call must observe the assistant log");
+        assert!(
+            complete_at_save,
+            "the assistant message must be complete when the history snapshot is written"
+        );
+        assert_eq!(
+            text_at_save, "Hello world\n:",
+            "text held by the keyword filter must be appended before the history snapshot is written"
+        );
 
         let log_window = engine
             .log_handler
