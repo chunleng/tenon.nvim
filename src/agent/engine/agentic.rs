@@ -565,7 +565,7 @@ mod tests {
             config: ProviderConfig {
                 kind: ProviderKind::Ollama(OllamaProviderConfig {
                     base_url,
-                    bearer: None,
+                    api_key: None,
                 }),
                 parameters: HashMap::new(),
             },

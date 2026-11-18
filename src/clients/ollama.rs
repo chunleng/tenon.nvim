@@ -10,14 +10,14 @@ use serde::Deserialize;
 #[serde(default, deny_unknown_fields)]
 pub struct OllamaProviderConfig {
     pub base_url: String,
-    pub bearer: Option<ApiKey>,
+    pub api_key: Option<ApiKey>,
 }
 
 impl Default for OllamaProviderConfig {
     fn default() -> Self {
         Self {
             base_url: "http://127.0.0.1:11434".to_string(),
-            bearer: Some(ApiKey::Env {
+            api_key: Some(ApiKey::Env {
                 env: "OLLAMA_API_KEY".to_string(),
             }),
         }
@@ -32,8 +32,8 @@ pub fn get_ollama_agent(
     mut params: serde_json::Map<String, serde_json::Value>,
 ) -> Agent {
     let mut ollama_config = OllamaConfig::new().with_base_url(config.base_url);
-    if let Some(bearer) = config.bearer
-        && let Ok(token) = bearer.resolve()
+    if let Some(api_key) = config.api_key
+        && let Ok(token) = api_key.resolve()
     {
         ollama_config = ollama_config.with_api_key(token);
     }
