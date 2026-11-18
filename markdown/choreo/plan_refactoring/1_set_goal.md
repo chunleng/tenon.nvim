@@ -14,7 +14,7 @@ Understand user's refactoring requirement and define constraints
   - Any deadlines or constraints
 4. Iterate: investigate → ask questions → refine understanding until constraints are clear
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 requirement: "what user wants to achieve"
 constraints:

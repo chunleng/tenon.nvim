@@ -16,7 +16,7 @@
   c. Re-order if dependencies turned out different than expected
 3. Pick the next change to make
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 done:
   - "what is done"

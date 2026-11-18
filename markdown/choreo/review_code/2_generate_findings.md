@@ -14,7 +14,7 @@
    - `resolved-via-code`: remove if confirmed fixed in the updated diff, otherwise revert to `pending`
    - `pending`: carry forward as-is
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 findings:
   - category: Correctness | Security | Clarity | Maintainability | Style

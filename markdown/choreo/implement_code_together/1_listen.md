@@ -23,7 +23,7 @@ Information-gathering only, no code implementation.
 - States what changes, e.g. "Add input validation to the login form"
 - Puts code locations discovered during research into sidenotes, not the goal
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 goal: clear description of the what to achieve, following the "Good Goal" section
 sidenotes: # omit entirely if no points

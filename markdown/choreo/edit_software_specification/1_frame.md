@@ -19,7 +19,7 @@
    - For platform delivery: a temporary file for drafting; initialize it with the fetched content for updates
    - For file delivery: use the destination path as the working file. Edit the existing file in place for updates or create a new file for creation, using pasted content as input when provided
 
-## Choreo Move Artifact
+## Artifact
 ### Create
 ```yaml
 mode: create

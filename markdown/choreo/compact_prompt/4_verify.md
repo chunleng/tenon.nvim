@@ -5,7 +5,7 @@ Read the compacted text (from the edited files, or the inline text output) and c
 3. **No new voice**: Does the compacted text read like neutral reference material, or does it have a distinctive terse style that could bleed into an agent's output? If the text uses telegram-style fragments or clipped imperatives, this criterion fails.
 4. **No merged rules**: Is each behavioral instruction still individually identifiable? If two rules with different conditions or scopes were combined into a single statement, this criterion fails.
 
-## Choreo Move Artifact
+## Artifact
 
 ### Issues Found
 ```yaml

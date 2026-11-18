@@ -90,7 +90,7 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
             }
 
             let goto_instruction = format!(
-                "If the `instruction` tag contains a \"Choreo Move Artifact\" section, produce the artifact it specifies for the target you are calling and pass it in the `move_artifact` field of the tool call. If the section is absent, omit the field.\n\n\
+                "If the `instruction` tag contains an \"Artifact\" section, produce the artifact it specifies for the target you are calling and pass it in the `move_artifact` field of the tool call. If the section is absent, omit the field.\n\n\
                 Below are the navigation options in the form `condition → tool tool_param`:\n\
                 {}",
                 goto_lines.join("\n")

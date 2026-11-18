@@ -12,7 +12,7 @@
 8. If the user's response is unclear, ::tenon-chat:: ask again
    - Continue until they either confirm or point out problems
 
-## Choreo Move Artifact
+## Artifact
 For navigating to move 2:
 ```yaml
 verification_findings:

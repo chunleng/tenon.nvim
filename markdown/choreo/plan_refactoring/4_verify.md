@@ -12,7 +12,7 @@ Verify refactoring plan is sound before implementation
    - Missing files in affected list
    - Unclear descriptions
 
-## Choreo Move Artifact
+## Artifact
 When verification fails (issues found):
 ```yaml
 status: "verification failed"

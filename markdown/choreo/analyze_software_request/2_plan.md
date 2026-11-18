@@ -34,7 +34,7 @@
 - Good: Introduce stress test framework, placed right before the feature step that must handle high QPS; Add integration test harness for message queue, placed right before the feature step that sends async notifications
 - Bad: Set up stress test framework as the first plan step (nothing uses it until much later); Add a test framework "just in case" (no concrete feature or requirement needs it yet)
 
-## Choreo Move Artifact
+## Artifact
 Provide the complete plan. Never provide partial updates: always include every step even if only one changed.
 ```yaml
 steps:

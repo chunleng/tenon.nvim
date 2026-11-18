@@ -8,7 +8,7 @@
 5. If the user points out problems instead of confirming, treat their response as verification findings and navigate to move 2
 6. If the user's response is unclear, ::tenon-chat:: ask again; keep asking until they either confirm or point out problems
 
-## Choreo Move Artifact
+## Artifact
 For navigating to move 2:
 ```yaml
 - issue: "what does not match reality or is missing"

@@ -21,7 +21,7 @@ If known special conditions trigger bug → add to output
 - Use existing context: execute code, run tests, inspect logs
 - Bug isolation technique
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 - steps_to_reproduce:
     - "step1"

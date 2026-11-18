@@ -6,7 +6,7 @@
 3. If the source or base is ambiguous or missing, ask the user how to obtain the diff
 4. The user can override the range or target to review specific changes
 
-## Choreo Move Artifact
+## Artifact
 The diff source configuration:
 ```yaml
 source: How to obtain the diff (e.g., git diff against main, fetch from PR #123)

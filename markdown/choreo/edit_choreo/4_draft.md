@@ -2,8 +2,8 @@
 1. If re-entered from Review, focus fixes on the content issues flagged in the review
 2. For each move in the design, draft instruction content following this format:
    - **Process**: Numbered steps to execute
-   - **Choreo Move Artifact**: What this move provides as its artifact, in YAML format (per the design). If the move has no artifact, drop this section entirely.
-   - If the Choreo Move Artifact varies by goto path (e.g. different artifacts for structural vs content routing), use subsections for each variant
+   - **Artifact**: What this move provides as its artifact, in YAML format (per the design). If the move has no artifact, drop this section entirely.
+   - If the Artifact varies by goto path (e.g. different artifacts for structural vs content routing), use subsections for each variant
 3. Write instruction files to `{storage_path}/{N}_{move_name}.md` where N is the move number, e.g. `1_`, `2_`, `3_`
 4. If creating, add the new module to `{config_path}/mod.rs`
 5. ::tenon-chat:: summary of changes and ask user for confirmation
@@ -17,9 +17,9 @@
 - Use generic examples (not tied to specific tools/frameworks)
 - Do not use "output" to mean "artifact". Use "provide artifact" instead
 - Do not include routing in instruction files unless necessary. Routing is only needed mid-process to invoke a navigation check during processing (e.g. "if X → go to move Y")
-- Do not include explicit steps to provide the Choreo Move Artifact or to proceed to the next move. All artifacts should be defined in the Choreo Move Artifact section
+- Do not include explicit steps to provide the Artifact or to proceed to the next move. All artifacts should be defined in the Artifact section
 
-## Choreo Move Artifact
+## Artifact
 ### Default
 No artifact
 

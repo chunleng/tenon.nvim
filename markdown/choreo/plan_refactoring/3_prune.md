@@ -7,7 +7,7 @@ Remove out-of-scope items from refactoring plan
    - Violate constraints
    - Are unrelated to user's requirement
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 changes:
   - description: "specific change to make"

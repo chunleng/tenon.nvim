@@ -14,7 +14,7 @@
   b. Examples: correcting faulty logic is actionable; a required service unavailable in the local setup is blocked if it cannot be made available; a test exposing a false assumption in the goal is blocked when passing it would require changing the goal
   c. An unsuccessful attempt alone does not establish a blocker; identify a concrete next step or evidence of the blocking constraint
 
-## Choreo Move Artifact
+## Artifact
 
 ### If actionable goal-related failures exist
 ```yaml

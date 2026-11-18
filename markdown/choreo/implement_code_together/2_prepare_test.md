@@ -57,7 +57,7 @@ No valuable test remains → navigate to next move without confirmation.
 - Changing password length requirement → Modify `test_password_validation` (fails for same reason: invalid length)
 - Adding password complexity check → Create `test_password_complexity` (fails for different reason: missing special character, not length)
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 tests:
   - test_file: path/to/test/file

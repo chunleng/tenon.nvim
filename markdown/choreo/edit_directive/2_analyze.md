@@ -29,7 +29,7 @@
 - If the action is "update", include: "Confirm this is correct? Make sure this directive was actually active when the problem occurred."
 - If the user has a stated preference (e.g. "I want a new directive") that differs from your analysis, explain why your analysis suggests a different action and let the user decide
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 action: new | update
 type: behavior-steering | knowledge-boosting

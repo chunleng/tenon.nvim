@@ -10,7 +10,7 @@ Verify only what was just implemented this cycle (the `next` item from the plan)
   c. If the output doesn't cover the weaknesses, mark it as unverifiable
 3. Run new verification plus existing checks in the areas you touched
 
-## Choreo Move Artifact
+## Artifact
 
 ### If verification failed
 ```yaml

@@ -41,7 +41,7 @@ Blockers found:
 Fix: <fix>
 ```
 
-## Choreo Move Artifact
+## Artifact
 ### If navigating to move 2 (code changes resolved)
 ```yaml
 findings:

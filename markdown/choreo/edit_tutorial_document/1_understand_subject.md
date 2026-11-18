@@ -8,7 +8,7 @@
 4. If information needed for the tutorial cannot be determined from the user's input or the code, ::tenon-chat:: ask the user
    - Then go back to step 3
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 title: "title of the tutorial document"
 changes:

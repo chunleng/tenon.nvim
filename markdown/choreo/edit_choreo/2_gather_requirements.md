@@ -25,7 +25,7 @@
 
 **What NOT to ask**: Don't ask the user to make design decisions; apply criteria yourself, present the result, let the user validate (e.g. don't ask "should this be one move or two?"; apply the isolation criteria and present the design)
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 requirements:
   - ...

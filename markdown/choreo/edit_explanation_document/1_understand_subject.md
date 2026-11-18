@@ -13,7 +13,7 @@
 5. If the rationale or reasoning behind a design decision cannot be determined from the user's input, the code, or existing docs, ::tenon-chat:: ask the user
    - Then go back to step 4
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 subject: "what the explanation document covers"
 doc_path: "path of the explanation document to create or update"

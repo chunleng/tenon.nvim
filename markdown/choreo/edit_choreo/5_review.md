@@ -20,7 +20,7 @@ In any process step, ask the user for input at any point during the review when 
 4. If no issues were found, ::tenon-chat:: the choreo and ask the user for approval
    - If user requests changes, classify them as structural or content. If approved, end the choreo
 
-## Choreo Move Artifact
+## Artifact
 ### Structural issues found
 ```yaml
 structural_issues:

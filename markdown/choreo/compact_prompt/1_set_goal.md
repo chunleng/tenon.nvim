@@ -6,7 +6,7 @@
 2. If the target is unclear, ask the user to clarify
 3. Write a free-text description of what to compact. If the target is file-based, include file paths and which sections are in scope. If the target is inline text, include the text itself.
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 goal: |
   Free-text description of what to compact. If file-based, include file paths and sections for later moves to locate the target text. If inline text, include the text itself.

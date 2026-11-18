@@ -11,7 +11,7 @@ This move only sets up paths and determines choreo_id/mode. Do not design moves 
 2. Check if the choreo_id exists in the config file to determine mode (create vs update)
 3. Set storage_path to `markdown/choreo/{choreo_id}` (if choreo_id is null, use `markdown/choreo` as base; will be refined later)
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 config_path: src/chat/choreo
 storage_path: markdown/choreo/{choreo_id}

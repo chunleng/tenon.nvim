@@ -29,7 +29,7 @@ Task:
 - id: "order-status-notification"
 - details: "Display an order status change notification with dummy data. Deliverable: user triggers a status change and sees a placeholder notification. Requirement: user receives a notification within 5 seconds of a status change."
 
-## Choreo Move Artifact
+## Artifact
 When scope issues are found:
 ```yaml
 scope_issue:

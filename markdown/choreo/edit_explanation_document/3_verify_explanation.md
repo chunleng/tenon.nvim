@@ -13,7 +13,7 @@
 6. If the user's response is unclear, ::tenon-chat:: ask again
    - Continue until the user either confirms or points out problems
 
-## Choreo Move Artifact
+## Artifact
 For navigating to move 2:
 ```yaml
 - issue: "the mismatch, ungrounded rationale, or contradiction"

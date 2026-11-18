@@ -12,7 +12,7 @@
 5. If information needed for the guide cannot be determined from the user's input or the code, ::tenon-chat:: ask the user
    - Then go back to step 3
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 task: "the specific, real-world problem the guide solves"
 changes:

@@ -20,7 +20,7 @@
 2. Check that `requested_changes` were made without changing unaffected content or settled decisions. Do not require new alternatives
 3. Distinguish defects introduced by the edit from unrelated pre-existing issues; do not expand beyond `requested_changes` without user approval
 
-## Choreo Move Artifact
+## Artifact
 ### If gaps remain
 ```yaml
 gaps:

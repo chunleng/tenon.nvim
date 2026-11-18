@@ -24,5 +24,5 @@
 - part of goal → "Rejected" → revise based on feedback and loop to process step 1
 - else → "Confirm" → format code and navigate to move 1
 
-## Choreo Move Artifact
+## Artifact
 Nothing

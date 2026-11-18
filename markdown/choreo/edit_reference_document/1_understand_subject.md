@@ -14,7 +14,7 @@
    b. If no similar document is found, propose a good default format
    c. ::tenon-chat:: confirm the chosen format (borrowed or default) with the user; adjust it per their feedback
 
-## Choreo Move Artifact
+## Artifact
 Fill in the artifact in full, including on re-entry.
 
 ```yaml

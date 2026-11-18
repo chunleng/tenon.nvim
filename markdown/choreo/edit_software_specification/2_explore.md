@@ -10,7 +10,7 @@
 3. Scale depth to the decision's complexity: simpler, lower-stakes decisions warrant fewer alternatives and briefer analysis; high-stakes or hard-to-reverse decisions warrant more alternatives and deeper analysis
 4. ::tenon-chat:: the generated analysis, and ask the user for confirmation; incorporate feedback and repeat from process step 1 until confirmed
 
-## Choreo Move Artifact
+## Artifact
 Include this artifact only when alternatives were considered and confirmed. For updates or when the user declines alternatives, omit the artifact.
 ```yaml
 alternatives:

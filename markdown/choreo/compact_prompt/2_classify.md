@@ -1,7 +1,7 @@
 ## Process
 1. Read the target text identified in the goal
 2. For each passage, classify it as shorten, redundant, or load-bearing using the classification criteria below
-3. Respect Tenon prompt structures when classifying. Directive conditions, choreo move artifacts, and constraint clauses are load-bearing by nature; do not classify structural elements as redundant or shorten
+3. Respect Tenon prompt structures when classifying. Directive conditions, Artifact sections in choreo moves, and constraint clauses are load-bearing by nature; do not classify structural elements as redundant or shorten
 4. When you cannot determine whether a passage is shorten, redundant, or load-bearing, ask the user before proceeding. Do not guess.
 
 ## Classification Criteria
@@ -22,7 +22,7 @@
 - Decision tests and criteria: these drive judgment in ambiguous cases
 - Examples that carry the meaning themselves (when the rule is vague without the example, the example IS the specification)
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 - target: "passage or section identifier (e.g. file path + heading, or text snippet)"
   classification: "shorten | redundant | load-bearing"

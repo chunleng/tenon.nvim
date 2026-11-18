@@ -18,7 +18,7 @@
    - Example: "what kind of impact?" → "contract change or internal-only?"
 5. Summarize the root cause as a concise statement and confirm with the user. If the user disagrees or refines, loop back to process step 3 or 4 as needed
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 root_cause: |
   <concise statement of the root cause>

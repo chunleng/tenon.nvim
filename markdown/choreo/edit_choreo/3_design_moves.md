@@ -39,7 +39,7 @@ For each task, walk this decision tree:
 - Do NOT use choreo memory for transient items (e.g. review issues); they persist beyond their useful scope and cause confusion
 - Routing itself indicates re-entry; use "if re-entered from Review or Draft" rather than checking choreo memory for transient state
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 navigate_artifact:
   from_<move_number>_to_<move_number>: artifact content description | none

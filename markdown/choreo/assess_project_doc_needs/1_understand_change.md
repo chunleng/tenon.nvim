@@ -11,7 +11,7 @@
 5. Scan existing documentation (docs directories, README files, markdown files), read the relevant ones, and find gaps: where existing docs fail to cover the change
 6. Provide the change context artifact
 
-## Choreo Move Artifact
+## Artifact
 ```yaml
 developed: "what was built"
 use_cases:

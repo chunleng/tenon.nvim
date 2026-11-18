@@ -25,7 +25,7 @@
 - Which framework, technology, or library to use
 - Implementation-level architecture (module separation, code structure)
 
-## Choreo Move Artifact
+## Artifact
 Output the complete scope. Never output partial updates; always include the full scope even if only one item changed.
 
 ```yaml

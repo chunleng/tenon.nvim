@@ -5,7 +5,7 @@
 2. If every criterion is met or no further work, you're done
 3. If unmet criteria remain that have further work, figure out exactly what the remaining gap is
 
-## Choreo Move Artifact
+## Artifact
 
 ### If every criterion is met or no further work
 No artifact needed.
