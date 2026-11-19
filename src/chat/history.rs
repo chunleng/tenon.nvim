@@ -12,7 +12,7 @@ fn session_datetime_now() -> DateTime<Local> {
     Local::now()
 }
 
-/// Serializable snapshot of a chat session, written to `.tenon/history/<id>.json`
+/// Serializable snapshot of a chat session, written to `<directory>/history/<id>.json`
 /// on `StreamItem::CompletionCall`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatHistory {
@@ -45,7 +45,6 @@ pub fn save_to_history(
     log_window: &LogWindow,
     usage: &Arc<RwLock<SessionUsage>>,
     work_queue: &Arc<RwLock<WorkQueue>>,
-    history_directory: &str,
 ) {
     let Ok(logs_vec) = log_window
         .logs
@@ -70,8 +69,7 @@ pub fn save_to_history(
     };
 
     if let Ok(cwd) = std::env::current_dir() {
-        let dir = std::path::Path::new(history_directory);
-        // If path is relative, make it relative to cwd
+        let dir = std::path::Path::new(&crate::get_application_config().directory).join("history");
         let dir = if dir.is_relative() {
             cwd.join(dir)
         } else {
@@ -86,12 +84,12 @@ pub fn save_to_history(
     }
 }
 
-pub fn load_history_entries(history_directory: &str) -> Vec<ChatHistory> {
+pub fn load_history_entries() -> Vec<ChatHistory> {
     let mut entries = Vec::new();
     let Ok(cwd) = std::env::current_dir() else {
         return entries;
     };
-    let dir = std::path::Path::new(history_directory);
+    let dir = std::path::Path::new(&crate::get_application_config().directory).join("history");
     let dir = if dir.is_relative() {
         cwd.join(dir)
     } else {
@@ -170,39 +168,58 @@ mod tests {
     }
 
     #[test]
-    fn test_save_to_history_persists_work_queue() {
+    fn test_history_storage_paths_and_rename_persist_work_queue() {
         let mut queue = WorkQueue::default();
         queue.push("refactor".into(), "fix X".into(), "long X".into());
+        let queue = Arc::new(RwLock::new(queue));
+        let usage = Arc::new(RwLock::new(SessionUsage::default()));
+        let cwd = std::env::current_dir().unwrap();
+        let name = format!("tenon-history-test-{}", uuid::Uuid::new_v4());
+        let directories = [
+            std::path::PathBuf::from(&name),
+            std::env::temp_dir().join(&name),
+        ];
+        let id = "2025-01-01-120000-queue-save";
+        let session_datetime = Local::now();
 
-        let dir = std::env::temp_dir().join(format!(
-            "tenon-history-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let metadata = SessionMetadata {
-            id: "2025-01-01-120000-queue-save",
-            title: None,
-            agent_name: "default",
-            model_display: "test-model",
-            session_datetime: Local::now(),
-        };
+        for directory in directories {
+            let config = crate::config::TenonConfig {
+                directory: directory.to_str().unwrap().to_string(),
+                ..Default::default()
+            };
+            let _config = crate::ConfigOverride::set(config);
+            let root = cwd.join(&directory);
+            let path = root.join("history/2025-01-01-120000-queue-save.json");
+            for title in [None, Some("Renamed session")] {
+                save_to_history(
+                    SessionMetadata {
+                        id,
+                        title,
+                        agent_name: "default",
+                        model_display: "test-model",
+                        session_datetime,
+                    },
+                    &LogWindow { logs: vec![] },
+                    &usage,
+                    &queue,
+                );
 
-        save_to_history(
-            metadata,
-            &LogWindow { logs: vec![] },
-            &Arc::new(RwLock::new(SessionUsage::default())),
-            &Arc::new(RwLock::new(queue)),
-            dir.to_str().unwrap(),
-        );
+                let saved: ChatHistory =
+                    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                assert_eq!(saved.id, id);
+                assert_eq!(saved.title.as_deref(), title);
+                assert_eq!(saved.session_datetime, session_datetime);
 
-        let entries = load_history_entries(dir.to_str().unwrap());
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].work_queue.entries.len(), 1);
-        assert_eq!(entries[0].work_queue.entries[0].group, "refactor");
-        assert_eq!(entries[0].work_queue.entries[0].details, "long X");
-
-        let _ = std::fs::remove_dir_all(&dir);
+                let entries = load_history_entries();
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].id, id);
+                assert_eq!(entries[0].title.as_deref(), title);
+                assert_eq!(entries[0].work_queue.entries.len(), 1);
+                assert_eq!(entries[0].work_queue.entries[0].group, "refactor");
+                assert_eq!(entries[0].work_queue.entries[0].details, "long X");
+            }
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+        assert_eq!(std::env::current_dir().unwrap(), cwd);
     }
 }

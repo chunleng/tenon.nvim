@@ -2,7 +2,7 @@ use nvim_oxi::{Function, Result as OxiResult, mlua::lua};
 
 use crate::{
     chat::history::{SessionMetadata, save_to_history},
-    get_application_config, get_chat_window,
+    get_chat_window,
     utils::GLOBAL_EXECUTION_HANDLER,
 };
 
@@ -79,7 +79,6 @@ pub fn rename_fn() -> Function<(), ()> {
                             *title = new_title.clone();
                         }
 
-                        let history_dir = get_application_config().history.directory;
                         if let Ok(log_window) = session.engine.log_handler.log_window.read() {
                             save_to_history(
                                 SessionMetadata {
@@ -92,7 +91,6 @@ pub fn rename_fn() -> Function<(), ()> {
                                 &log_window,
                                 &session.usage,
                                 &session.work_queue,
-                                &history_dir,
                             );
                         }
 

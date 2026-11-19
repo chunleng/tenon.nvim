@@ -287,7 +287,6 @@ impl ChatSession {
                     if let Ok(mut usage_lock) = usage_clone.write() {
                         usage_lock.add(usage);
                     }
-                    let history_dir = get_application_config().history.directory;
                     let title_val = title_clone.read().ok().and_then(|t| t.clone());
                     if let Ok(log_window) = log_window_clone.read() {
                         save_to_history(
@@ -301,7 +300,6 @@ impl ChatSession {
                             &log_window,
                             &usage_clone,
                             &work_queue_clone,
-                            &history_dir,
                         );
                     }
                 };

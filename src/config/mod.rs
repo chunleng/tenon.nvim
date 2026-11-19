@@ -53,19 +53,6 @@ pub struct RunCommandConfig {
     pub check_models: Vec<SelectedModel>,
 }
 
-#[derive(Debug, Clone)]
-pub struct HistoryConfig {
-    pub directory: String,
-}
-
-impl Default for HistoryConfig {
-    fn default() -> Self {
-        Self {
-            directory: ".tenon/history".to_string(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct TitleConfig {
     pub model: Option<SelectedModel>,
@@ -79,7 +66,7 @@ pub struct TenonConfig {
     pub default_agent: String,
     pub models: HashMap<String, SupportedModels>,
     pub tools: ToolsConfig,
-    pub history: HistoryConfig,
+    pub directory: String,
     pub title: TitleConfig,
     pub hooks: Vec<crate::hooks::Hook>,
 }
@@ -142,7 +129,7 @@ impl Default for TenonConfig {
             default_agent: default_agent_name,
             models: default_models,
             tools: ToolsConfig::default(),
-            history: HistoryConfig::default(),
+            directory: ".tenon".to_string(),
             title: TitleConfig::default(),
             hooks: vec![],
         }

@@ -2,7 +2,7 @@ use nvim_oxi::{Function, api::types::LogLevel};
 
 use crate::constants::special_chars::{ASSISTANT, VERTICAL_SEPARATOR};
 use crate::{
-    get_application_config, get_chat_window,
+    get_chat_window,
     ui::picker::{FzfOption, box_single_select, pick},
     utils::{GLOBAL_EXECUTION_HANDLER, notify},
 };
@@ -11,10 +11,8 @@ use crate::{
 pub fn select_history_fn() -> Function<(), ()> {
     Function::from_fn({
         move |()| {
-            let history_dir = get_application_config().history.directory.clone();
-
             std::thread::spawn(move || {
-                let histories = crate::chat::history::load_history_entries(&history_dir);
+                let histories = crate::chat::history::load_history_entries();
                 if histories.is_empty() {
                     GLOBAL_EXECUTION_HANDLER
                         .notify_on_main_thread("no chat history found", LogLevel::Warn);

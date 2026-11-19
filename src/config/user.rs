@@ -18,7 +18,7 @@ pub struct TenonUserConfig {
     pub agents: Option<HashMap<String, TenonAgentConfig>>,
     pub models: Option<HashMap<String, ModelConfig>>,
     pub tools: Option<ToolsUserConfig>,
-    pub history: Option<HistoryUserConfig>,
+    pub directory: Option<String>,
     pub title: Option<TitleUserConfig>,
     pub hooks: Option<Vec<HookUserConfig>>,
 }
@@ -53,12 +53,6 @@ impl TryFrom<HookUserConfig> for crate::hooks::Hook {
             hook_type,
         })
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct HistoryUserConfig {
-    pub directory: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -390,8 +384,8 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
             };
         }
 
-        if let Some(history) = value.history {
-            conf.history.directory = history.directory;
+        if let Some(directory) = value.directory {
+            conf.directory = directory;
         }
 
         if let Some(title) = value.title {
@@ -443,6 +437,22 @@ mod tests {
     }
 
     #[test]
+    fn directory_defaults_and_overrides() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+        let config: TenonUserConfig = serde_json::from_str("{}").unwrap();
+        let result = TenonConfig::try_from(config).unwrap();
+        assert_eq!(result.directory, ".tenon");
+
+        let absolute = std::env::temp_dir().join("tenon-config-test");
+        for directory in ["custom-tenon", absolute.to_str().unwrap()] {
+            let config: TenonUserConfig =
+                serde_json::from_value(serde_json::json!({"directory": directory})).unwrap();
+            let result = TenonConfig::try_from(config).unwrap();
+            assert_eq!(result.directory, directory);
+        }
+    }
+
+    #[test]
     fn try_from_models_builds_hashmap_with_names() {
         let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
         let mut connectors = HashMap::new();
@@ -481,7 +491,7 @@ mod tests {
             agents: None,
             models: Some(models),
             tools: None,
-            history: None,
+            directory: None,
             title: None,
             hooks: None,
         };
@@ -529,7 +539,7 @@ mod tests {
             agents: None,
             models: Some(models),
             tools: None,
-            history: None,
+            directory: None,
             title: None,
             hooks: None,
         };
@@ -565,7 +575,7 @@ mod tests {
             agents: None,
             models: Some(models),
             tools: None,
-            history: None,
+            directory: None,
             title: None,
             hooks: None,
         };
@@ -628,7 +638,7 @@ mod tests {
             agents: Some(agents),
             models: Some(models),
             tools: None,
-            history: None,
+            directory: None,
             title: None,
             hooks: None,
         };
@@ -665,7 +675,7 @@ mod tests {
             agents: Some(agents),
             models: None,
             tools: None,
-            history: None,
+            directory: None,
             title: None,
             hooks: None,
         };
@@ -722,7 +732,7 @@ mod tests {
             agents: None,
             models: Some(models),
             tools: Some(tools),
-            history: None,
+            directory: None,
             title: Some(title),
             hooks: None,
         };
@@ -786,7 +796,7 @@ mod tests {
             agents: None,
             models: Some(models),
             tools: Some(tools),
-            history: None,
+            directory: None,
             title: None,
             hooks: None,
         };
@@ -861,7 +871,7 @@ mod tests {
             agents: None,
             models: Some(models),
             tools: Some(tools),
-            history: None,
+            directory: None,
             title: None,
             hooks: None,
         };
@@ -891,7 +901,7 @@ mod tests {
             agents: None,
             models: None,
             tools: Some(tools),
-            history: None,
+            directory: None,
             title: None,
             hooks: None,
         };
@@ -918,7 +928,7 @@ mod tests {
             agents: None,
             models: None,
             tools: Some(tools),
-            history: None,
+            directory: None,
             title: None,
             hooks: None,
         };
