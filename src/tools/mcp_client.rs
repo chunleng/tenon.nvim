@@ -151,10 +151,22 @@ mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
 
         let response = result.get("response").unwrap_or(&Value::Null).clone();
 
-        Ok(ToolOutput::text(
-            serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string()),
-        ))
+        Ok(ToolOutput::text(format_response(&response)))
     }
+}
+
+fn format_response(response: &Value) -> String {
+    if let Some(object) = response.as_object()
+        && object.len() == 4
+        && let Some(text) = object.get("text").and_then(Value::as_str)
+        && ["blobs", "images", "audios"].iter().all(|key| {
+            matches!(object.get(*key), Some(Value::Object(items)) if items.is_empty())
+        })
+    {
+        return text.to_string();
+    }
+
+    serde_json::to_string_pretty(response).unwrap_or_else(|_| "{}".to_string())
 }
 
 #[cfg(test)]
@@ -171,6 +183,51 @@ mod tests {
             "Get weather forecast",
             json!({"type": "object"}),
         )
+    }
+
+    #[test]
+    fn test_text_only_response_returns_raw_text() {
+        for text in ["<RESULT>\n\"quoted\"", ""] {
+            let response = json!({
+                "blobs": {},
+                "images": {},
+                "text": text,
+                "audios": {},
+            });
+            assert_eq!(format_response(&response), text);
+        }
+    }
+
+    #[test]
+    fn test_media_and_nonmatching_responses_remain_structured() {
+        let text_only = json!({"blobs": {}, "images": {}, "text": "<RESULT>", "audios": {}});
+        let mut responses = vec![
+            json!(null),
+            json!("plain text"),
+            json!({"text": "<RESULT>"}),
+        ];
+        for key in ["blobs", "images", "audios"] {
+            for media in [json!({"data": "media"}), json!(["media"]), json!(null)] {
+                let mut response = text_only.clone();
+                response[key] = media;
+                responses.push(response);
+            }
+            let mut response = text_only.clone();
+            response.as_object_mut().unwrap().remove(key);
+            responses.push(response);
+        }
+        let mut non_string_text = text_only.clone();
+        non_string_text["text"] = json!(["<RESULT>"]);
+        responses.push(non_string_text);
+        let mut extra_field = text_only;
+        extra_field["metadata"] = json!({"important": true});
+        responses.push(extra_field);
+
+        for response in responses {
+            let formatted = format_response(&response);
+            assert_eq!(serde_json::from_str::<Value>(&formatted).unwrap(), response);
+            assert_eq!(formatted, serde_json::to_string_pretty(&response).unwrap());
+        }
     }
 
     #[test]
