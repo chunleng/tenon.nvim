@@ -13,8 +13,13 @@
    - `dropped`: keep as-is, do not re-examine
    - `resolved-via-code`: remove if confirmed fixed in the updated diff, otherwise revert to `pending`
    - `pending`: carry forward as-is
+5. If no findings were generated, ::tenon-chat:: "LGTM!"; end the choreo.
 
 ## Artifact
+### If navigating to end (no findings generated)
+No artifact
+
+### If navigating to move 3 (findings generated)
 ```yaml
 findings:
   - category: Correctness | Security | Clarity | Maintainability | Style
