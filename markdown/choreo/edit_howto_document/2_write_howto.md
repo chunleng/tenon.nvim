@@ -4,15 +4,14 @@
    a. Title the document "How to X", saying exactly what the guide shows, e.g. "How to deploy the service to production"
    b. Include all mandatory sections:
       - **Goal**: what will be achieved, stated as the problem it solves
-      - **Steps**: the logical sequence of actions toward the goal
+      - **Steps**: list the actions in the order the reader performs them
    c. Consider adding good-to-have sections where they add value:
-      - **Prerequisites**: what the reader needs before starting, based on the `reader_knowledge` from the subject context artifact
+      - **Prerequisites**: list only conditions the task requires but the guide does not establish. Common categories are access and permissions (read access to a repository), environment and tooling (a configured workspace or required tool version), and external dependencies (approval from the resource owner). Omit this section if none apply.
       - **Troubleshooting**: common failure points and their fixes
       - **Next steps**: where to go after completing the task
 
 ## Writing Rules
-- Write for a competent user: assume the basics are known, no hand-holding
-- Calibrate the steps to the `reader_knowledge` from the subject context artifact: omit steps the reader already knows instead of spelling them out
+- Use `reader_knowledge` from the subject context artifact to decide how much detail a step needs. If readers know how to download a file, tell them which file to download, not how to use the download button.
 - Use conditional imperatives where paths fork, e.g. "If you want x, do y"
 - User perspective, not machinery: the goal drives the guide, tools are incidental
 - No teaching or discussion mid-task - link to tutorials or explanations instead
