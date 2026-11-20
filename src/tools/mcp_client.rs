@@ -75,44 +75,22 @@ impl ToolCoreCall for McpClient {
     type Output = ToolOutput;
     type Error = ToolExecutionError;
 
-    async fn result(self, _context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
-        let args_json = serde_json::to_string(&self.args)
-            .map_err(|e| {
-                ToolExecutionError::invalid_args(format!("Failed to serialize args: {}", e))
-            })?
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"");
+    async fn result(self, context: &mut ToolContext) -> Result<Self::Output, Self::Error> {
+        let (server, tool, args_json, auto_approved): (String, String, String, bool) =
+            GLOBAL_EXECUTION_HANDLER.execute_rust_on_main_thread(move || {
+                let lua = nvim_oxi::mlua::lua();
+                Ok(lua.load(r#"
+local server, tool, input = ...
+assert(require('mcphub').get_hub_instance(), "MCPHub instance not available")
+local params = require('mcphub.extensions.shared').parse_params({
+    server_name = server, tool_name = tool, tool_input = vim.fn.json_decode(input)
+}, "use_mcp_tool")
+return params.server_name, params.tool_name, vim.fn.json_encode(params.arguments), not not params.is_auto_approved_in_server
+"#).call((self.server_name, self.tool_name, self.args.to_string()))?)
+            }).map_err(|e| ToolExecutionError::other(format!("Failed to prepare MCP call: {e}")))?;
 
-        let lua_code = format!(
-            r#"
-local mcphub = require('mcphub').get_hub_instance()
-if not mcphub then
-    resolve({{error = "MCPHub instance not available"}})
-    return
-end
-local args = vim.fn.json_decode("{}")
-local shared = require("mcphub.extensions.shared")
-local params = shared.parse_params({{server_name = "{}", tool_name = "{}", tool_input = args}}, "use_mcp_tool")
-if not params.is_auto_approved_in_server then
-    local args_str = vim.fn.json_encode(params.arguments)
-    local choice = vim.fn.confirm("Run " .. params.server_name .. "." .. params.tool_name .. "?\nArgs: " .. args_str, "&Yes\n&No", 1)
-    if choice ~= 1 then
-        resolve({{error = "User denied the tool run"}})
-        return
-    end
-end
-
-local opts = {{parse_response = true, callback = function(response, err)
-    if err and err ~= "" then
-        resolve({{error = err}})
-        return
-    end
-    resolve({{response = response}})
-end}}
-mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
-"#,
-            args_json, self.server_name, self.tool_name
-        );
+        let name = format!("{server}.{tool}");
+        check_approval(context, &name, &args_json, auto_approved).await?;
 
         let result = GLOBAL_EXECUTION_HANDLER
             .execute_rust_on_main_thread_async(move |resolver| {
@@ -129,8 +107,21 @@ mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
                         Ok(())
                     })?;
 
-                    let wrapped = format!("return (function(resolve)\n{}\nend)(...)", lua_code);
-                    lua.load(&wrapped).call::<()>(resolve_fn)?;
+                    lua.load(
+                        r#"
+local server, tool, args, resolve = ...
+local mcphub = assert(require('mcphub').get_hub_instance(), "MCPHub instance not available")
+local opts = {parse_response = true, callback = function(response, err)
+    if err and err ~= "" then
+        resolve({error = err})
+        return
+    end
+    resolve({response = response})
+end}
+mcphub:call_tool(server, tool, vim.fn.json_decode(args), opts)
+"#,
+                    )
+                    .call::<()>((server, tool, args_json, resolve_fn))?;
 
                     Ok(())
                 })();
@@ -144,8 +135,7 @@ mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
 
         if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
             return Err(ToolExecutionError::other(format!(
-                "MCP tool {}:{} failed: {}",
-                self.server_name, self.tool_name, error
+                "MCP tool {name} failed: {error}"
             )));
         }
 
@@ -155,13 +145,39 @@ mcphub:call_tool(params.server_name, params.tool_name, params.arguments, opts)
     }
 }
 
+async fn check_approval(
+    context: &mut ToolContext,
+    name: &str,
+    args_json: &str,
+    auto_approved: bool,
+) -> Result<(), ToolExecutionError> {
+    use crate::utils::approval::{ApprovalResult, request_approval};
+
+    if auto_approved {
+        return Ok(());
+    }
+    let args = serde_json::from_str(args_json)
+        .map_err(|e| ToolExecutionError::invalid_args(format!("Invalid MCP arguments: {e}")))?;
+    match request_approval(
+        context,
+        name,
+        args,
+        format!("MCP call not approved: {name}"),
+    )
+    .await
+    {
+        ApprovalResult::Approved => Ok(()),
+        ApprovalResult::Rejected(message) => Err(ToolExecutionError::other(message)),
+    }
+}
+
 fn format_response(response: &Value) -> String {
     if let Some(object) = response.as_object()
         && object.len() == 4
         && let Some(text) = object.get("text").and_then(Value::as_str)
-        && ["blobs", "images", "audios"].iter().all(|key| {
-            matches!(object.get(*key), Some(Value::Object(items)) if items.is_empty())
-        })
+        && ["blobs", "images", "audios"]
+            .iter()
+            .all(|key| matches!(object.get(*key), Some(Value::Object(items)) if items.is_empty()))
     {
         return text.to_string();
     }
@@ -183,6 +199,53 @@ mod tests {
             "Get weather forecast",
             json!({"type": "object"}),
         )
+    }
+
+    #[tokio::test]
+    async fn only_server_exempt_calls_pass_without_an_approval_channel() {
+        let mut context = ToolContext::new();
+        let name = "weather.get_forecast";
+        assert!(check_approval(&mut context, name, "{}", true).await.is_ok());
+        assert!(
+            check_approval(&mut context, name, "{}", false)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn approval_shows_resolved_call_and_requires_affirmative_response() {
+        use crate::chat::{EventChannel, PendingAction};
+        use crate::utils::approval::ApprovalResult;
+        use std::sync::Arc;
+
+        for verdict in [
+            Some(ApprovalResult::Approved),
+            Some(ApprovalResult::Rejected("denied".into())),
+            None,
+        ] {
+            let approved = verdict == Some(ApprovalResult::Approved);
+            let channel = Arc::new(EventChannel::<PendingAction>::new());
+            let mut context = ToolContext::new().with_scope(Arc::new(Arc::downgrade(&channel)));
+            let mut gate = Box::pin(check_approval(
+                &mut context,
+                "weather.get_forecast",
+                r#"{"city":"Oslo"}"#,
+                false,
+            ));
+            assert!(futures::poll!(&mut gate).is_pending());
+            let Some(PendingAction::Approval(action)) = channel.peek() else {
+                panic!("expected MCP approval");
+            };
+            assert_eq!(action.tool, "weather.get_forecast");
+            assert_eq!(action.args, json!({"city":"Oslo"}));
+            let tx = action.response_tx.lock().unwrap().take().unwrap();
+            match verdict {
+                Some(result) => tx.send(result).unwrap(),
+                None => drop(tx),
+            }
+            assert_eq!(gate.await.is_ok(), approved);
+        }
     }
 
     #[test]
