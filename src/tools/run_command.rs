@@ -1,5 +1,6 @@
 use crate::agent::worker::simple::SimpleTenonWorkerAgent;
 use crate::clients::SelectedModel;
+use crate::config::{WhitelistEntry, WhitelistMatch};
 use crate::get_application_config;
 use crate::utils::format_yaml_block_scalars;
 use futures::stream::{self, BoxStream, StreamExt};
@@ -62,80 +63,12 @@ struct RunCommandOutput {
     truncated: bool,
 }
 
-/// Arg allowance for a whitelist pattern.
-enum ArgAllowance {
-    /// No additional arguments beyond pattern tokens.
-    Exact,
-    /// Exactly one additional argument allowed.
-    OneArg,
-    /// Any number of additional arguments allowed.
-    AnyArgs,
-}
-
-/// Parse a whitelist pattern into (command_tokens, arg_allowance).
-///
-/// - `"make"`       → `(["make"], Exact)`   — exact, no args
-/// - `"make ?"`    → `(["make"], OneArg)`   — one arg only
-/// - `"make *"`    → `(["make"], AnyArgs)`  — any number of args
-/// - `"git log"`   → `(["git", "log"], Exact)` — exact subcommand
-/// - `"git log *"` → `(["git", "log"], AnyArgs)` — subcommand with any args
-fn parse_whitelist_pattern(pattern: &str) -> (Vec<String>, ArgAllowance) {
-    let trimmed = pattern.trim();
-    let tokens: Vec<String> = shlex::split(trimmed).unwrap_or_default();
-
-    let allowance = if trimmed == "*" || trimmed.ends_with(" *") {
-        ArgAllowance::AnyArgs
-    } else if trimmed.ends_with(" ?") {
-        ArgAllowance::OneArg
-    } else {
-        ArgAllowance::Exact
-    };
-
-    let mut cmd_tokens = tokens;
-    // Strip the trailing wildcard token (* or ?) if present
-    match cmd_tokens.last().map(|t| t.as_str()) {
-        Some("*") | Some("?") => {
-            cmd_tokens.pop();
-        }
-        _ => {}
-    }
-
-    (cmd_tokens, allowance)
-}
-
-/// Check if a parsed command matches any whitelist pattern.
-fn command_matches_whitelist(command_tokens: &[String], whitelist: &[String]) -> bool {
-    for pattern in whitelist {
-        let (pattern_tokens, allowance) = parse_whitelist_pattern(pattern);
-
-        // Command must have at least as many tokens as the pattern
-        if command_tokens.len() < pattern_tokens.len() {
-            continue;
-        }
-
-        // All leading tokens must match exactly
-        let leading_match = command_tokens
-            .iter()
-            .zip(pattern_tokens.iter())
-            .all(|(a, b)| a == b);
-
-        if !leading_match {
-            continue;
-        }
-
-        let extra_args = command_tokens.len() - pattern_tokens.len();
-
-        let matches = match allowance {
-            ArgAllowance::Exact => extra_args == 0,
-            ArgAllowance::OneArg => extra_args == 1,
-            ArgAllowance::AnyArgs => true,
-        };
-
-        if matches {
-            return true;
-        }
-    }
-    false
+/// Check if a command's argv matches any whitelist entry.
+fn command_matches_whitelist(command_tokens: &[String], whitelist: &[WhitelistEntry]) -> bool {
+    whitelist.iter().any(|entry| match entry.match_kind {
+        WhitelistMatch::Exact => command_tokens == entry.argv,
+        WhitelistMatch::Prefix => command_tokens.starts_with(&entry.argv),
+    })
 }
 
 /// Context passed to the LLM safety check: only fields relevant to judging command safety
@@ -643,34 +576,21 @@ mod tests {
     use crate::config::TenonConfig;
     use rig::tool::ToolErrorKind;
 
-    #[test]
-    fn test_parse_whitelist_exact() {
-        let (tokens, allowance) = parse_whitelist_pattern("make");
-        assert_eq!(tokens, vec!["make"]);
-        assert!(matches!(allowance, ArgAllowance::Exact));
+    fn entry(argv: &[&str], match_kind: WhitelistMatch) -> WhitelistEntry {
+        WhitelistEntry {
+            argv: argv.iter().map(|s| s.to_string()).collect(),
+            match_kind,
+        }
     }
 
     #[test]
-    fn test_parse_whitelist_one_arg() {
-        let (tokens, allowance) = parse_whitelist_pattern("make ?");
-        assert_eq!(tokens, vec!["make"]);
-        assert!(matches!(allowance, ArgAllowance::OneArg));
-    }
+    fn test_command_matches_whitelist() {
+        let whitelist = vec![
+            entry(&["git", "log"], WhitelistMatch::Prefix),
+            entry(&["make"], WhitelistMatch::Exact),
+        ];
 
-    #[test]
-    fn test_parse_whitelist_any_args() {
-        let (tokens, allowance) = parse_whitelist_pattern("git log *");
-        assert_eq!(tokens, vec!["git", "log"]);
-        assert!(matches!(allowance, ArgAllowance::AnyArgs));
-    }
-
-    #[test]
-    fn test_command_matches_whitelist_with_argv() {
-        // Test: argv (executable + args) should match whitelist patterns
-
-        let whitelist = vec!["git log *".to_string(), "make".to_string()];
-
-        // git log with args should match "git log *"
+        // Prefix: argv starting with entry argv matches
         let argv = vec![
             "git".to_string(),
             "log".to_string(),
@@ -678,9 +598,26 @@ mod tests {
         ];
         assert!(command_matches_whitelist(&argv, &whitelist));
 
-        // make without args should match "make"
+        // Exact: argv equal to entry argv matches
         let argv = vec!["make".to_string()];
         assert!(command_matches_whitelist(&argv, &whitelist));
+
+        // Exact: extra args do not match
+        let argv = vec!["make".to_string(), "target".to_string()];
+        assert!(!command_matches_whitelist(&argv, &whitelist));
+
+        // Prefix: different subcommand does not match
+        let argv = vec!["git".to_string(), "diff".to_string()];
+        assert!(!command_matches_whitelist(&argv, &whitelist));
+
+        // Empty argv with prefix matches every command
+        let allow_all = vec![entry(&[], WhitelistMatch::Prefix)];
+        let argv = vec![
+            "cargo".to_string(),
+            "build".to_string(),
+            "--release".to_string(),
+        ];
+        assert!(command_matches_whitelist(&argv, &allow_all));
     }
 
     #[test]
@@ -697,14 +634,14 @@ mod tests {
         assert_eq!(result, "line3\nline4\nline5");
     }
 
-    /// Install a thread-local config override with run_command whitelist ["*"]
-    /// so commands run without the LLM safety check. The returned guard must be
-    /// bound for the test's lifetime; dropping it reverts the override. The
-    /// global OnceLock CONFIG is never touched, so this works regardless of
-    /// which test initialized it first.
+    /// Install a thread-local config override with a run_command whitelist
+    /// that allows all commands, so commands run without the LLM safety check.
+    /// The returned guard must be bound for the test's lifetime; dropping it
+    /// reverts the override. The global OnceLock CONFIG is never touched, so
+    /// this works regardless of which test initialized it first.
     fn setup_whitelist_all() -> crate::ConfigOverride {
         let mut config = TenonConfig::default();
-        config.tools.run_command.whitelist = vec!["*".to_string()];
+        config.tools.run_command.whitelist = vec![entry(&[], WhitelistMatch::Prefix)];
         crate::ConfigOverride::set(config)
     }
 
@@ -802,40 +739,5 @@ mod tests {
         let (result, truncated) = truncate_output(&output);
         assert!(truncated);
         assert_eq!(result.len(), OUTPUT_CAP);
-    }
-
-    #[test]
-    fn test_standalone_wildcard_allows_all_commands() {
-        // Pattern "*" should match any command (allow all)
-        let whitelist = vec!["*".to_string()];
-
-        // Single command without args
-        let combined = vec!["make".to_string()];
-        assert!(
-            command_matches_whitelist(&combined, &whitelist),
-            "Pattern '*' should match 'make'"
-        );
-
-        // Command with args
-        let combined = vec![
-            "git".to_string(),
-            "log".to_string(),
-            "--oneline".to_string(),
-        ];
-        assert!(
-            command_matches_whitelist(&combined, &whitelist),
-            "Pattern '*' should match 'git log --oneline'"
-        );
-
-        // Any arbitrary command
-        let combined = vec![
-            "cargo".to_string(),
-            "build".to_string(),
-            "--release".to_string(),
-        ];
-        assert!(
-            command_matches_whitelist(&combined, &whitelist),
-            "Pattern '*' should match 'cargo build --release'"
-        );
     }
 }

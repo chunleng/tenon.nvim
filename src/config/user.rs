@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::{
     chat::TenonAgent,
     clients::{ApiKey, ProviderConfig, SelectedModel, SupportedModels},
-    config::{TenonConfig, WebSearchConfig},
+    config::{TenonConfig, WebSearchConfig, WhitelistEntry},
     directive::{Directive, DirectiveSource, PresetContent},
     utils::notify,
 };
@@ -82,7 +82,7 @@ pub struct ToolsUserConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunCommandUserConfig {
-    pub whitelist: Vec<String>,
+    pub whitelist: Vec<WhitelistEntry>,
 
     #[serde(default)]
     pub check_models: Vec<Model>,
@@ -419,6 +419,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
 mod tests {
     use super::*;
     use crate::clients::ProviderKind;
+    use crate::config::WhitelistMatch;
 
     /// A bare user-selected model reference: registry id with no overrides.
     fn model_ref(id: &str) -> Model {
@@ -434,6 +435,33 @@ mod tests {
             id: id.to_string(),
             parameter_overrides: Some(parameter_overrides),
         }
+    }
+
+    #[test]
+    fn whitelist_entry_deserializes_match_and_rejects_invalid() {
+        let prefix: WhitelistEntry =
+            serde_json::from_str(r#"{"argv": ["git", "log"], "match": "prefix"}"#).unwrap();
+        assert_eq!(prefix.argv, vec!["git", "log"]);
+        assert!(matches!(prefix.match_kind, WhitelistMatch::Prefix));
+
+        // Omitted match defaults to exact.
+        let exact: WhitelistEntry = serde_json::from_str(r#"{"argv": ["make"]}"#).unwrap();
+        assert!(matches!(exact.match_kind, WhitelistMatch::Exact));
+
+        // Plain string entries are rejected.
+        assert!(serde_json::from_str::<WhitelistEntry>(r#""git log *""#).is_err());
+
+        // Unknown match values are rejected.
+        assert!(
+            serde_json::from_str::<WhitelistEntry>(r#"{"argv": ["make"], "match": "glob"}"#,)
+                .is_err()
+        );
+
+        // Unknown fields are rejected.
+        assert!(
+            serde_json::from_str::<WhitelistEntry>(r#"{"argv": ["make"], "mattch": "exact"}"#)
+                .is_err()
+        );
     }
 
     #[test]

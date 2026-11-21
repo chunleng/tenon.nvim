@@ -31,7 +31,6 @@ ignore = "0.4"
 regex = "1"
 dyn-clone = "1"
 async-trait = "0.1"
-shlex = "1"
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0.102"
 unpdf = "0.7"

@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use serde::Deserialize;
+
 use crate::{
     chat::TenonAgent,
     clients::{
@@ -47,9 +49,28 @@ pub struct ReadImageConfig {
     pub fallback_model: Option<SelectedModel>,
 }
 
+/// How a whitelist entry matches a command's argv.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WhitelistMatch {
+    /// Command argv equals the entry's argv.
+    #[default]
+    Exact,
+    /// Command argv starts with the entry's argv; empty argv matches every command.
+    Prefix,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WhitelistEntry {
+    pub argv: Vec<String>,
+    #[serde(default, rename = "match")]
+    pub match_kind: WhitelistMatch,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RunCommandConfig {
-    pub whitelist: Vec<String>,
+    pub whitelist: Vec<WhitelistEntry>,
     pub check_models: Vec<SelectedModel>,
 }
 
