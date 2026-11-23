@@ -4,11 +4,11 @@ use serde::Deserialize;
 
 use crate::{
     chat::TenonAgent,
-    clients::{
-        AnthropicProviderConfig, ApiKey, OllamaProviderConfig, ProviderConfig, ProviderKind,
-        SelectedModel, SupportedModels,
-    },
+    clients::{ProviderConfig, SelectedModel, SupportedModels},
 };
+
+#[cfg(test)]
+use crate::clients::{AnthropicProviderConfig, ApiKey, OllamaProviderConfig, ProviderKind};
 
 pub mod user;
 
@@ -92,7 +92,9 @@ pub struct TenonConfig {
     pub hooks: Vec<crate::hooks::Hook>,
 }
 
+#[cfg(test)]
 impl Default for TenonConfig {
+    // Test-only scaffold; production code must not depend on a default config.
     fn default() -> Self {
         let ollama_cloud_provider = ProviderConfig {
             kind: ProviderKind::Ollama(OllamaProviderConfig {
@@ -101,9 +103,9 @@ impl Default for TenonConfig {
             }),
             parameters: HashMap::new(),
         };
-        let mut default_providers: HashMap<String, ProviderConfig> = HashMap::new();
-        default_providers.insert("ollama_cloud".to_string(), ollama_cloud_provider.clone());
-        default_providers.insert(
+        let mut test_providers: HashMap<String, ProviderConfig> = HashMap::new();
+        test_providers.insert("ollama_cloud".to_string(), ollama_cloud_provider.clone());
+        test_providers.insert(
             "zai".to_string(),
             ProviderConfig {
                 kind: ProviderKind::Anthropic(AnthropicProviderConfig {
@@ -115,19 +117,19 @@ impl Default for TenonConfig {
                 parameters: HashMap::new(),
             },
         );
-        let default_model = SupportedModels {
+        let test_model = SupportedModels {
             connector_name: "ollama_cloud".to_string(),
             config: ollama_cloud_provider.clone(),
             model_name: "glm-5.1".to_string(),
             parameters: serde_json::Map::new(),
             vision: false,
         };
-        let mut default_agents: HashMap<String, TenonAgent> = HashMap::new();
-        let default_agent_name = "default".to_string();
-        default_agents.insert(
-            default_agent_name.clone(),
+        let mut test_agents: HashMap<String, TenonAgent> = HashMap::new();
+        let test_agent_name = "default".to_string();
+        test_agents.insert(
+            test_agent_name.clone(),
             TenonAgent::new(
-                SelectedModel::select("default", &default_model),
+                SelectedModel::select("default", &test_model),
                 vec![],
                 &[
                     "edit_file",
@@ -142,13 +144,13 @@ impl Default for TenonConfig {
                 vec![],
             ),
         );
-        let mut default_models: HashMap<String, SupportedModels> = HashMap::new();
-        default_models.insert("default".to_string(), default_model);
+        let mut test_models: HashMap<String, SupportedModels> = HashMap::new();
+        test_models.insert("default".to_string(), test_model);
         TenonConfig {
-            connectors: default_providers,
-            agents: default_agents,
-            default_agent: default_agent_name,
-            models: default_models,
+            connectors: test_providers,
+            agents: test_agents,
+            default_agent: test_agent_name,
+            models: test_models,
             tools: ToolsConfig::default(),
             directory: ".tenon".to_string(),
             title: TitleConfig::default(),

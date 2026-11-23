@@ -377,6 +377,7 @@ mod tests {
     use std::sync::Arc;
 
     fn init_test_cache() -> ChatLogCache {
+        let _override = crate::ConfigOverride::set(crate::config::TenonConfig::default());
         crate::utils::PLUGIN_ROOT
             .set(std::env::current_dir().unwrap())
             .ok();

@@ -430,6 +430,7 @@ mod tests {
 
     #[test]
     fn test_session_queue_transitions_refresh_cached_parts() {
+        let _override = crate::ConfigOverride::set(crate::config::TenonConfig::default());
         let mut state = MetadataSessionState::new();
         let mut values = MetadataValues::test_default();
         let empty = state.session_line_parts(&values);
@@ -538,6 +539,7 @@ mod tests {
 
     #[test]
     fn test_session_line_agent_model_and_tool_diff() {
+        let _override = crate::ConfigOverride::set(crate::config::TenonConfig::default());
         let mut state = MetadataSessionState::new();
         // Model changed from default, 6 tools removed from default's 8 tools
         let values = MetadataValues {
@@ -571,6 +573,7 @@ mod tests {
 
     #[test]
     fn test_session_line_agent_tool_diff_only() {
+        let _override = crate::ConfigOverride::set(crate::config::TenonConfig::default());
         let mut state = MetadataSessionState::new();
         // Model matches default, 7 tools removed from default's 8 tools
         let values = MetadataValues {
@@ -721,6 +724,7 @@ mod tests {
 
     #[test]
     fn test_session_line_agent_no_diff() {
+        let _override = crate::ConfigOverride::set(crate::config::TenonConfig::default());
         let mut state = MetadataSessionState::new();
         // Default model and all default tools - no meta
         let values = MetadataValues {
@@ -745,6 +749,7 @@ mod tests {
 
     #[test]
     fn test_session_line_agent_added_tools() {
+        let _override = crate::ConfigOverride::set(crate::config::TenonConfig::default());
         let mut state = MetadataSessionState::new();
         // 1 added (mcp_server____custom_tool), 6 removed (default's 8 minus
         // read_file, edit_file)

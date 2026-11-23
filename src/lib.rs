@@ -34,7 +34,11 @@ pub fn get_application_config() -> TenonConfig {
     if let Some(config) = CONFIG_OVERRIDE.with(|c| c.borrow().clone()) {
         return config;
     }
-    CONFIG.get_or_init(TenonConfig::default).clone()
+    // Invariant: every Lua entrypoint function is created only by a successful
+    // setup() call, which sets CONFIG before handing the entries out. Reaching
+    // this with CONFIG unset means an entrypoint bypassed that construction -
+    // a programmer error, so failing loudly is the correct response.
+    CONFIG.get().expect("config initialized by setup()").clone()
 }
 
 /// Scoped test override for the global CONFIG. While alive, every
@@ -94,7 +98,7 @@ mod ui;
 mod utils;
 
 #[nvim_oxi::plugin]
-fn tenon() -> OxiResult<Dictionary> {
+fn tenon_core() -> OxiResult<Dictionary> {
     // Define highlight groups for sign icons using Lua to support integer ctermfg
     let _ = lua()
         .load(
@@ -124,7 +128,7 @@ fn tenon() -> OxiResult<Dictionary> {
 
     utils::PLUGIN_ROOT.get_or_init(|| {
         let path: String = lua()
-            .load(r#"return vim.fn.fnamemodify(vim.api.nvim_get_runtime_file("lua/tenon.so", false)[1], ":h:h")"#)
+            .load(r#"return vim.fn.fnamemodify(vim.api.nvim_get_runtime_file("lua/tenon/core.so", false)[1], ":h:h")"#)
             .eval()
             .unwrap_or_default();
         PathBuf::from(path)

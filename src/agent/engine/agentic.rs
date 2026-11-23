@@ -590,12 +590,12 @@ mod tests {
     #[tokio::test]
     async fn test_engine_uses_caller_resolved_tools() {
         // The caller resolves tool names into DynamicTools before passing them in.
+        let _override = register_models(vec![("test", test_model(false))]);
         let log_handler = ChatLogHandler::new();
         let tools = resolve_tools(
             &["read_file".to_string(), "edit_file".to_string()],
             log_handler.log_window.clone(),
         );
-        let _override = register_models(vec![("test", test_model(false))]);
         let mut engine = AgenticStreamEngine::new(
             SelectedModel::new("test"),
             vec![],

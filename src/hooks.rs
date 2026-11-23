@@ -6,7 +6,8 @@ use nvim_oxi::api::types::LogLevel;
 ///
 /// `NeedsAttention`: the streaming loop ended (clean finish, cancel, or
 /// error) or the agent is waiting for a user response.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HookType {
     NeedsAttention,
 }

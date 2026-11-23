@@ -185,7 +185,7 @@ mod tests {
         for directory in directories {
             let config = crate::config::TenonConfig {
                 directory: directory.to_str().unwrap().to_string(),
-                ..Default::default()
+                ..crate::config::TenonConfig::default()
             };
             let _config = crate::ConfigOverride::set(config);
             let root = cwd.join(&directory);

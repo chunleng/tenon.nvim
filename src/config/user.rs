@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::{
     chat::TenonAgent,
     clients::{ApiKey, ProviderConfig, SelectedModel, SupportedModels},
-    config::{TenonConfig, WebSearchConfig, WhitelistEntry},
+    config::{TenonConfig, TitleConfig, ToolsConfig, WebSearchConfig, WhitelistEntry},
     directive::{Directive, DirectiveSource, PresetContent},
     utils::notify,
 };
@@ -31,21 +31,16 @@ pub struct HookUserConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(rename = "type", default)]
-    pub hook_type: Option<String>,
+    pub hook_type: Option<crate::hooks::HookType>,
 }
 
 impl TryFrom<HookUserConfig> for crate::hooks::Hook {
     type Error = nvim_oxi::Error;
 
     fn try_from(config: HookUserConfig) -> Result<Self, Self::Error> {
-        let hook_type = match config.hook_type.as_deref() {
-            None | Some("needs_attention") => crate::hooks::HookType::NeedsAttention,
-            Some(other) => {
-                return Err(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                    msg: format!("unknown hook type: {}", other),
-                }));
-            }
-        };
+        let hook_type = config
+            .hook_type
+            .unwrap_or(crate::hooks::HookType::NeedsAttention);
         Ok(crate::hooks::Hook {
             name: config.name,
             command: config.command,
@@ -210,7 +205,16 @@ impl TryFrom<DirectiveConfig> for Directive {
 impl TryFrom<TenonUserConfig> for TenonConfig {
     type Error = nvim_oxi::Error;
     fn try_from(value: TenonUserConfig) -> Result<Self, Self::Error> {
-        let mut conf = TenonConfig::default();
+        let mut conf = TenonConfig {
+            connectors: HashMap::new(),
+            agents: HashMap::new(),
+            default_agent: String::new(),
+            models: HashMap::new(),
+            tools: ToolsConfig::default(),
+            directory: ".tenon".to_string(),
+            title: TitleConfig::default(),
+            hooks: vec![],
+        };
         let mut default_agent = None;
 
         if let Some(connectors) = value.connectors {
@@ -225,7 +229,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                             .connectors
                             .get(&m.connector)
                             .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                                msg: format!("unknown connector for model: {}", m.connector),
+                                msg: format!("models.{}: unknown connector: {}", name, m.connector),
                             }))?;
                         Ok((
                             name,
@@ -245,7 +249,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
         if let Some(agents) = value.agents {
             if agents.is_empty() {
                 return Err(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                    msg: "agents cannot be empty".to_string(),
+                    msg: "agents: cannot be empty".to_string(),
                 }));
             }
             conf.agents = agents
@@ -255,7 +259,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         conf.models
                             .get(&v.model.id)
                             .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                                msg: format!("unknown model: {}", v.model.id),
+                                msg: format!("agents.{}: unknown model: {}", k, v.model.id),
                             }))?;
                     if v.default {
                         match &default_agent {
@@ -263,8 +267,8 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                                 return Err(nvim_oxi::Error::Deserialize(
                                     DeserializeError::Custom {
                                         msg: format!(
-                                            "more than one default agents found: {} and {}",
-                                            agent, k
+                                            "agents.{}: more than one default agents found: {} and {}",
+                                            k, agent, k
                                         ),
                                     },
                                 ));
@@ -277,13 +281,15 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                     let directives = v
                         .directive
                         .into_iter()
-                        .map(Directive::try_from)
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|e| {
-                            nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                                msg: e.to_string(),
+                        .enumerate()
+                        .map(|(i, d)| {
+                            Directive::try_from(d).map_err(|e| {
+                                nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                                    msg: format!("agents.{}.directive[{}]: {}", k, i, e),
+                                })
                             })
-                        })?;
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                     let choreos: Vec<std::sync::Arc<crate::chat::choreo::Choreo>> = v
                         .choreos
                         .into_iter()
@@ -304,7 +310,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                 Some(x) => conf.default_agent = x,
                 None => {
                     return Err(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                        msg: "at least one agent needs to be set as default".to_string(),
+                        msg: "agents: at least one agent needs to be set as default".to_string(),
                     }));
                 }
             }
@@ -319,7 +325,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         .get(&model.id)
                         .cloned()
                         .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                            msg: format!("unknown model for fetch_webpage: {}", model.id),
+                            msg: format!("tools.fetch_webpage.model: unknown model: {}", model.id),
                         }))?;
                 conf.tools.fetch_webpage.model = Some(model.to_selected(&definition));
             }
@@ -331,12 +337,15 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         .get(&model.id)
                         .cloned()
                         .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                            msg: format!("unknown model for read_image fallback: {}", model.id),
+                            msg: format!(
+                                "tools.read_image.fallback_model: unknown model: {}",
+                                model.id
+                            ),
                         }))?;
                 if !fallback.vision {
                     return Err(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
                         msg: format!(
-                            "read_image fallback_model must support vision: {}",
+                            "tools.read_image.fallback_model: model '{}' must support vision",
                             model.id
                         ),
                     }));
@@ -348,10 +357,14 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                 conf.tools.run_command.check_models =
                     run.check_models
                         .into_iter()
-                        .map(|m| -> Result<_, nvim_oxi::Error> {
+                        .enumerate()
+                        .map(|(i, m)| -> Result<_, nvim_oxi::Error> {
                             let definition = conf.models.get(&m.id).cloned().ok_or(
                                 nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                                    msg: format!("unknown model for run_command check: {}", m.id),
+                                    msg: format!(
+                                        "tools.run_command.check_models[{}]: unknown model: {}",
+                                        i, m.id
+                                    ),
                                 }),
                             )?;
                             Ok(m.to_selected(&definition))
@@ -395,7 +408,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                         .get(&model.id)
                         .cloned()
                         .ok_or(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
-                            msg: format!("unknown model for title: {}", model.id),
+                            msg: format!("title.model: unknown model: {}", model.id),
                         }))?;
                 conf.title.model = Some(model.to_selected(&definition));
             }
@@ -411,6 +424,17 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                 .collect::<Result<Vec<_>, _>>()?;
         }
 
+        if conf.models.is_empty() {
+            return Err(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                msg: "no models configured: define at least one model in `models`".to_string(),
+            }));
+        }
+        if conf.agents.is_empty() {
+            return Err(nvim_oxi::Error::Deserialize(DeserializeError::Custom {
+                msg: "no agents configured: define at least one agent in `agents`".to_string(),
+            }));
+        }
+
         Ok(conf)
     }
 }
@@ -424,6 +448,52 @@ mod tests {
     /// A bare user-selected model reference: registry id with no overrides.
     fn model_ref(id: &str) -> Model {
         Model::new(id)
+    }
+
+    /// A complete user config (one connector, one model, one default agent),
+    /// satisfying the no-models/no-agents validation in `TryFrom`.
+    fn complete_config() -> TenonUserConfig {
+        let mut connectors = HashMap::new();
+        connectors.insert(
+            "ollama".to_string(),
+            ProviderConfig {
+                kind: ProviderKind::Ollama(Default::default()),
+                parameters: HashMap::new(),
+            },
+        );
+
+        let mut models = HashMap::new();
+        models.insert(
+            "fast".to_string(),
+            ModelConfig {
+                connector: "ollama".to_string(),
+                name: "llama3".to_string(),
+                default_parameters: serde_json::Map::new(),
+                vision: false,
+            },
+        );
+
+        let mut agents = HashMap::new();
+        agents.insert(
+            "main".to_string(),
+            TenonAgentConfig {
+                model: model_ref("fast"),
+                directive: vec![],
+                tool_names: vec![],
+                default: true,
+                choreos: vec![],
+            },
+        );
+
+        TenonUserConfig {
+            connectors: Some(connectors),
+            agents: Some(agents),
+            models: Some(models),
+            tools: None,
+            directory: None,
+            title: None,
+            hooks: None,
+        }
     }
 
     /// A user-selected model reference with parameter overrides.
@@ -467,14 +537,13 @@ mod tests {
     #[test]
     fn directory_defaults_and_overrides() {
         let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
-        let config: TenonUserConfig = serde_json::from_str("{}").unwrap();
-        let result = TenonConfig::try_from(config).unwrap();
+        let result = TenonConfig::try_from(complete_config()).unwrap();
         assert_eq!(result.directory, ".tenon");
 
         let absolute = std::env::temp_dir().join("tenon-config-test");
         for directory in ["custom-tenon", absolute.to_str().unwrap()] {
-            let config: TenonUserConfig =
-                serde_json::from_value(serde_json::json!({"directory": directory})).unwrap();
+            let mut config = complete_config();
+            config.directory = Some(directory.to_string());
             let result = TenonConfig::try_from(config).unwrap();
             assert_eq!(result.directory, directory);
         }
@@ -483,15 +552,6 @@ mod tests {
     #[test]
     fn try_from_models_builds_hashmap_with_names() {
         let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
-        let mut connectors = HashMap::new();
-        connectors.insert(
-            "ollama".to_string(),
-            ProviderConfig {
-                kind: ProviderKind::Ollama(Default::default()),
-                parameters: HashMap::new(),
-            },
-        );
-
         let mut models = HashMap::new();
         let mut params = serde_json::Map::new();
         params.insert("temperature".to_string(), serde_json::json!(0.7));
@@ -514,15 +574,8 @@ mod tests {
             },
         );
 
-        let config = TenonUserConfig {
-            connectors: Some(connectors),
-            agents: None,
-            models: Some(models),
-            tools: None,
-            directory: None,
-            title: None,
-            hooks: None,
-        };
+        let mut config = complete_config();
+        config.models = Some(models);
 
         let result = TenonConfig::try_from(config).unwrap();
         assert_eq!(result.models.len(), 2);
@@ -542,15 +595,6 @@ mod tests {
     #[test]
     fn try_from_models_propagates_vision_flag() {
         let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
-        let mut connectors = HashMap::new();
-        connectors.insert(
-            "ollama".to_string(),
-            ProviderConfig {
-                kind: ProviderKind::Ollama(Default::default()),
-                parameters: HashMap::new(),
-            },
-        );
-
         let mut models = HashMap::new();
         models.insert(
             "vision".to_string(),
@@ -562,15 +606,15 @@ mod tests {
             },
         );
 
-        let config = TenonUserConfig {
-            connectors: Some(connectors),
-            agents: None,
-            models: Some(models),
-            tools: None,
-            directory: None,
-            title: None,
-            hooks: None,
-        };
+        let mut config = complete_config();
+        config.models = Some(models);
+        config
+            .agents
+            .as_mut()
+            .unwrap()
+            .get_mut("main")
+            .unwrap()
+            .model = model_ref("vision");
 
         let result = TenonConfig::try_from(config).unwrap();
         assert!(result.models.get("vision").unwrap().vision);
@@ -708,22 +752,78 @@ mod tests {
             hooks: None,
         };
 
-        let result = TenonConfig::try_from(config);
-        assert!(result.is_err());
+        let err = TenonConfig::try_from(config).err().expect("should reject");
+        assert!(
+            err.to_string()
+                .contains("agents.main: unknown model: nonexistent"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn try_from_agent_error_names_directive_index() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+
+        let mut config = complete_config();
+        config
+            .agents
+            .as_mut()
+            .unwrap()
+            .get_mut("main")
+            .unwrap()
+            .directive = vec![
+            DirectiveConfig {
+                condition: None,
+                source: DirectiveSourceConfig::Text {
+                    id: "One".into(),
+                    value: "first".into(),
+                },
+            },
+            DirectiveConfig {
+                condition: None,
+                source: DirectiveSourceConfig::Text {
+                    id: "Two".into(),
+                    value: "second".into(),
+                },
+            },
+            DirectiveConfig {
+                condition: None,
+                source: DirectiveSourceConfig::System {
+                    name: "Does Not Exist".into(),
+                },
+            },
+        ];
+
+        let err = TenonConfig::try_from(config).err().expect("should reject");
+        assert!(
+            err.to_string()
+                .contains("agents.main.directive[2]: System directive 'Does Not Exist' not found"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn try_from_rejects_config_with_no_models() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+        let mut config = complete_config();
+        config.models = None;
+        config.agents = None;
+        let err = TenonConfig::try_from(config).err().expect("should reject");
+        assert!(err.to_string().contains("no models"), "got: {err}");
+    }
+
+    #[test]
+    fn try_from_rejects_config_with_no_agents() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+        let mut config = complete_config();
+        config.agents = None;
+        let err = TenonConfig::try_from(config).err().expect("should reject");
+        assert!(err.to_string().contains("no agents"), "got: {err}");
     }
 
     #[test]
     fn try_from_tools_resolves_model_from_registry() {
         let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
-        let mut connectors = HashMap::new();
-        connectors.insert(
-            "ollama".to_string(),
-            ProviderConfig {
-                kind: ProviderKind::Ollama(Default::default()),
-                parameters: HashMap::new(),
-            },
-        );
-
         let mut models = HashMap::new();
         models.insert(
             "fast".to_string(),
@@ -755,15 +855,10 @@ mod tests {
             prompt: None,
         };
 
-        let config = TenonUserConfig {
-            connectors: Some(connectors),
-            agents: None,
-            models: Some(models),
-            tools: Some(tools),
-            directory: None,
-            title: Some(title),
-            hooks: None,
-        };
+        let mut config = complete_config();
+        config.models = Some(models);
+        config.tools = Some(tools);
+        config.title = Some(title);
 
         let result = TenonConfig::try_from(config).unwrap();
 
@@ -784,15 +879,6 @@ mod tests {
     #[test]
     fn try_from_tools_applies_model_parameter_overrides() {
         let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
-        let mut connectors = HashMap::new();
-        connectors.insert(
-            "ollama".to_string(),
-            ProviderConfig {
-                kind: ProviderKind::Ollama(Default::default()),
-                parameters: HashMap::new(),
-            },
-        );
-
         let mut models = HashMap::new();
         let mut default_parameters = serde_json::Map::new();
         default_parameters.insert("temperature".to_string(), serde_json::json!(0.7));
@@ -819,15 +905,9 @@ mod tests {
             web_search: None,
         };
 
-        let config = TenonUserConfig {
-            connectors: Some(connectors),
-            agents: None,
-            models: Some(models),
-            tools: Some(tools),
-            directory: None,
-            title: None,
-            hooks: None,
-        };
+        let mut config = complete_config();
+        config.models = Some(models);
+        config.tools = Some(tools);
 
         let result = TenonConfig::try_from(config).unwrap();
         let selected = result.tools.fetch_webpage.model.unwrap();
@@ -839,6 +919,47 @@ mod tests {
         assert_eq!(
             selected.parameters.get("top_p").unwrap(),
             &serde_json::json!(0.9)
+        );
+    }
+
+    #[test]
+    fn try_from_run_command_error_names_check_model_index() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+
+        let mut config = complete_config();
+        config.tools = Some(ToolsUserConfig {
+            fetch_webpage: None,
+            read_image: None,
+            run_command: Some(RunCommandUserConfig {
+                whitelist: vec![],
+                check_models: vec![model_ref("fast"), model_ref("nonexistent")],
+            }),
+            web_search: None,
+        });
+
+        let err = TenonConfig::try_from(config).err().expect("should reject");
+        assert!(
+            err.to_string()
+                .contains("tools.run_command.check_models[1]: unknown model: nonexistent"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn try_from_title_error_on_unknown_model() {
+        let _ = crate::utils::PLUGIN_ROOT.set(PathBuf::from("."));
+
+        let mut config = complete_config();
+        config.title = Some(TitleUserConfig {
+            model: Some(model_ref("nonexistent")),
+            prompt: None,
+        });
+
+        let err = TenonConfig::try_from(config).err().expect("should reject");
+        assert!(
+            err.to_string()
+                .contains("title.model: unknown model: nonexistent"),
+            "got: {err}"
         );
     }
 
@@ -885,15 +1006,34 @@ mod tests {
             },
         );
 
-        let tools = ToolsUserConfig {
+        let mut tools = ToolsUserConfig {
             fetch_webpage: None,
             read_image: Some(ReadImageUserConfig {
-                fallback_model: Some(model_ref("fast")),
+                fallback_model: Some(model_ref("nonexistent")),
             }),
             run_command: None,
             web_search: None,
         };
 
+        let config = TenonUserConfig {
+            connectors: Some(connectors.clone()),
+            agents: None,
+            models: Some(models.clone()),
+            tools: Some(tools.clone()),
+            directory: None,
+            title: None,
+            hooks: None,
+        };
+        let err = TenonConfig::try_from(config).err().expect("should reject");
+        assert!(
+            err.to_string()
+                .contains("tools.read_image.fallback_model: unknown model: nonexistent"),
+            "got: {err}"
+        );
+
+        tools.read_image = Some(ReadImageUserConfig {
+            fallback_model: Some(model_ref("fast")),
+        });
         let config = TenonUserConfig {
             connectors: Some(connectors),
             agents: None,
@@ -903,10 +1043,10 @@ mod tests {
             title: None,
             hooks: None,
         };
-
         let err = TenonConfig::try_from(config).err().expect("should reject");
         assert!(
-            err.to_string().contains("must support vision"),
+            err.to_string()
+                .contains("tools.read_image.fallback_model: model 'fast' must support vision"),
             "got: {err}"
         );
     }
@@ -934,8 +1074,12 @@ mod tests {
             hooks: None,
         };
 
-        let result = TenonConfig::try_from(config);
-        assert!(result.is_err());
+        let err = TenonConfig::try_from(config).err().expect("should reject");
+        assert!(
+            err.to_string()
+                .contains("tools.fetch_webpage.model: unknown model: nonexistent"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -951,15 +1095,8 @@ mod tests {
             }),
         };
 
-        let config = TenonUserConfig {
-            connectors: None,
-            agents: None,
-            models: None,
-            tools: Some(tools),
-            directory: None,
-            title: None,
-            hooks: None,
-        };
+        let mut config = complete_config();
+        config.tools = Some(tools);
 
         let result = TenonConfig::try_from(config).unwrap();
         match &result.tools.web_search {
@@ -1026,8 +1163,10 @@ mod tests {
 
     #[test]
     fn hooks_deserialize_with_defaults() {
-        let config: TenonUserConfig =
+        let parsed: TenonUserConfig =
             serde_json::from_str(r#"{"hooks":[{"name":"notify","command":"echo done"}]}"#).unwrap();
+        let mut config = complete_config();
+        config.hooks = parsed.hooks;
         let result = TenonConfig::try_from(config).unwrap();
         assert_eq!(result.hooks.len(), 1);
         assert_eq!(result.hooks[0].name, "notify");
@@ -1041,22 +1180,26 @@ mod tests {
 
     #[test]
     fn hooks_deserialize_explicit_fields() {
-        let config: TenonUserConfig = serde_json::from_str(
+        let parsed: TenonUserConfig = serde_json::from_str(
             r#"{"hooks":[{"name":"off","command":"echo x","enabled":false,"type":"needs_attention"}]}"#,
         )
         .unwrap();
+        let mut config = complete_config();
+        config.hooks = parsed.hooks;
         let result = TenonConfig::try_from(config).unwrap();
         assert!(!result.hooks[0].enabled);
     }
 
     #[test]
-    fn hooks_error_on_unknown_type() {
-        let config: TenonUserConfig = serde_json::from_str(
-            r#"{"hooks":[{"name":"x","command":"echo","type":"after_edit"}]}"#,
-        )
-        .unwrap();
-        let result = TenonConfig::try_from(config);
-        assert!(result.is_err());
+    fn hooks_deserialize_error_on_unknown_type() {
+        // The hook type is an enum, so unknown variants are rejected by the
+        // deserializer, before TryFrom runs.
+        assert!(
+            serde_json::from_str::<TenonUserConfig>(
+                r#"{"hooks":[{"name":"x","command":"echo","type":"after_edit"}]}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]

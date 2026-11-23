@@ -1255,6 +1255,7 @@ mod tests {
 
     #[test]
     fn test_no_hooks_keymap_when_no_hooks_configured() {
+        let _override = crate::ConfigOverride::set(crate::config::TenonConfig::default());
         // Test binary config defaults to no hooks, so gH must be absent.
         assert!(!global_input_keymaps().iter().any(|km| km.lhs == "gH"));
         assert!(
@@ -1266,6 +1267,7 @@ mod tests {
 
     #[test]
     fn test_global_keymaps_exclude_main_input_only_keys() {
+        let _override = crate::ConfigOverride::set(crate::config::TenonConfig::default());
         // Send, stop streaming, and continue chat apply to the main input
         // buffer only; stacked inputs (question/approval/free text) must not
         // receive them.
