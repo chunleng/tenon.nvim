@@ -128,7 +128,7 @@ fn tenon_core() -> OxiResult<Dictionary> {
 
     utils::PLUGIN_ROOT.get_or_init(|| {
         let path: String = lua()
-            .load(r#"return vim.fn.fnamemodify(vim.api.nvim_get_runtime_file("lua/tenon/core.so", false)[1], ":h:h")"#)
+            .load(r#"return vim.fn.fnamemodify(vim.api.nvim_get_runtime_file("lua/tenon/core.so", false)[1], ":h:h:h")"#)
             .eval()
             .unwrap_or_default();
         PathBuf::from(path)
