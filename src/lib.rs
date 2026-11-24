@@ -97,6 +97,10 @@ mod tools;
 mod ui;
 mod utils;
 
+#[cfg(feature = "nvim-tests")]
+#[path = "../tests/nvim/mod.rs"]
+mod nvim_tests;
+
 #[nvim_oxi::plugin]
 fn tenon_core() -> OxiResult<Dictionary> {
     // Define highlight groups for sign icons using Lua to support integer ctermfg

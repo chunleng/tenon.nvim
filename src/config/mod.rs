@@ -142,6 +142,7 @@ impl Default for TenonConfig {
                     "web_search",
                 ],
                 vec![],
+                false,
             ),
         );
         let mut test_models: HashMap<String, SupportedModels> = HashMap::new();

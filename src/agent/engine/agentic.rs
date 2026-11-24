@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock, Weak};
 
+use crate::tools::use_choreo::ChoreoCatalog;
 use nvim_oxi::api::types::LogLevel;
 use rig::completion::Usage;
 use rig::message::ToolResultContent;
@@ -8,6 +9,9 @@ use rig::prelude::Message;
 use rig::tool::{DynamicTool, ToolContext};
 
 use crate::agent::provider::{ChatStream, StreamItem, get_agent};
+use crate::agent::worker::full::TenonAgent;
+use crate::chat::choreo::ChoreoId;
+use crate::chat::project_skills;
 use crate::chat::prompt::build_choreo_messages;
 use crate::chat::{
     ActiveChoreo, ChatLogHandler, EventChannel, PendingAction, TenonAssistantMessage,
@@ -16,7 +20,7 @@ use crate::chat::{
 };
 use crate::clients::SelectedModel;
 use crate::directive::{Directive, DirectiveSource, PresetContent, directive_path};
-use crate::tools::{AskQuestion, TenonTool};
+use crate::tools::{AskQuestion, TenonTool, resolve_tools};
 use crate::utils::GLOBAL_EXECUTION_HANDLER;
 use rig::agent::Agent;
 
@@ -136,7 +140,8 @@ pub struct AgenticStreamEngine {
     pub model: SelectedModel,
     pub directive: Vec<Directive>,
     pub tools: Vec<DynamicTool>,
-    pub choreos: Vec<Arc<crate::chat::choreo::Choreo>>,
+    agent_choreos: Arc<[Arc<crate::chat::choreo::Choreo>]>,
+    project_skills_enabled: bool,
     pub active_choreo: Arc<RwLock<Option<ActiveChoreo>>>,
     pub log_handler: ChatLogHandler,
     pub system_tools: Vec<DynamicTool>,
@@ -160,6 +165,12 @@ impl AgenticStreamEngine {
             tool_context,
             ChatLogHandler::new(),
         )
+    }
+
+    pub fn from_agent(agent: &TenonAgent, tool_context: ToolContext) -> Self {
+        let mut engine = Self::new(agent.model.clone(), vec![], vec![], vec![], tool_context);
+        engine.switch_agent(agent);
+        engine
     }
 
     pub fn with_log_handler(
@@ -202,11 +213,33 @@ impl AgenticStreamEngine {
             model,
             directive,
             tools,
-            choreos,
+            agent_choreos: choreos.into(),
+            project_skills_enabled: false,
             active_choreo: Arc::new(RwLock::new(None)),
             log_handler,
             system_tools,
             tool_context,
+        }
+    }
+
+    pub fn choreos(&self) -> ChoreoCatalog {
+        ChoreoCatalog {
+            project: self
+                .project_skills_enabled
+                .then(project_skills::cached)
+                .unwrap_or_default(),
+            agent: self.agent_choreos.clone(),
+        }
+    }
+
+    pub fn switch_agent(&mut self, agent: &TenonAgent) {
+        self.model = agent.model.clone();
+        self.directive = agent.directive.clone();
+        self.tools = resolve_tools(&agent.tool_names, self.log_handler.log_window.clone());
+        self.project_skills_enabled = agent.project_skills;
+        self.agent_choreos = agent.choreos.as_slice().into();
+        if self.project_skills_enabled {
+            project_skills::cached();
         }
     }
 
@@ -215,32 +248,42 @@ impl AgenticStreamEngine {
         self.tools = tools;
     }
 
-    /// Replaces log_window from logs and reconstructs active_choreo from choreo logs.
+    /// Restores session state from history without restricting the active choreo to the agent's
+    /// catalog.
     pub fn load(&mut self, logs: Vec<TenonLog>) {
+        let active = logs
+            .iter()
+            .rev()
+            .find_map(|log| match log.data() {
+                TenonLogData::Choreo(log) => Some(log),
+                _ => None,
+            })
+            .and_then(|log| {
+                let move_number = log.r#move?;
+                let id = log.id.clone();
+                let choreo = self
+                    .choreos()
+                    .resolve(&id)
+                    // Look beyond the current agent's catalog so an active choreo can
+                    // resume after an agent switch, even if the new agent doesn't offer it.
+                    .or_else(|| crate::get_choreo_registry().get(&id).cloned())
+                    .or_else(|| {
+                        project_skills::cached()
+                            .iter()
+                            .find(|skill| ChoreoId::from(skill.name.as_str()).as_str() == id)
+                            .map(|skill| Arc::new(skill.clone().into()))
+                    })
+                    .unwrap_or_else(|| {
+                        Arc::new(crate::chat::choreo::Choreo {
+                            id: id.clone(),
+                            title: id,
+                            description: String::new(),
+                            moves: vec![],
+                        })
+                    });
+                Some(ActiveChoreo::new(choreo, move_number))
+            });
         self.log_handler.load(logs);
-
-        let registry = crate::get_choreo_registry();
-        let mut active: Option<ActiveChoreo> = None;
-        {
-            let log_window = self.log_handler.log_window.read().unwrap();
-            for indexed in &log_window.logs {
-                let Ok(log) = indexed.log.read() else {
-                    continue;
-                };
-                if let TenonLogData::Choreo(choreo_log) = log.data() {
-                    match choreo_log.r#move {
-                        Some(move_number) => {
-                            if let Some(choreo) = registry.get(&choreo_log.id) {
-                                active = Some(ActiveChoreo::new(choreo.clone(), move_number));
-                            }
-                        }
-                        None => {
-                            active = None;
-                        }
-                    }
-                }
-            }
-        }
         if let Ok(mut active_choreo) = self.active_choreo.write() {
             *active_choreo = active;
         }
@@ -342,13 +385,15 @@ impl AgenticStreamEngine {
                 )
                 .into(),
             );
-        } else if !self.choreos.is_empty() {
+        } else if let choreos = self.choreos()
+            && !choreos.is_empty()
+        {
             use crate::tools::use_choreo::UseChoreo;
             tools.insert(
                 0,
                 TenonTool::new(
                     UseChoreo {
-                        choreos: self.choreos.clone(),
+                        choreos,
                         active_choreo: self.active_choreo.clone(),
                     },
                     self.log_handler.log_window.clone(),
@@ -358,6 +403,64 @@ impl AgenticStreamEngine {
         }
 
         get_agent(&self.model, combined, tools)
+    }
+
+    pub async fn request_messages(&mut self, prompt: String) -> (Vec<Message>, Message) {
+        let mut history = self.log_handler.get_chat_history(&prompt);
+        let result = build_choreo_messages(
+            &self.active_choreo,
+            self.tool_context.scope::<RwLock<WorkQueue>>().as_ref(),
+            prompt.clone(),
+        )
+        .await;
+        let mut messages = match result {
+            Ok(messages) => messages,
+            Err(error) => {
+                if let Ok(mut active) = self.active_choreo.write()
+                    && let Some(active) = active.take()
+                {
+                    let artifact = format!(
+                        "Choreo '{}' was forced to end because Tenon could not retrieve the instruction for move {}: {error}",
+                        active.choreo.id, active.r#move
+                    );
+                    let log =
+                        TenonLog::new(TenonLogData::Choreo(crate::chat::TenonChoreoLog::new(
+                            &active.choreo.id,
+                            "Choreo ended",
+                            None,
+                            TenonToolLog {
+                                tool_call: TenonToolCall {
+                                    name: "end_choreo".into(),
+                                    args: serde_json::json!({"move_artifact": artifact}),
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            },
+                        )));
+                    history.extend(Vec::<Message>::from(&log));
+                    if let Ok(mut window) = self.log_handler.log_window.write() {
+                        window.add_log(crate::chat::log::indexer::IndexedLog {
+                            log: Arc::new(RwLock::new(log)),
+                            active: true,
+                        });
+                    }
+                }
+                build_choreo_messages(
+                    &self.active_choreo,
+                    self.tool_context.scope::<RwLock<WorkQueue>>().as_ref(),
+                    prompt.clone(),
+                )
+                .await
+                .unwrap_or_default()
+            }
+        };
+        let message = if prompt.is_empty() {
+            Message::user("<context></context>")
+        } else {
+            messages.pop().unwrap_or_else(|| Message::user(prompt))
+        };
+        history.extend(messages);
+        (history, message)
     }
 
     /// Process one turn of streaming chat.
@@ -379,21 +482,8 @@ impl AgenticStreamEngine {
             // Filter state is per attempt: a retry prunes the incomplete
             // messages, so held text from a failed attempt is discarded.
             let mut keyword_filter = ChatKeywordFilter::new();
+            let (chat_history, message) = self.request_messages(prompt.clone()).await;
             let agent = self.build_chat_adapter();
-            let mut chat_history = self.log_handler.get_chat_history(&prompt);
-            let mut messages = build_choreo_messages(
-                &self.active_choreo,
-                self.tool_context.scope::<RwLock<WorkQueue>>().as_ref(),
-                prompt.clone(),
-            )
-            .await;
-            let message = if messages.is_empty() {
-                Message::system("<context></context>")
-            } else {
-                let message = messages.pop().unwrap();
-                chat_history.extend(messages);
-                message
-            };
             let mut stream = ChatStream::new(
                 &agent,
                 message,
@@ -783,6 +873,110 @@ mod tests {
             let active_choreo = engine.active_choreo.read().unwrap();
             assert!(active_choreo.is_none());
         }
+    }
+
+    fn engine_with_work_queue(queue: Arc<RwLock<WorkQueue>>) -> AgenticStreamEngine {
+        AgenticStreamEngine::new(
+            SelectedModel::select("test", &test_model(false)),
+            vec![],
+            vec![],
+            vec![],
+            ToolContext::new().with_scope(queue),
+        )
+    }
+
+    #[tokio::test]
+    async fn empty_prompt_keeps_choreo_and_work_queue_in_system_history() {
+        use crate::chat::choreo::{Choreo, Instruction, Move};
+
+        let queue = Arc::new(RwLock::new(WorkQueue::default()));
+        let mut engine = engine_with_work_queue(queue.clone());
+
+        queue.write().unwrap().push(
+            "review".into(),
+            "check_tests".into(),
+            "Check the new tests".into(),
+        );
+        let choreo = Arc::new(Choreo {
+            id: "review".into(),
+            title: "Review".into(),
+            description: String::new(),
+            moves: vec![Move {
+                title: "Verify".into(),
+                instruction: Instruction::Text("Check the test results".into()),
+                goto_instructions: vec![],
+            }],
+        });
+        *engine.active_choreo.write().unwrap() = Some(ActiveChoreo::new(choreo, 1));
+
+        let (history, prompt) = engine.request_messages(String::new()).await;
+        assert!(
+            history.iter().any(|message| matches!(
+                message, Message::System { content } if content.contains("Check the test results")
+            )),
+            "choreo instructions must stay in system history on continuation"
+        );
+        assert!(history.iter().any(|message| matches!(
+            message, Message::System { content } if content.contains("review: check_tests")
+        )));
+        assert_eq!(prompt, Message::user("<context></context>"));
+
+        *engine.active_choreo.write().unwrap() = None;
+        let (history, prompt) = engine.request_messages(String::new()).await;
+        assert!(
+            history.iter().any(|message| matches!(
+                message, Message::System { content } if content.contains("review: check_tests")
+            )),
+            "work queue context must stay in system history even without an active choreo"
+        );
+        assert_eq!(prompt, Message::user("<context></context>"));
+    }
+
+    #[tokio::test]
+    async fn unreadable_choreo_instruction_ends_the_choreo_with_an_artifact() {
+        use crate::chat::choreo::{Choreo, Instruction, Move};
+
+        let _override = register_models(vec![("test", test_model(false))]);
+        let path = std::env::temp_dir().join(format!("tenon-instruction-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&path, [0xff]).unwrap();
+        let choreo = Arc::new(Choreo {
+            id: "broken".into(),
+            title: "Broken".into(),
+            description: "Broken instruction".into(),
+            moves: vec![Move {
+                title: "Run".into(),
+                instruction: Instruction::File { file: path.clone() },
+                goto_instructions: vec![],
+            }],
+        });
+        let mut engine = AgenticStreamEngine::new(
+            SelectedModel::new("test"),
+            vec![],
+            vec![],
+            vec![],
+            ToolContext::new(),
+        );
+        *engine.active_choreo.write().unwrap() = Some(ActiveChoreo::new(choreo, 1));
+
+        let (messages, _) = engine.request_messages("Continue".into()).await;
+        std::fs::remove_file(path).unwrap();
+
+        assert!(engine.active_choreo.read().unwrap().is_none());
+        let window = engine.log_handler.log_window.read().unwrap();
+        assert_eq!(window.logs.len(), 1);
+        let log = window.logs[0].log.read().unwrap();
+        let TenonLogData::Choreo(end) = log.data() else {
+            panic!("expected a choreo end event");
+        };
+        assert_eq!(end.id, "broken");
+        assert_eq!(end.r#move, None);
+        let artifact = end.tool_log.tool_call.args["move_artifact"]
+            .as_str()
+            .unwrap();
+        assert!(artifact.to_lowercase().contains("instruction"));
+        assert!(messages.iter().any(|message| matches!(
+            message, Message::System { content } if content.contains(artifact)
+        )));
     }
 
     /// Minimal Ollama /api/chat mock over raw TCP. The first `fail_times`

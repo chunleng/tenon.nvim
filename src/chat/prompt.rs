@@ -1,4 +1,7 @@
+use crate::chat::choreo::{ChoreoId, Instruction, Move};
+use crate::chat::project_skills;
 use crate::chat::{ActiveChoreo, WorkQueue};
+use crate::utils::path::TenonPath;
 use rig::prelude::Message;
 use std::sync::{Arc, RwLock};
 
@@ -8,7 +11,7 @@ pub async fn build_choreo_messages(
     active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>,
     work_queue: Option<&Arc<RwLock<WorkQueue>>>,
     base_prompt: String,
-) -> Vec<Message> {
+) -> anyhow::Result<Vec<Message>> {
     let queue_section = work_queue
         .and_then(|queue| queue.read().ok())
         .and_then(|queue| queue.render_context());
@@ -22,7 +25,7 @@ pub async fn build_choreo_messages(
         )));
     }
 
-    if let Some(choreo_context) = build_choreo_context(active_choreo).await {
+    if let Some(choreo_context) = build_choreo_context(active_choreo)? {
         messages.push(Message::system(choreo_context));
     }
 
@@ -30,86 +33,150 @@ pub async fn build_choreo_messages(
         messages.push(Message::user(base_prompt));
     }
 
-    messages
+    Ok(messages)
 }
 
-/// Renders the active choreo's context tag, if any.
-async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>) -> Option<String> {
-    let mut contexts: Vec<String> = Vec::new();
+fn build_choreo_context(
+    active_choreo: &RwLock<Option<ActiveChoreo>>,
+) -> anyhow::Result<Option<String>> {
+    let active_lock = active_choreo.read().ok();
+    let Some(active) = active_lock.as_deref().and_then(Option::as_ref) else {
+        return Ok(None);
+    };
+    if let Ok(context) = resolve_choreo_context_once(active) {
+        return Ok(Some(context));
+    }
 
-    if let Ok(active_lock) = active_choreo.read()
-        && let Some(active) = active_lock.as_ref()
+    drop(active_lock);
+    let skills = project_skills::discover();
+
+    let mut active_lock = active_choreo.write().ok();
+    let Some(active) = active_lock.as_deref_mut().and_then(Option::as_mut) else {
+        return Ok(None);
+    };
+    if let Some(skill) = skills
+        .iter()
+        .find(|skill| ChoreoId::from(skill.name.as_str()).as_str() == active.choreo.id)
     {
-        let choreo = &active.choreo;
-        let total_moves = choreo.moves.len();
-        if let Some(current_move) = choreo.moves.get(active.r#move - 1) {
-            let mut goto_lines: Vec<String> = current_move
-                .goto_instructions
-                .iter()
-                .map(|instr| {
-                    let condition = instr
-                        .condition
-                        .as_ref()
-                        .map(|x| format!("{} → ", x))
-                        .unwrap_or_else(|| "any → ".to_string());
-                    let target_move = instr.to.resolve_move_index(active.r#move);
-                    match target_move {
-                        None => format!("{}end_choreo", condition),
-                        Some(move_number) if move_number > total_moves => {
-                            format!("{}end_choreo", condition)
-                        }
-                        Some(move_number) => {
-                            format!("{}navigate_choreo move:{}", condition, move_number)
-                        }
-                    }
-                })
-                .collect();
+        // If the skill moved, the retry needs its new SKILL.md path.
+        active.choreo = Arc::new(skill.clone().into());
+    }
+    resolve_choreo_context_once(active).map(Some)
+}
 
-            // Add default navigation only when no goto already covers it:
-            // end the choreo at the last move, otherwise advance to the next move
-            if active.r#move == total_moves {
-                let has_ending_goto = current_move.goto_instructions.iter().any(|instr| {
-                    let target_move = instr.to.resolve_move_index(active.r#move);
-                    match target_move {
-                        None => true,
-                        Some(m) => m > total_moves,
-                    }
-                });
-                if !has_ending_goto {
-                    goto_lines.push("any → end_choreo".to_string());
+fn resolve_choreo_context_once(active: &ActiveChoreo) -> anyhow::Result<String> {
+    let current_move = active.current_move().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Instruction for move {} of '{}' is unavailable",
+            active.r#move,
+            active.choreo.id
+        )
+    })?;
+    let instruction = current_move.instruction.resolve()?;
+    Ok(match &current_move.instruction {
+        Instruction::ProjectSkill { base_path } => render_project_skill_context(
+            &current_move.title,
+            &active.choreo.title,
+            base_path,
+            &instruction,
+        ),
+        _ => render_choreo_context(active, current_move, &instruction),
+    })
+}
+
+fn render_project_skill_context(
+    move_title: &str,
+    skill_title: &str,
+    base_path: &TenonPath,
+    instruction: &str,
+) -> String {
+    format!(
+        "<context type=\"choreo-state\">\n\
+                    Currently in \"{move_title}\" move of project skill {skill_title}.\n\
+                    Skill base directory: {base_path}\n\
+                    1. Follow the entire SKILL.md in the `instruction` tag in the context of the user's request. If the user asks you to stop, do not continue the skill.\n\
+                    2. When the skill is complete, call `end_choreo` without a `move_artifact`.\n\n\
+                    <instruction>\n\
+                    {instruction}\n\
+                    </instruction>\n\
+                    <navigation>\n\
+                    skill complete → end_choreo\n\
+                    </navigation>\n\
+                    </context>\n"
+    )
+}
+
+fn render_choreo_context(active: &ActiveChoreo, current_move: &Move, instruction: &str) -> String {
+    let choreo = &active.choreo;
+    let total_moves = choreo.moves.len();
+
+    let mut goto_lines: Vec<String> = current_move
+        .goto_instructions
+        .iter()
+        .map(|instr| {
+            let condition = instr
+                .condition
+                .as_ref()
+                .map(|x| format!("{} → ", x))
+                .unwrap_or_else(|| "any → ".to_string());
+            let target_move = instr.to.resolve_move_index(active.r#move);
+            match target_move {
+                None => format!("{}end_choreo", condition),
+                Some(move_number) if move_number > total_moves => {
+                    format!("{}end_choreo", condition)
                 }
-            } else {
-                let next_move = active.r#move + 1;
-                let has_next_move_goto = current_move
-                    .goto_instructions
-                    .iter()
-                    .any(|instr| instr.to.resolve_move_index(active.r#move) == Some(next_move));
-                if !has_next_move_goto {
-                    goto_lines.push(format!("any → navigate_choreo move:{next_move}"));
+                Some(move_number) => {
+                    format!("{}navigate_choreo move:{}", condition, move_number)
                 }
             }
+        })
+        .collect();
 
-            let goto_instruction = format!(
-                "If the `instruction` tag contains an \"Artifact\" section, produce the artifact it specifies for the target you are calling and pass it in the `move_artifact` field of the tool call. If the section is absent, omit the field.\n\n\
+    // Add default navigation only when no goto already covers it:
+    // end the choreo at the last move, otherwise advance to the next move
+    if active.r#move == total_moves {
+        let has_ending_goto = current_move.goto_instructions.iter().any(|instr| {
+            let target_move = instr.to.resolve_move_index(active.r#move);
+            match target_move {
+                None => true,
+                Some(m) => m > total_moves,
+            }
+        });
+        if !has_ending_goto {
+            goto_lines.push("any → end_choreo".to_string());
+        }
+    } else {
+        let next_move = active.r#move + 1;
+        let has_next_move_goto = current_move
+            .goto_instructions
+            .iter()
+            .any(|instr| instr.to.resolve_move_index(active.r#move) == Some(next_move));
+        if !has_next_move_goto {
+            goto_lines.push(format!("any → navigate_choreo move:{next_move}"));
+        }
+    }
+
+    let goto_instruction = format!(
+        "If the `instruction` tag contains an \"Artifact\" section, produce the artifact it specifies for the target you are calling and pass it in the `move_artifact` field of the tool call. If the section is absent, omit the field.\n\n\
                 Below are the navigation options in the form `condition → tool tool_param`:\n\
                 {}",
-                goto_lines.join("\n")
-            );
+        goto_lines.join("\n")
+    );
 
-            // Build memory section if there's stored memory
-            let memory_section = if active.memory.is_empty() {
-                String::new()
-            } else {
-                let memory_entries: Vec<String> = active
-                    .memory
-                    .iter()
-                    .map(|(k, v)| format!("<memory name=\"{}\">{}</memory>", k, v))
-                    .collect();
-                memory_entries.join("\n")
-            };
+    // Build memory section if there's stored memory
+    let memory_section = if active.memory.is_empty() {
+        String::new()
+    } else {
+        let memory_entries: Vec<String> = active
+            .memory
+            .iter()
+            .map(|(k, v)| format!("<memory name=\"{}\">{}</memory>", k, v))
+            .collect();
+        memory_entries.join("\n")
+    };
 
-            contexts.push(format!(
-                "<context type=\"choreo-state\">\n\
+    format!(
+        "<context type=\"choreo-state\">\n\
                     Currently in \"{}\" move of {} choreo.\n\
                     1. Execute the \"Process\" section of the `instruction` tag. If its steps are numbered, run them in order, completing all within this turn unless the user explicitly asks to stop. Do not output anything to chat when choreo is active, with exception of `::tenon-chat::` enforcement keyword or replying directly to user's input.\n\
                     2. Navigate only after all \"Process\" steps are done, unless the instruction explicitly says to navigate earlier. Reference and select from the `navigation` tag: call the tool whose condition matches; an `any` condition matches only when no other condition does.\
@@ -122,19 +189,8 @@ async fn build_choreo_context(active_choreo: &Arc<RwLock<Option<ActiveChoreo>>>)
                     {}\n\
                     </navigation>\n\
                     </context>\n",
-                current_move.title,
-                choreo.title,
-                memory_section,
-                current_move.instruction.resolve().unwrap_or_default(),
-                goto_instruction
-            ));
-        }
-    }
-
-    if contexts.is_empty() {
-        return None;
-    }
-    Some(contexts.join(""))
+        current_move.title, choreo.title, memory_section, instruction, goto_instruction
+    )
 }
 
 #[cfg(test)]
@@ -193,7 +249,9 @@ mod tests {
             },
         })));
 
-        let messages = build_choreo_messages(&active, None, "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, None, "user input".to_string())
+            .await
+            .unwrap();
 
         assert_eq!(messages.len(), 2);
         assert_system(&messages[0], "<context type=\"choreo-state\">");
@@ -211,7 +269,9 @@ mod tests {
             .ok();
 
         let active = Arc::new(RwLock::new(None));
-        let messages = build_choreo_messages(&active, None, "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, None, "user input".to_string())
+            .await
+            .unwrap();
         assert_eq!(messages.len(), 1);
         assert_user(&messages[0], "user input");
     }
@@ -223,7 +283,9 @@ mod tests {
             .ok();
 
         let active = Arc::new(RwLock::new(None));
-        let messages = build_choreo_messages(&active, None, String::new()).await;
+        let messages = build_choreo_messages(&active, None, String::new())
+            .await
+            .unwrap();
         assert!(messages.is_empty());
     }
 
@@ -241,7 +303,9 @@ mod tests {
             "long X".to_string(),
         );
 
-        let messages = build_choreo_messages(&active, Some(&queue), "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, Some(&queue), "user input".to_string())
+            .await
+            .unwrap();
 
         assert_eq!(messages.len(), 2);
         assert_system(&messages[0], "<context type=\"work_queue\">");
@@ -274,7 +338,9 @@ mod tests {
             "long X".to_string(),
         );
 
-        let messages = build_choreo_messages(&active, Some(&queue), "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, Some(&queue), "user input".to_string())
+            .await
+            .unwrap();
 
         assert_eq!(messages.len(), 3);
         // Work queue context first, then choreo context, then the user message
@@ -299,7 +365,9 @@ mod tests {
             memory: HashMap::new(),
         })));
 
-        let messages = build_choreo_messages(&active, None, "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, None, "user input".to_string())
+            .await
+            .unwrap();
 
         let choreo_text = message_text(&messages[0]);
         assert_eq!(
@@ -326,7 +394,9 @@ mod tests {
             memory: HashMap::new(),
         })));
 
-        let messages = build_choreo_messages(&active, None, "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, None, "user input".to_string())
+            .await
+            .unwrap();
 
         assert_system(&messages[0], "navigate_choreo move:6");
     }
@@ -346,7 +416,9 @@ mod tests {
             memory: HashMap::new(),
         })));
 
-        let messages = build_choreo_messages(&active, None, "user input".to_string()).await;
+        let messages = build_choreo_messages(&active, None, "user input".to_string())
+            .await
+            .unwrap();
 
         assert_system(&messages[0], "end_choreo");
     }

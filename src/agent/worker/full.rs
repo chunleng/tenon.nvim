@@ -17,6 +17,7 @@ pub struct TenonAgent {
     pub directive: Vec<Directive>,
     pub tool_names: Vec<String>,
     pub choreos: Vec<Arc<Choreo>>,
+    pub project_skills: bool,
 }
 
 impl TenonAgent {
@@ -25,12 +26,14 @@ impl TenonAgent {
         directive: Vec<Directive>,
         tools: &[impl AsRef<str>],
         choreos: Vec<Arc<Choreo>>,
+        project_skills: bool,
     ) -> Self {
         Self {
             model,
             directive,
             tool_names: tools.iter().map(|t| t.as_ref().to_string()).collect(),
             choreos,
+            project_skills,
         }
     }
 }

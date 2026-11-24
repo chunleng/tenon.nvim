@@ -37,16 +37,19 @@ pub fn choreo_path(relative: impl AsRef<Path>) -> std::path::PathBuf {
 pub enum Instruction {
     /// Inline text instruction
     Text(String),
+
     /// Path to a file containing the instruction
     File { file: PathBuf },
+
+    // Project skills are discovered at runtime, not loaded from choreo definitions.
+    #[serde(skip)]
+    ProjectSkill {
+        base_path: crate::utils::path::TenonPath,
+    },
 }
 
 impl Instruction {
     /// Resolve the instruction to its final string content.
-    ///
-    /// For `Text`, returns the value directly.
-    /// For `File`, reads the file contents. Relative paths are resolved
-    /// against the choreo base directory.
     pub fn resolve(&self) -> Result<String> {
         match self {
             Instruction::Text(text) => Ok(text.clone()),
@@ -57,6 +60,18 @@ impl Instruction {
                     e
                 )
             }),
+            Instruction::ProjectSkill { base_path } => {
+                let path = PathBuf::from(base_path.clone()).join("SKILL.md");
+                let read_error = |error| {
+                    anyhow!("Failed to read instruction file '{base_path}/SKILL.md': {error}")
+                };
+                if !path.metadata().map_err(read_error)?.is_file() {
+                    return Err(anyhow!(
+                        "Expected '{base_path}/SKILL.md' to be a regular file"
+                    ));
+                }
+                std::fs::read_to_string(&path).map_err(read_error)
+            }
         }
     }
 }
@@ -87,8 +102,30 @@ pub fn load_system_choreos() -> Vec<Arc<Choreo>> {
     ]
 }
 
+pub struct ChoreoId(String);
+
+impl From<&str> for ChoreoId {
+    fn from(name: &str) -> Self {
+        use heck::ToSnakeCase;
+        Self(name.to_snake_case())
+    }
+}
+
+impl ChoreoId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<ChoreoId> for String {
+    fn from(id: ChoreoId) -> Self {
+        id.0
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Choreo {
+    // TODO: Change this to use ChoreoId
     pub id: String,
     pub title: String,
     pub moves: Vec<Move>,
@@ -96,6 +133,16 @@ pub struct Choreo {
 }
 
 impl Choreo {
+    pub fn is_project_skill(&self) -> bool {
+        matches!(
+            self.moves.as_slice(),
+            [Move {
+                instruction: Instruction::ProjectSkill { .. },
+                ..
+            }]
+        )
+    }
+
     pub fn generate_log(
         &self,
         move_number: usize,
@@ -154,4 +201,34 @@ pub struct Move {
     #[serde(default)]
     pub instruction: Instruction,
     pub goto_instructions: Vec<MoveGotoInstruction>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::path::TenonPath;
+
+    #[test]
+    fn identifies_only_single_move_project_skills() {
+        let mut choreo = Choreo {
+            id: "test".into(),
+            title: "Test".into(),
+            description: String::new(),
+            moves: vec![],
+        };
+
+        assert!(!choreo.is_project_skill());
+        choreo.moves.push(Move {
+            title: "Run".into(),
+            instruction: Instruction::Text("Native".into()),
+            goto_instructions: vec![],
+        });
+        assert!(!choreo.is_project_skill());
+        choreo.moves[0].instruction = Instruction::ProjectSkill {
+            base_path: TenonPath::new(".agents/skills/test", None::<PathBuf>),
+        };
+        assert!(choreo.is_project_skill());
+        choreo.moves.push(choreo.moves[0].clone());
+        assert!(!choreo.is_project_skill());
+    }
 }

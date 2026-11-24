@@ -106,6 +106,8 @@ pub struct TenonAgentConfig {
     default: bool,
     #[serde(default)]
     choreos: Vec<String>,
+    #[serde(default)]
+    project_skills: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -302,6 +304,7 @@ impl TryFrom<TenonUserConfig> for TenonConfig {
                             directives,
                             &v.tool_names,
                             choreos,
+                            v.project_skills,
                         ),
                     ))
                 })
@@ -482,6 +485,7 @@ mod tests {
                 tool_names: vec![],
                 default: true,
                 choreos: vec![],
+                project_skills: false,
             },
         );
 
@@ -657,6 +661,26 @@ mod tests {
     }
 
     #[test]
+    fn project_skills_defaults_off_and_propagates_opt_in() {
+        for (json, expected) in [
+            (r#"{"model":{"id":"fast"},"default":true}"#, false),
+            (
+                r#"{"model":{"id":"fast"},"default":true,"project_skills":true}"#,
+                true,
+            ),
+        ] {
+            let mut config = complete_config();
+            config
+                .agents
+                .as_mut()
+                .unwrap()
+                .insert("main".into(), serde_json::from_str(json).unwrap());
+            let result = TenonConfig::try_from(config).unwrap();
+            assert_eq!(result.agents["main"].project_skills, expected);
+        }
+    }
+
+    #[test]
     fn choreos_config_key_deserializes() {
         // The user-facing Lua config key for per-agent choreos is "choreos".
         let config: TenonUserConfig = serde_json::from_str(
@@ -702,6 +726,7 @@ mod tests {
                 tool_names: vec![],
                 default: true,
                 choreos: vec![],
+                project_skills: false,
             },
         );
 
@@ -739,6 +764,7 @@ mod tests {
                 tool_names: vec![],
                 default: true,
                 choreos: vec![],
+                project_skills: false,
             },
         );
 

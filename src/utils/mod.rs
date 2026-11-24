@@ -1,4 +1,5 @@
 pub mod approval;
+pub mod markdown;
 pub mod path;
 pub mod rig_http;
 

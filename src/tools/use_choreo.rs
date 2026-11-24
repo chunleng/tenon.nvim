@@ -1,6 +1,6 @@
 use crate::agent::engine::agentic::ContinueSignal;
 use crate::chat::ActiveChoreo;
-use crate::chat::choreo::Choreo;
+use crate::chat::choreo::{Choreo, ChoreoId};
 use crate::chat::{TenonLog, TenonLogData};
 use crate::tools::{ToolCore, ToolCoreCall};
 
@@ -20,9 +20,47 @@ pub struct UseChoreoArgs {
     pub choreo_id: String,
 }
 
+#[derive(Clone, Default)]
+pub struct ChoreoCatalog {
+    pub project: Arc<[crate::chat::project_skills::Skill]>,
+    pub agent: Arc<[Arc<Choreo>]>,
+}
+
+pub struct ChoreoListing<'a> {
+    pub id: String,
+    pub description: &'a str,
+}
+
+impl ChoreoCatalog {
+    pub fn iter(&self) -> impl Iterator<Item = ChoreoListing<'_>> {
+        self.project
+            .iter()
+            .map(|skill| ChoreoListing {
+                id: ChoreoId::from(skill.name.as_str()).into(),
+                description: &skill.description,
+            })
+            .chain(self.agent.iter().map(|choreo| ChoreoListing {
+                id: choreo.id.clone(),
+                description: &choreo.description,
+            }))
+    }
+
+    pub fn resolve(&self, id: &str) -> Option<Arc<Choreo>> {
+        self.project
+            .iter()
+            .find(|skill| ChoreoId::from(skill.name.as_str()).as_str() == id)
+            .map(|skill| Arc::new(skill.clone().into()))
+            .or_else(|| self.agent.iter().find(|choreo| choreo.id == id).cloned())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.project.is_empty() && self.agent.is_empty()
+    }
+}
+
 #[derive(Clone)]
 pub struct UseChoreo {
-    pub choreos: Vec<Arc<Choreo>>,
+    pub choreos: ChoreoCatalog,
     pub active_choreo: Arc<RwLock<Option<ActiveChoreo>>>,
 }
 
@@ -51,11 +89,7 @@ impl ToolCore for UseChoreo {
     }
 
     fn parameters(&self) -> serde_json::Value {
-        let choreo_ids = self
-            .choreos
-            .iter()
-            .map(|c| c.id.clone())
-            .collect::<Vec<_>>();
+        let choreo_ids = self.choreos.iter().map(|c| c.id).collect::<Vec<_>>();
         json!({
             "type": "object",
             "properties": {
@@ -82,23 +116,17 @@ impl ToolCore for UseChoreo {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Call, Self::Error> {
-        // Find the choreo by id from the agent's configured choreos
-        let choreo = self
-            .choreos
-            .iter()
-            .find(|c| c.id == args.choreo_id)
-            .ok_or_else(|| {
-                ToolExecutionError::invalid_args(format!(
-                    "Choreo '{}' is not available for this agent. Available choreos: {}",
-                    args.choreo_id,
-                    self.choreos
-                        .iter()
-                        .map(|c| c.id.clone())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ))
-            })?
-            .clone();
+        let choreo = self.choreos.resolve(&args.choreo_id).ok_or_else(|| {
+            ToolExecutionError::invalid_args(format!(
+                "Choreo '{}' is not available for this agent. Available choreos: {}",
+                args.choreo_id,
+                self.choreos
+                    .iter()
+                    .map(|c| c.id)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })?;
 
         Ok(UseChoreoCall {
             choreo,
@@ -172,7 +200,10 @@ mod tests {
         let registry = crate::get_choreo_registry();
         let active_choreo: Arc<RwLock<Option<ActiveChoreo>>> = Arc::new(RwLock::new(None));
         let tool = UseChoreo {
-            choreos: vec![registry.get("implement_code").unwrap().clone()],
+            choreos: ChoreoCatalog {
+                agent: vec![registry.get("implement_code").unwrap().clone()].into(),
+                ..Default::default()
+            },
             active_choreo: Arc::clone(&active_choreo),
         };
         (tool, active_choreo)
