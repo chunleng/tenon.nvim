@@ -10,7 +10,7 @@
   - **New**: the root cause is a problem not addressed by any existing directive
   - **Update**: an existing directive should address the problem but doesn't
 4. If the action is "no directive needed":
-  - ::tenon-chat:: the reason to the user and ask for confirmation
+  - ::tenon-chat:: The reason no directive change is needed and a question asking whether the user agrees; wait for the user's reply
   - If the user confirms, stop — the choreo ends here
   - If the user disagrees, re-evaluate and loop back to process step 2
 5. Determine the directive type based on the root cause:

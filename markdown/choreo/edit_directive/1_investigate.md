@@ -3,20 +3,13 @@
    - Problem: user describes what went wrong (e.g. "the agent edits files without considering impact on other code")
    - Solution: user describes what they want the agent to do (e.g. "I want the agent to read files before editing")
 2. If the user stated a solution
-   - Trace back to the root problem by asking "why"
-   - Repeat until you reach a concrete agent behavior problem
-   - Do not proceed until the root problem is clear
-3. Ask structured breadth questions to map the problem space. Ask all at once, then wait for the user's response:
-   - What was the agent doing when the problem occurred?
-   - What went wrong: what was the actual behavior?
-   - What should have happened instead?
-4. Based on the answers, drill into specifics with targeted follow-up questions. Ask one question at a time, waiting for feedback before continuing. Continue until you and the user share a precise understanding of the root cause
-   - Walk down each branch of the problem, resolving dependencies one-by-one
-   - For each question, provide your recommended answer
+   - Ask yourself why the proposed solution is needed to infer what problem it addresses. If the solution leaves gaps, use the answers to step 3 to fill them
+3. ::tenon-chat:: Make 3 concurrent `ask_question` tool call: what the agent was doing when the problem occurred, what went wrong, and what should have happened instead; wait for the user's response
+4. Based on the answers, resolve dependencies one at a time within each branch of the problem
    - If a fact can be found by reading existing directives in `markdown/directive/`, look it up rather than asking the user
-   - The decisions are the user's; put each one to them and wait for their answer
-   - Example: "what kind of impact?" → "contract change or internal-only?"
-5. Summarize the root cause as a concise statement and confirm with the user. If the user disagrees or refines, loop back to process step 3 or 4 as needed
+   - ::tenon-chat:: One targeted follow-up question and your recommended answer; wait for the user's reply. Leave each decision to the user
+   - Repeat step 4 until you and the user share a precise understanding of the root cause
+5. ::tenon-chat:: A concise statement of the root cause and a question asking whether it is accurate; wait for the user's reply. If the user disagrees or refines the statement, return to step 3 or 4 as needed
 
 ## Artifact
 ```yaml
