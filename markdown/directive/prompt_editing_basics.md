@@ -21,7 +21,10 @@ Run each clause in the scope against the test. First match wins.
 - Is the desired behavior stated nowhere in the scope? → add
 - Is the intent easier to show than describe? → add an example
 
-## Technique for Clear Prompt
+## Guidelines for Clear Prompt
+
+### Write Chat Instructions
+When writing a `::tenon-chat::` instruction, use a quoted string only if the exact wording is required. Otherwise, describe what to communicate in unquoted text so the agent can phrase it naturally.
 
 ### Use Decision Test
 Add a decision test (quick yes/no questions to apply it) only when the rule can't cover every case on its own.
