@@ -41,7 +41,10 @@ pub fn choreo() -> Choreo {
                 },
                 goto_instructions: vec![MoveGotoInstruction {
                     to: GotoMove::EndChoreo,
-                    condition: Some("user confirms".to_string()),
+                    condition: Some(
+                        "user clearly approves the current directive draft in response to the approval question"
+                            .to_string(),
+                    ),
                     output_to_choreo_memory: None,
                 }],
             },
