@@ -1,3 +1,8 @@
+## Production Changes as a Last Resort
+Start with the existing interface. When a test needs to control a dependency, mock it through an existing interface or keep the setup in test-only code (for example, a Rust `#[cfg(test)]` module).
+
+Add production hooks, extract helpers, or otherwise change production code solely for testability only when those approaches cannot verify the behavior reliably. Make the smallest change that enables a reliable test, preserving production behavior and keeping the public interface unchanged unless necessary.
+
 ## Dynamic Imports
 In test-driven development, the test target may not exist yet, so don't use dynamic imports.
 
