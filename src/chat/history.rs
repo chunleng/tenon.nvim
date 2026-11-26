@@ -1,6 +1,8 @@
 use chrono::{DateTime, Local};
 use rig::completion::Usage;
 use serde::{Deserialize, Serialize};
+use std::ffi::OsStr;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use super::SessionUsage;
@@ -46,6 +48,17 @@ pub fn save_to_history(
     usage: &Arc<RwLock<SessionUsage>>,
     work_queue: &Arc<RwLock<WorkQueue>>,
 ) {
+    // TODO make ID a tuple struct so that we reinforce creation rule upon creation, not here
+    // The following validation is to prevent ID such as `../outside-dir` from writing into the
+    // wrong direction. This can happen if a user tries to change the history file's ID
+    let id = metadata.id;
+    if Path::new(id).file_name() != Some(OsStr::new(id))
+        || id.contains(['\\', '\0'])
+        || (cfg!(windows) && id.contains(':'))
+    {
+        return;
+    }
+
     let Ok(logs_vec) = log_window
         .logs
         .iter()
@@ -58,7 +71,7 @@ pub fn save_to_history(
     let work_queue_val = work_queue.read().map(|q| q.clone()).unwrap_or_default();
 
     let history = ChatHistory {
-        id: metadata.id.to_string(),
+        id: id.to_string(),
         title: metadata.title.map(|s| s.to_string()),
         agent_name: metadata.agent_name.to_string(),
         model_display: metadata.model_display.to_string(),
@@ -168,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn test_history_storage_paths_and_rename_persist_work_queue() {
+    fn test_history_storage_only_uses_valid_filenames_and_preserves_work_queue() {
         let mut queue = WorkQueue::default();
         queue.push("refactor".into(), "fix X".into(), "long X".into());
         let queue = Arc::new(RwLock::new(queue));
@@ -218,6 +231,25 @@ mod tests {
                 assert_eq!(entries[0].work_queue.entries[0].group, "refactor");
                 assert_eq!(entries[0].work_queue.entries[0].details, "long X");
             }
+            let outside_history = root.join("outside-history.json");
+            let absolute_id = root.join("outside-history");
+            for id in ["", "../outside-history", absolute_id.to_str().unwrap()] {
+                save_to_history(
+                    SessionMetadata {
+                        id,
+                        title: None,
+                        agent_name: "default",
+                        model_display: "test-model",
+                        session_datetime,
+                    },
+                    &LogWindow { logs: vec![] },
+                    &usage,
+                    &queue,
+                );
+                assert!(!outside_history.exists());
+                assert_eq!(load_history_entries().len(), 1);
+            }
+
             std::fs::remove_dir_all(&root).unwrap();
         }
         assert_eq!(std::env::current_dir().unwrap(), cwd);
