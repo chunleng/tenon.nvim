@@ -114,9 +114,10 @@ fn load_image_bytes(bytes: &[u8]) -> Result<rig::message::Image, String> {
 /// Loads an image file into a base64 rig `Image`, rasterizing SVG to PNG first.
 /// The file is re-read on each call, so persisted logs only need the path.
 pub fn load_image_file(path: TenonPath) -> Result<rig::message::Image, String> {
-    let image_path: PathBuf = path.as_ref().to_owned();
+    let stored_path = path.as_ref().display().to_string();
+    let image_path = PathBuf::from(path);
     let bytes = std::fs::read(&image_path)
-        .map_err(|e| format!("Failed to read image '{}': {}", path.as_ref().display(), e))?;
+        .map_err(|e| format!("Failed to read image '{}': {}", stored_path, e))?;
     load_image_bytes(&bytes)
 }
 
@@ -610,6 +611,33 @@ mod tests {
         assert_eq!(image.media_type, Some(rig::message::ImageMediaType::PNG));
 
         std::fs::remove_file(&path).ok();
+        std::fs::remove_dir(&dir).ok();
+    }
+
+    #[test]
+    fn test_load_image_file_tilde_path() {
+        let Ok(home) = std::env::var("HOME") else {
+            eprintln!("skipping: HOME unset, so `~` cannot expand");
+            return;
+        };
+
+        // 1x1 red PNG
+        let png: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xDD, 0x8D,
+            0xB0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let dir_name = format!(".tenon_test_load_image_{}", std::process::id());
+        let dir = PathBuf::from(&home).join(&dir_name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("red.png"), png).unwrap();
+
+        let image = load_image_file(TenonPath::with_cwd(format!("~/{dir_name}/red.png"))).unwrap();
+        assert_eq!(image.media_type, Some(rig::message::ImageMediaType::PNG));
+
+        std::fs::remove_file(dir.join("red.png")).ok();
         std::fs::remove_dir(&dir).ok();
     }
 
