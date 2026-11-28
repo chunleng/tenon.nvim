@@ -4,9 +4,22 @@ Agentic chat tool, written with `nvim-oxi` bindings.
 
 ## Build & Format
 1. `cargo build`
-2. `cargo test <module>`
+2. Run tests from the repository root:
+   - Rust unit tests: `cargo test --lib`
+   - Neovim integration tests (`tests/nvim/`): `cargo test --features nvim-tests --test nvim`
+   - Run `bash scripts/smoke-test.sh` only when changing `lua/tenon/init.lua` or how `tenon.core` is exported or packaged, or when debugging a load or setup problem.
 3. `cargo fmt`
 4. `cargo clippy`
+
+## Test Placement
+
+Choose where to write each test by what it asserts, not by where the feature runs.
+
+- **Rust unit tests:** Use them for behavior that can be verified without Neovim, even if the test uses temporary files or exercises several Rust modules.
+- **Neovim integration tests (`tests/nvim/`):** Use them only when the assertion requires a real Neovim instance, such as verifying an editor notification or a buffer update.
+- **Smoke test (`scripts/smoke-test.sh`):** Do not add new test cases.
+
+When a change mixes Rust logic and Neovim wiring, cover the logic with unit tests and add one focused integration test only if existing tests do not cover the wiring.
 
 ## Main Thread Guide
 
