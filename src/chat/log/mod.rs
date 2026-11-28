@@ -796,7 +796,7 @@ mod tests {
     }
 
     #[test]
-    fn test_image_log_converts_to_message_with_image_content() {
+    fn test_image_log_converts_to_tool_call_and_result_with_image() {
         // 1x1 PNG
         let png: &[u8] = &[
             0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
@@ -819,23 +819,52 @@ mod tests {
         let tool_log = image_tool_log(path.to_str().unwrap(), TenonToolResult::Image(image));
         let log = TenonLog::new(TenonLogData::Image(TenonImageLog::Tool(tool_log)));
         let messages = Vec::<Message>::from(&log);
-        assert_eq!(messages.len(), 1, "expected single user message");
-        let message = messages[0].clone();
-        match message {
-            Message::User { content } => {
-                assert!(
-                    matches!(content.first(), Some(UserContent::Image(_))),
-                    "expected image content first, got {content:?}"
-                );
-                match content.get(1) {
-                    Some(UserContent::Text(text)) => {
-                        assert_eq!(text.text, format!("image loaded: {}", path.display()));
-                    }
-                    other => panic!("expected loaded text after image, got {other:?}"),
+        assert_eq!(
+            messages.len(),
+            2,
+            "image log must replay the tool call and its result, got {messages:?}"
+        );
+
+        let call_id = match &messages[0] {
+            Message::Assistant(msg) => match msg.content.as_slice() {
+                [AssistantContent::ToolCall(call)] => {
+                    assert_eq!(call.function.name, "read_image");
+                    assert_eq!(
+                        call.function
+                            .arguments
+                            .get("filepath")
+                            .and_then(|v| v.as_str()),
+                        Some(path.to_str().unwrap())
+                    );
+                    call.id.clone()
                 }
-            }
+                other => panic!("expected a single tool call, got {other:?}"),
+            },
+            other => panic!("expected Assistant message, got {other:?}"),
+        };
+
+        match &messages[1] {
+            Message::User { content } => match content.as_slice() {
+                [UserContent::ToolResult(result)] => {
+                    assert_eq!(result.call, call_id);
+                    assert_eq!(result.name, "read_image");
+                    assert!(
+                        matches!(result.content.as_slice(), [ToolResultContent::Image(_)]),
+                        "expected the image in the tool result, got {:?}",
+                        result.content
+                    );
+                }
+                other => panic!("expected a single tool result, got {other:?}"),
+            },
             other => panic!("expected User message, got {other:?}"),
         }
+
+        // The display-only "image loaded" line must not reach the model: seeing it
+        // as plain user text makes the model think read_image was never called
+        assert!(
+            !format!("{messages:?}").contains("image loaded"),
+            "display text leaked into history: {messages:?}"
+        );
 
         std::fs::remove_file(&path).ok();
         std::fs::remove_dir(&dir).ok();
@@ -1204,7 +1233,14 @@ impl TenonLogData {
             TenonLogData::User(msg) => match msg {
                 TenonUserMessage::Text(text) => estimate_tokens(text),
             },
-            TenonLogData::Image(image_log) => estimate_tokens(&image_log.loaded_text()),
+            TenonLogData::Image(image_log) => match image_log {
+                // Mirrors the Tool arm: the call reaches the model, while image
+                // payloads have no simple token count
+                TenonImageLog::Tool(tool_log) => {
+                    estimate_tokens(&tool_log.tool_call.name)
+                        + estimate_tokens(&tool_log.tool_call.args.to_string())
+                }
+            },
             TenonLogData::Assistant(msg) => {
                 // Reasoning is not counted because it's not used for sending request
 
@@ -1240,20 +1276,11 @@ impl From<&TenonLog> for Vec<Message> {
     fn from(value: &TenonLog) -> Self {
         match &value.data {
             TenonLogData::User(user_message) => vec![user_message.into()],
-            TenonLogData::Image(image_log) => {
-                // convert_log only runs after a successful result, and
-                // read_image's load path output is always an image
-                let content = match image_log {
-                    TenonImageLog::Tool(tool_log) => match &tool_log.tool_result {
-                        Some(Ok(TenonToolResult::Image(image))) => vec![
-                            UserContent::Image(image.clone()),
-                            UserContent::text(image_log.loaded_text()),
-                        ],
-                        _ => vec![],
-                    },
-                };
-                vec![Message::User { content }]
-            }
+            // Replayed as a tool call and result so the model can tell that
+            // read_image was called; the display text is not sent
+            TenonLogData::Image(image_log) => match image_log {
+                TenonImageLog::Tool(tool_log) => tool_log.into(),
+            },
             TenonLogData::Assistant(assistant_message) => {
                 match Option::<Message>::from(assistant_message) {
                     Some(x) => vec![x],
